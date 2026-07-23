@@ -6,7 +6,7 @@ import { getOrders, getReturns, updateData, getSettings, hasPermission, settleOr
 import { store } from '../store.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
-import { renderReceiptBody, renderOrderReturnsReceipt, printReceiptHtml } from '../services/CheckoutService.js';
+import { renderReceiptBody, renderOrderReturnsReceipt, printReceiptHtml, renderReceiptBarcodes } from '../services/CheckoutService.js';
 import { initDateRangePicker, getDefaultRange } from '../utils/dateRangeHelper.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
 
@@ -369,6 +369,8 @@ async function viewOrderDetail(order, cur) {
   });
 
   setTimeout(() => {
+    renderReceiptBarcodes(document.querySelector('.modal-body'));
+
     const closeBtn = document.getElementById('closeDetailBtn');
     const printBtn = document.getElementById('printOrderBtn');
     const returnBtn = document.getElementById('returnOrderBtn');
@@ -379,7 +381,16 @@ async function viewOrderDetail(order, cur) {
     if (printSaleBtn) {
       printSaleBtn.onclick = async () => {
         const saleOnlyBody = await renderReceiptBody(order, settings, cur, false);
-        printReceiptHtml(saleOnlyBody, `Sale Receipt - ${order.id}`);
+        // This string is never inserted into the visible modal, so the
+        // barcode <svg> placeholder needs a real (if temporary, off-screen)
+        // DOM attachment for JsBarcode to draw into before we serialize it.
+        const tempDiv = document.createElement('div');
+        tempDiv.style.cssText = 'position:absolute; left:-9999px; top:-9999px;';
+        tempDiv.innerHTML = saleOnlyBody;
+        document.body.appendChild(tempDiv);
+        renderReceiptBarcodes(tempDiv);
+        printReceiptHtml(tempDiv.innerHTML, `Sale Receipt - ${order.id}`);
+        tempDiv.remove();
       };
     }
     if (printReturnBtn) {

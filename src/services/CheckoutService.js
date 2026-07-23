@@ -8,6 +8,42 @@ import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { syncEngine } from './syncEngine.js';
 import { resolveMethodConfig } from './QuickCheckoutService.js';
+import JsBarcode from 'jsbarcode';
+
+/**
+ * Renders JsBarcode into every `.receipt-barcode` placeholder SVG inside a
+ * container. Must be called AFTER the receipt HTML has been inserted into
+ * the real DOM (not on a detached string) — JsBarcode draws real <rect>
+ * elements into the SVG, which is what makes the barcode survive being
+ * serialized back to an HTML string for printing (a <canvas> would not:
+ * canvas pixels aren't part of .innerHTML, so a barcode drawn on canvas
+ * would print as a blank box).
+ */
+export function renderReceiptBarcodes(container) {
+  if (!container) return;
+  container.querySelectorAll('svg.receipt-barcode').forEach(svg => {
+    const value = svg.dataset.barcodeValue;
+    if (!value) return;
+    try {
+      JsBarcode(svg, String(value), {
+        format: 'CODE128',
+        width: 1.5,
+        height: 40,
+        margin: 0,
+        // Encodes order.id (the real, permanent, unique record id) rather
+        // than order.dailyNumber, which resets every day and would make the
+        // same code ambiguous across different days. The receipt's "BILL NO"
+        // line still shows dailyNumber for human reading — displayValue is
+        // off here so the full order.id string isn't printed a second time
+        // right under the barcode, which would look like a mismatch next to
+        // "BILL NO".
+        displayValue: false
+      });
+    } catch (err) {
+      console.error('[Barcode] Failed to render:', err.message);
+    }
+  });
+}
 
 /**
  * Opens the main checkout payment selection modal
@@ -769,7 +805,23 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
     }
     // ------------------------------------------
 
-    setTimeout(async () => await showReceipt(order, settings, cur), 150);
+    // No receipt modal popup after checkout — if auto-print is enabled,
+    // render the receipt into a detached (off-screen, never shown) container
+    // and print straight from that, same as Orders.js's "Sale Print" path.
+    // Otherwise nothing happens here; the order can still be reprinted later
+    // from Orders.
+    if (settings?.autoPrintReceipt) {
+      setTimeout(async () => {
+        const receiptBody = await renderReceiptBody(order, settings, cur);
+        const tempDiv = document.createElement('div');
+        tempDiv.style.cssText = 'position:absolute; left:-9999px; top:-9999px;';
+        tempDiv.innerHTML = receiptBody;
+        document.body.appendChild(tempDiv);
+        renderReceiptBarcodes(tempDiv);
+        await printReceiptHtml(tempDiv.innerHTML, `Receipt - ${order.id}`);
+        tempDiv.remove();
+      }, 150);
+    }
   } catch (err) {
     console.error('Error saving order:', err);
     showToast('Error processing payment.', 'error');
@@ -1032,6 +1084,11 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         ` : ''}
       </div>
       <div class="receipt-divider"></div>
+      ${settings.printBarcodeOnReceipt ? `
+        <div class="receipt-barcode-wrap" style="text-align:center; margin:8px 0">
+          <svg class="receipt-barcode" data-barcode-value="${order.id}"></svg>
+        </div>
+      ` : ''}
       <div class="receipt-footer">${settings.receiptFooter || 'Thank you for your business!'}</div>
     </div>
   `;
@@ -1054,10 +1111,13 @@ export async function showReceipt(order, settings, cur) {
         <button class="btn btn-whatsapp btn-whatsapp-icon" id="whatsappReceiptManualBtn" title="WhatsApp Receipt"><i class="fa-brands fa-whatsapp"></i></button>
       ` : ''}
       <button class="btn btn-primary" id="printReceiptBtn"><i class="fa-solid fa-print"></i> Print Receipt</button>
-    `
+    `,
+    sidePanel: false
   });
 
   setTimeout(() => {
+    renderReceiptBarcodes(document.querySelector('.modal-body'));
+
     const closeBtn = document.getElementById('closeReceiptBtn');
     const printBtn = document.getElementById('printReceiptBtn');
     const waBtn = document.getElementById('whatsappReceiptManualBtn');
@@ -1164,10 +1224,13 @@ export async function showBillPreview(order, settings, cur) {
     footer: `
       <button class="btn btn-ghost" id="closeBillBtn">Close</button>
       <button class="btn btn-primary" id="printBillBtn"><i class="fa-solid fa-print"></i> Print Bill</button>
-    `
+    `,
+    sidePanel: false
   });
 
   setTimeout(() => {
+    renderReceiptBarcodes(document.querySelector('.modal-body'));
+
     const closeBtn = document.getElementById('closeBillBtn');
     const printBtn = document.getElementById('printBillBtn');
     if (closeBtn) closeBtn.onclick = closeModal;

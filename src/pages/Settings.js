@@ -304,6 +304,10 @@ export async function renderSettings(container) {
                   <input type="checkbox" id="sShowLogoOnReceipt" ${s.showLogoOnReceipt ? 'checked' : ''} />
                   <label class="form-label" style="margin:0" for="sShowLogoOnReceipt">Print logo on receipt</label>
                 </div>
+                <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-top:10px">
+                  <input type="checkbox" id="sPrintBarcodeOnReceipt" ${s.printBarcodeOnReceipt ? 'checked' : ''} />
+                  <label class="form-label" style="margin:0" for="sPrintBarcodeOnReceipt">Print order ID barcode on receipt</label>
+                </div>
               </div>
               <div class="form-group">
                 <label class="form-label">Receipt Footer</label>
@@ -744,6 +748,7 @@ export async function renderSettings(container) {
       gstNumber: container.querySelector('#sGstNumber').value.trim(),
       storeLogo: container.querySelector('#sStoreLogoBase64')?.value || '',
       showLogoOnReceipt: container.querySelector('#sShowLogoOnReceipt')?.checked || false,
+      printBarcodeOnReceipt: container.querySelector('#sPrintBarcodeOnReceipt')?.checked || false,
       receiptFooter: container.querySelector('#sReceiptFooter').value.trim(),
       currency: container.querySelector('#sCurrency').value,
       availableTaxes: JSON.parse(container.querySelector('#sAvailableTaxes').value || '[]'),

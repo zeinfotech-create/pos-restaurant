@@ -3,6 +3,14 @@
 // ============================================================
 
 let currentEscapeHandler = null;
+// Bumped on every openModal() call. closeModal()'s cleanup is delayed 300ms
+// to let the CSS closing animation play, but code elsewhere (e.g. checkout's
+// close-then-reopen-for-receipt flow) can call openModal() again inside that
+// window. Without this guard, the stale delayed cleanup would fire AFTER the
+// new modal is showing and wipe its content out from under it — which is
+// exactly what caused auto-print to send a blank page (it read
+// .modal-body's innerHTML after the receipt modal had already been emptied).
+let modalGeneration = 0;
 
 function hideBodyChrome() {
   // Hide FAB and bottom nav when modal opens on mobile
@@ -25,6 +33,8 @@ export function openModal({ title, body, footer, onClose, hideClose = false, dis
     console.error('Modal.js: pos-modal-overlay element not found in DOM!');
     return;
   }
+
+  modalGeneration++;
 
   // Set side panel or full screen classes
   overlay.className = 'pos-modal-overlay';
@@ -94,12 +104,17 @@ export function closeModal() {
   }
 
   if (overlay) {
+    const generationAtClose = modalGeneration;
+
     // Remove active class to start closing animation
     overlay.classList.remove('active');
     overlay.classList.add('closing');
 
     // Wait for the animation to finish (matching the 0.3s transition in CSS)
     setTimeout(() => {
+      // If a newer modal opened while this timer was pending, that modal
+      // owns the overlay now — don't stomp on it.
+      if (modalGeneration !== generationAtClose) return;
       overlay.classList.add('hidden');
       overlay.classList.remove('closing');
       overlay.innerHTML = '';
