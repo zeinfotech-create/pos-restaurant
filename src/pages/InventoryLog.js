@@ -8,6 +8,8 @@ let filterStartDate = defaultStart;
 let filterEndDate = defaultEnd;
 let logTypeFilter = 'All';
 let logSearchQuery = '';
+let logCurrentPage = 1;
+const LOG_ITEMS_PER_PAGE = 8;
 
 export async function renderInventoryLog(container) {
   const settings = await getSettings();
@@ -51,6 +53,12 @@ export async function renderInventoryLog(container) {
     
     return matchesSearch && matchesType;
   });
+
+  // Pagination (on the fully-filtered set)
+  const totalLogPages = Math.ceil(finalLogs.length / LOG_ITEMS_PER_PAGE) || 1;
+  if (logCurrentPage > totalLogPages) logCurrentPage = totalLogPages;
+  const logPageStart = (logCurrentPage - 1) * LOG_ITEMS_PER_PAGE;
+  const paginatedLogs = finalLogs.slice(logPageStart, logPageStart + LOG_ITEMS_PER_PAGE);
 
   container.innerHTML = `
     <div id="inventory-log-page">
@@ -153,13 +161,16 @@ export async function renderInventoryLog(container) {
               </tr>
             </thead>
             <tbody id="inventoryLogTableBody">
-              ${renderLogRows(finalLogs, products)}
+              ${renderLogRows(paginatedLogs, products)}
             </tbody>
           </table>
         </div>
+        <div id="logPaginationArea"></div>
       </div>
     </div>
   `;
+
+  renderLogPagination(totalLogPages, finalLogs, products);
 
   // Mobile Filter Toggle Logic
   const filterCard = document.getElementById('filterCard');
@@ -206,13 +217,18 @@ export async function renderInventoryLog(container) {
         const logUser = (l.user || 'System').toLowerCase();
         return pName.includes(q) || reason.includes(q) || logUser.includes(q);
     });
+    logCurrentPage = 1;
+    const totalPages = Math.ceil(filtered.length / LOG_ITEMS_PER_PAGE) || 1;
+    const pageStart = (logCurrentPage - 1) * LOG_ITEMS_PER_PAGE;
     const tbody = document.getElementById('inventoryLogTableBody');
-    if (tbody) tbody.innerHTML = renderLogRows(filtered, products);
+    if (tbody) tbody.innerHTML = renderLogRows(filtered.slice(pageStart, pageStart + LOG_ITEMS_PER_PAGE), products);
+    renderLogPagination(totalPages, filtered, products);
   });
 
   initDateRangePicker('log-date-range', filterStartDate, filterEndDate, async (start, end) => {
     filterStartDate = start;
     filterEndDate = end;
+    logCurrentPage = 1;
     await renderInventoryLog(container);
   });
 
@@ -220,6 +236,7 @@ export async function renderInventoryLog(container) {
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
         logTypeFilter = btn.dataset.type;
+        logCurrentPage = 1;
         await renderInventoryLog(container);
     });
   });
@@ -235,6 +252,56 @@ window.addEventListener('data-synced', async (e) => {
     if (container) await renderInventoryLog(container);
   }
 });
+
+function renderLogPagination(totalPages, filteredLogs, products) {
+  const pagArea = document.getElementById('logPaginationArea');
+  if (!pagArea) return;
+
+  let html = `
+    <div class="pagination-bar">
+      <span>Showing page <b>${logCurrentPage}</b> of <b>${totalPages}</b></span>
+      <div class="pagination-controls">
+        <button class="pagination-btn" id="prevLogPage" ${logCurrentPage === 1 ? 'disabled' : ''}>
+          <i class="fa-solid fa-chevron-left"></i>
+        </button>
+  `;
+
+  for (let i = 1; i <= totalPages; i++) {
+    if (totalPages > 5 && Math.abs(i - logCurrentPage) > 2 && i !== 1 && i !== totalPages) {
+      if (i === 2 || i === totalPages - 1) html += `<span style="padding: 0 4px">...</span>`;
+      continue;
+    }
+    html += `<button class="pagination-btn ${i === logCurrentPage ? 'active' : ''} log-page-btn" data-page="${i}">${i}</button>`;
+  }
+
+  html += `
+        <button class="pagination-btn" id="nextLogPage" ${logCurrentPage === totalPages ? 'disabled' : ''}>
+          <i class="fa-solid fa-chevron-right"></i>
+        </button>
+      </div>
+    </div>
+  `;
+
+  pagArea.innerHTML = html;
+
+  const goToPage = (page) => {
+    logCurrentPage = page;
+    const start = (logCurrentPage - 1) * LOG_ITEMS_PER_PAGE;
+    const tbody = document.getElementById('inventoryLogTableBody');
+    if (tbody) tbody.innerHTML = renderLogRows(filteredLogs.slice(start, start + LOG_ITEMS_PER_PAGE), products);
+    renderLogPagination(totalPages, filteredLogs, products);
+  };
+
+  document.getElementById('prevLogPage').onclick = () => {
+    if (logCurrentPage > 1) goToPage(logCurrentPage - 1);
+  };
+  document.getElementById('nextLogPage').onclick = () => {
+    if (logCurrentPage < totalPages) goToPage(logCurrentPage + 1);
+  };
+  pagArea.querySelectorAll('.log-page-btn').forEach(btn => {
+    btn.onclick = () => goToPage(parseInt(btn.dataset.page));
+  });
+}
 
 function renderLogRows(logs, products) {
   if (logs.length === 0) {
