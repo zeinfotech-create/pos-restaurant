@@ -1,0 +1,75 @@
+{
+  "appId": "com.zeinfotech.pos",
+  "productName": "ZeInfoTech POS",
+  "copyright": "Copyright © 2025 ZeInfoTech",
+  "asar": true,
+  "asarUnpack": [
+    "**/server/**/*"
+  ],
+  "compression": "store",
+
+  "directories": {
+    "output": "dist-electron",
+    "buildResources": "electron"
+  },
+
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "!electron/icon.png"
+  ],
+
+  "extraResources": [
+    {
+      "from": "server/",
+      "to": "server/",
+      "filter": [
+        "**/*",
+        "!node_modules/.cache",
+        "!node_modules/.bin",
+        "!node_modules/**/*.md",
+        "!node_modules/**/*.map",
+        "!node_modules/**/*.ts",
+        "!node_modules/**/test",
+        "!node_modules/**/tests",
+        "!scripts/**",
+        "!**/*.log",
+        "!**/*.txt"
+      ]
+    },
+    {
+      "from": "node-portable/node.exe",
+      "to": "node.exe"
+    },
+    {
+      "from": "electron/icon.png",
+      "to": "icon.png"
+    }
+  ],
+
+  "win": {
+    "forceCodeSigning": false,
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64"]
+      }
+    ]
+  },
+
+  "nsis": {
+    "oneClick": false,
+    "perMachine": true,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "ZeInfoTech POS",
+    "deleteAppDataOnUninstall": false,
+    "runAfterFinish": true,
+    "unicode": true
+  }
+}

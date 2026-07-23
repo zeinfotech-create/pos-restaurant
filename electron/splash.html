@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>ZeInfoTech POS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 480px;
+      height: 300px;
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Segoe UI', sans-serif;
+      overflow: hidden;
+    }
+    .card {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+      border-radius: 16px;
+      border: 1px solid rgba(99,102,241,0.4);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.8);
+    }
+    .logo {
+      font-size: 48px;
+    }
+    .title {
+      font-size: 22px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: 1px;
+    }
+    .subtitle {
+      font-size: 12px;
+      color: #94a3b8;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+    .loader {
+      width: 200px;
+      height: 4px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .loader-bar {
+      height: 100%;
+      width: 40%;
+      background: linear-gradient(90deg, #6366f1, #22c55e);
+      border-radius: 4px;
+      animation: slide 1.5s ease-in-out infinite;
+    }
+    @keyframes slide {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(600%); }
+    }
+    .status {
+      font-size: 11px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">🛒</div>
+    <div>
+      <div class="title">ZeInfoTech POS</div>
+      <div class="subtitle" style="text-align:center;margin-top:4px">Point of Sale System</div>
+    </div>
+    <div class="loader"><div class="loader-bar"></div></div>
+    <div class="status">Starting sync server...</div>
+  </div>
+</body>
+</html>

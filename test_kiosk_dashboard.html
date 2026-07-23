@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiosk Webhook Test Dashboard</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; padding: 40px; display: flex; flex-direction: column; align-items: center; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 500px; text-align: center; }
+        h1 { color: #1a1a1a; margin-bottom: 30px; }
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        button { padding: 15px; border-radius: 8px; border: none; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn-green { background: #4CAF50; color: white; }
+        .btn-blue { background: #2196F3; color: white; }
+        .btn-red { background: #f44336; color: white; }
+        button:hover { opacity: 0.9; transform: translateY(-2px); }
+        .input-group { margin-bottom: 20px; text-align: left; }
+        input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
+        label { display: block; margin-bottom: 8px; font-weight: 500; }
+        #status { margin-top: 25px; padding: 15px; border-radius: 6px; display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>Kiosk Test Dashboard</h1>
+        
+        <div class="input-group">
+            <label>Server IP (or localhost):</label>
+            <input type="text" id="serverIp" value="localhost">
+        </div>
+
+        <div class="btn-group">
+            <button class="btn-blue" onclick="testConnection()">Test Connection</button>
+            <button class="btn-green" onclick="simulate(1)">Pay for Kiosk 1</button>
+            <button class="btn-green" onclick="simulate(2)">Pay for Kiosk 2</button>
+            <button class="btn-green" onclick="simulate(3)">Pay for Kiosk 3</button>
+        </div>
+
+        <div id="status"></div>
+    </div>
+
+    <script>
+        async function simulate(id) {
+            const ip = document.getElementById('serverIp').value;
+            const status = document.getElementById('status');
+            status.style.display = 'block';
+            status.innerText = 'Sending...';
+            status.style.background = '#e3f2fd';
+
+            try {
+                const response = await fetch(`http://${ip}:3030/api/debug/simulate-payment`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kioskId: id, amount: 1.00 })
+                });
+                const data = await response.json();
+                status.innerText = data.success ? `✅ Success: Sent to Kiosk ${id}` : `❌ Failed: ${data.error}`;
+                status.style.background = data.success ? '#e8f5e9' : '#ffebee';
+            } catch (e) {
+                status.innerText = '❌ Error: Could not reach server. Check IP and Port (3030)';
+                status.style.background = '#ffebee';
+            }
+        }
+
+        async function testConnection() {
+            const ip = document.getElementById('serverIp').value;
+            const status = document.getElementById('status');
+            status.style.display = 'block';
+            status.innerText = 'Testing...';
+            
+            try {
+                const response = await fetch(`http://${ip}:3030/health`);
+                const data = await response.json();
+                status.innerText = `✅ Server Online (Clients connected: ${data.clients})`;
+                status.style.background = '#e8f5e9';
+            } catch (e) {
+                status.innerText = '❌ Server Offline or IP/Port mismatch.';
+                status.style.background = '#ffebee';
+            }
+        }
+    </script>
+</body>
+</html>

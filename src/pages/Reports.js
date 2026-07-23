@@ -1,0 +1,1657 @@
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getBranches, getCategorySales, getMonthlySales, getPaymentBreakdown, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission } from '../db.js';
+import { showToast } from '../components/Toast.js';
+import { store } from '../store.js';
+import { navigate } from '../router.js';
+import { Chart, registerables } from 'chart.js';
+Chart.register(...registerables);
+
+let currentBranchFilter = store.branch?.id || '';
+
+// Initialize default date range: Today
+const now = new Date();
+const format = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+let currentStartDate = format(new Date(now.getFullYear(), now.getMonth(), 1));
+let currentEndDate = format(now);
+
+export async function renderReports(container, subPage = 'sales') {
+  if (!(await hasPermission('reports:view'))) {
+    container.innerHTML = `
+      <div class="empty-state" style="height:70vh; flex-direction:column">
+        <i class="fa-solid fa-lock" style="font-size:64px;margin-bottom:24px;opacity:0.2"></i>
+        <h2 class="font-bold">Access Denied</h2>
+        <p class="mb-24 text-muted">You do not have permission to view reports.</p>
+        <button class="btn btn-primary" onclick="window.navigate('dashboard')">Back to Dashboard</button>
+      </div>
+    `;
+    return;
+  }
+  const settings = await getSettings();
+  const cur = settings.currency;
+
+  container.innerHTML = `
+    <div class="page-header" style="margin-bottom:20px">
+      <div class="page-title">Analytics Hub</div>
+      <div class="header-actions" style="display:flex; gap:12px; align-items:center;">
+        <!-- Global Date Range Filter -->
+        <div class="date-picker-group">
+          <i class="fa-solid fa-calendar-day text-muted" style="font-size:14px"></i>
+          <input type="text" id="report-date-range" class="form-input-clean" style="width:220px" readonly>
+        </div>
+
+        <select class="form-select form-select-sm" id="report-branch-filter" style="width:180px">
+          <option value="">All Branches</option>
+          ${(await getBranches()).map(b => `<option value="${b.id}" ${currentBranchFilter === b.id ? 'selected' : ''}>${b.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="report-nav custom-scrollbar" style="display:flex;gap:12px;margin-bottom:24px;border-bottom:1px solid var(--border);padding-bottom:12px;overflow-x:auto">
+      <button class="btn btn-ghost btn-sm ${subPage === 'sales' ? 'active-tab' : ''}" onclick="navigate('reports/sales')">Sales Hub</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'instant-sales' ? 'active-tab' : ''}" onclick="navigate('reports/instant-sales')">Instant Sales</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'category-sales' ? 'active-tab' : ''}" onclick="navigate('reports/category-sales')">Categories</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'sales-analysis' ? 'active-tab' : ''}" onclick="navigate('reports/sales-analysis')">Analysis</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'inventory' ? 'active-tab' : ''}" onclick="navigate('reports/inventory')">Inventory</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'credit' ? 'active-tab' : ''}" onclick="navigate('reports/credit')">Credit Hub</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'purchases' ? 'active-tab' : ''}" onclick="navigate('reports/purchases')">Procurement</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'gst' ? 'active-tab' : ''}" onclick="navigate('reports/gst')">GST Center</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'customers' ? 'active-tab' : ''}" onclick="navigate('reports/customers')">Customers</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'staff' ? 'active-tab' : ''}" onclick="navigate('reports/staff')">Staff</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'registers' ? 'active-tab' : ''}" onclick="navigate('reports/registers')">Registers</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'login-activity' ? 'active-tab' : ''}" onclick="navigate('reports/login-activity')">Login Audit</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'returns' ? 'active-tab' : ''}" onclick="navigate('reports/returns')">Returns History</button>
+    </div>
+    <div id="report-content"></div>
+  `;
+
+  const contentEl = document.getElementById('report-content');
+
+  switch (subPage) {
+    case 'staff':
+      await renderStaffIncentiveReport(contentEl, cur);
+      break;
+    case 'category-sales':
+      await renderCategorySalesReport(contentEl, cur);
+      break;
+    case 'instant-sales':
+      await renderInstantSalesReport(contentEl, cur);
+      break;
+    case 'sales-analysis':
+      await renderSalesAnalysis(contentEl, cur);
+      break;
+    case 'purchases':
+      await renderPurchaseReport(contentEl, cur);
+      break;
+    case 'gst':
+      await renderGSTReport(contentEl, cur);
+      break;
+    case 'customers':
+      await renderCustomerReport(contentEl, cur);
+      break;
+    case 'suppliers':
+      await renderSupplierReport(contentEl, cur);
+      break;
+    case 'registers':
+      await renderRegisterReport(contentEl, cur);
+      break;
+    case 'inventory':
+      await renderLowStockReport(contentEl, cur);
+      break;
+    case 'credit':
+      await renderCreditReport(contentEl, cur);
+      break;
+    case 'returns':
+      await renderReturnsReport(contentEl, cur);
+      break;
+    case 'login-activity':
+      await renderLoginActivityReport(contentEl, cur);
+      break;
+    case 'sales':
+    default:
+      await renderSalesReport(contentEl, cur);
+      break;
+  }
+
+  const branchFilterEl = document.getElementById('report-branch-filter');
+  if (branchFilterEl) {
+    branchFilterEl.onchange = async (e) => {
+      currentBranchFilter = e.target.value;
+      await renderReports(container, subPage);
+    };
+  }
+
+  const rangeEl = document.getElementById('report-date-range');
+  if (rangeEl) {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const yesterday = new Date(); yesterday.setDate(today.getDate() - 1); yesterday.setHours(0,0,0,0);
+    const last7 = new Date(); last7.setDate(today.getDate() - 6); last7.setHours(0,0,0,0);
+    const last30 = new Date(); last30.setDate(today.getDate() - 29); last30.setHours(0,0,0,0);
+    const firstDayThisMonth = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0);
+    const lastDayLastMonth = new Date(today.getFullYear(), today.getMonth(), 0, 0, 0, 0, 0);
+    const firstDayLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1, 0, 0, 0, 0);
+    const firstDayYear = new Date(today.getFullYear(), 0, 1, 0, 0, 0, 0);
+
+    const picker = new Litepicker({
+      element: rangeEl,
+      singleMode: false,
+      numberOfMonths: 2,
+      numberOfColumns: 2,
+      format: 'DD/MM/YYYY',
+      startDate: currentStartDate,
+      endDate: currentEndDate,
+      plugins: ['ranges'],
+      ranges: {
+        custom: 'Custom Range',
+        ranges: {
+          'Today': [new Date().setHours(0,0,0,0), new Date().setHours(0,0,0,0)],
+          'Yesterday': [new Date(new Date().setDate(new Date().getDate()-1)).setHours(0,0,0,0), new Date(new Date().setDate(new Date().getDate()-1)).setHours(0,0,0,0)],
+          'Last 7 Days': [new Date(new Date().setDate(new Date().getDate()-6)).setHours(0,0,0,0), new Date().setHours(0,0,0,0)],
+          'Last 30 Days': [new Date(new Date().setDate(new Date().getDate()-29)).setHours(0,0,0,0), new Date().setHours(0,0,0,0)],
+          'This Month': [new Date(new Date().getFullYear(), new Date().getMonth(), 1).setHours(0,0,0,0), new Date().setHours(0,0,0,0)],
+          'Last Month': [new Date(new Date().getFullYear(), new Date().getMonth()-1, 1).setHours(0,0,0,0), new Date(new Date().getFullYear(), new Date().getMonth(), 0).setHours(0,0,0,0)],
+          ['This Year (' + new Date().getFullYear() + ')']: [new Date(new Date().getFullYear(), 0, 1).setHours(0,0,0,0), new Date().setHours(0,0,0,0)],
+          ['Last Year (' + (new Date().getFullYear() - 1) + ')']: [new Date(new Date().getFullYear() - 1, 0, 1).setHours(0,0,0,0), new Date(new Date().getFullYear() - 1, 11, 31).setHours(23,59,59,999)],
+          'Last 365 Days': [new Date(new Date(new Date().setDate(new Date().getDate()-364)).setHours(0,0,0,0)), new Date().setHours(0,0,0,0)],
+        }
+      },
+      setup: (picker) => {
+        const updateActiveRangeUI = () => {
+          const startDate = picker.getStartDate()?.format('YYYY-MM-DD');
+          const endDate = picker.getEndDate()?.format('YYYY-MM-DD');
+          
+          const localDate = (d) => {
+            const dt = new Date(d);
+            dt.setHours(0,0,0,0);
+            return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+          };
+
+          const todayLocal = localDate(new Date());
+          const yesterdayLocal = localDate(new Date(Date.now() - 86400000));
+          const last7Local = localDate(new Date(Date.now() - 6 * 86400000));
+          const last30Local = localDate(new Date(Date.now() - 29 * 86400000));
+          const now = new Date();
+          const firstThisMonth = localDate(new Date(now.getFullYear(), now.getMonth(), 1));
+          const firstLastMonth = localDate(new Date(now.getFullYear(), now.getMonth()-1, 1));
+          const lastLastMonth = localDate(new Date(now.getFullYear(), now.getMonth(), 0));
+          const firstYear = localDate(new Date(now.getFullYear(), 0, 1));
+
+          const ranges = [
+            { name: 'Today', start: todayLocal, end: todayLocal },
+            { name: 'Yesterday', start: yesterdayLocal, end: yesterdayLocal },
+            { name: 'Last 7 Days', start: last7Local, end: todayLocal },
+            { name: 'Last 30 Days', start: last30Local, end: todayLocal },
+            { name: 'This Month', start: firstThisMonth, end: todayLocal },
+            { name: 'Last Month', start: firstLastMonth, end: lastLastMonth },
+            { name: 'This Year (' + now.getFullYear() + ')', start: firstYear, end: todayLocal },
+            { name: 'Last Year (' + (now.getFullYear() - 1) + ')', start: localDate(new Date(now.getFullYear() - 1, 0, 1)), end: localDate(new Date(now.getFullYear() - 1, 11, 31)) },
+            { name: 'Last 365 Days', start: localDate(new Date(Date.now() - 364 * 86400000)), end: todayLocal },
+          ];
+
+          const activeRange = ranges.find(r => r.start === startDate && r.end === endDate);
+          
+          picker.ui.querySelectorAll('.container__predefined-ranges button').forEach(btn => {
+            btn.classList.remove('is-active-preset');
+            if (activeRange && btn.innerText.trim() === activeRange.name) {
+              btn.classList.add('is-active-preset');
+            }
+          });
+        };
+
+        picker.on('selected', async (date1, date2) => {
+          const newStart = date1.format('YYYY-MM-DD');
+          const newEnd = date2.format('YYYY-MM-DD');
+          
+          if (newStart !== currentStartDate || newEnd !== currentEndDate) {
+            currentStartDate = newStart;
+            currentEndDate = newEnd;
+            await renderReports(container, subPage);
+          }
+        });
+
+        picker.on('show', () => {
+          updateActiveRangeUI();
+        });
+
+        // Ensure active state is triggered on initial load
+        setTimeout(() => {
+          if (currentStartDate && currentEndDate) {
+            picker.setDateRange(currentStartDate, currentEndDate);
+            updateActiveRangeUI();
+          }
+        }, 50);
+      }
+    });
+
+    // Set initial display value
+    rangeEl.value = `${new Date(currentStartDate).toLocaleDateString('en-GB')} - ${new Date(currentEndDate).toLocaleDateString('en-GB')}`;
+  }
+}
+
+async function renderSalesReport(container, cur) {
+  const { applySessionFilter } = await import('../utils/sessionFilter.js');
+  
+  const rawTodaySales = await getTodaySales(currentBranchFilter, currentStartDate, currentEndDate);
+  // getTodaySales internally fetches orders, but it aggregates them. To be totally accurate we must recalculate, 
+  // but to be safe we will apply it to the main orders list:
+  
+  const rawAllOrders = await getOrders(currentBranchFilter, currentStartDate, currentEndDate);
+  const allOrders = await applySessionFilter(rawAllOrders, 'date');
+
+  // Recalculate todaySales from filtered orders to ensure strict compliance
+  const validOrders = allOrders.filter(o => o.status !== 'cancelled');
+  const returns = await getReturns(currentBranchFilter, currentStartDate, currentEndDate);
+  const salesReturns = returns.filter(r => r.type === 'sales');
+  const returnsTotal = salesReturns.reduce((s, r) => s + (r.total || 0), 0);
+  const grossTotal = validOrders.reduce((s,o) => s + (o.total || 0), 0);
+
+  const todaySales = {
+    grossTotal,
+    returnsTotal,
+    total: grossTotal - returnsTotal,
+    count: validOrders.length,
+    profitTotal: validOrders.reduce((s,o) => s + (o.total - (o.subtotal || 0)), 0), // rough proxy
+  };
+  
+  const last7 = await getSalesLast7Days(currentBranchFilter);
+  const topProducts = await getTopProducts(currentBranchFilter, currentStartDate, currentEndDate);
+
+  const isToday = currentStartDate === new Date().toISOString().split('T')[0] && currentEndDate === currentStartDate;
+  const rangeLabel = isToday ? 'Today' : 'Range';
+
+  container.innerHTML = `
+    <div class="grid-4 mb-24">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(16,185,129,0.15)"><i class="fa-solid fa-coins" style="color:#10b981"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${cur}${(todaySales?.total || 0).toFixed(2)}</div>
+          <div class="stat-label">Net Sales (${rangeLabel})</div>
+        </div>
+      </div>
+      <div class="stat-card" style="border:1px solid var(--accent); background:rgba(99,102,241,0.05)">
+        <div class="stat-icon" style="background:rgba(99,102,241,0.15)"><i class="fa-solid fa-sack-dollar" style="color:#6366f1"></i></div>
+        <div class="stat-info">
+          <div class="stat-value" style="color:var(--accent)">${cur}${(todaySales?.profitTotal || 0).toFixed(2)}</div>
+          <div class="stat-label">Gross Profit (${rangeLabel})</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(239,68,68,0.15)"><i class="fa-solid fa-rotate-left" style="color:#ef4444"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${cur}${(todaySales?.returnsTotal || 0).toFixed(2)}</div>
+          <div class="stat-label">Returns (${rangeLabel})</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(59,130,246,0.15)"><i class="fa-solid fa-chart-line" style="color:#3b82f6"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${cur}${(todaySales?.grossTotal || 0).toFixed(2)}</div>
+          <div class="stat-label">Gross Revenue (${rangeLabel})</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2 gap-16">
+      <div class="card">
+        <div class="font-bold mb-16"><i class="fa-solid fa-chart-column mr-8"></i> Weekly Trend</div>
+        <div style="height:250px"><canvas id="salesChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="font-bold mb-16"><i class="fa-solid fa-pie-chart mr-8"></i> Payment Methods</div>
+        <div style="height:250px"><canvas id="paymentChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card mt-16">
+      <div class="font-bold mb-16"><i class="fa-solid fa-fire mr-8"></i> Top Performing Products</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Rank</th><th>Product</th><th>Qty Sold</th><th>Revenue</th><th>Profit</th></tr></thead>
+          <tbody>
+            ${topProducts.map((p, i) => `
+              <tr>
+                <td data-label="Rank">#${i + 1}</td>
+                <td data-label="Product">
+                  <div style="display:flex;align-items:center;gap:10px;justify-content:flex-start">
+                    <span style="font-size:20px">${p.emoji || '📦'}</span>
+                    <span>${p.name}</span>
+                  </div>
+                </td>
+                <td data-label="Qty Sold">${p.qty}</td>
+                <td data-label="Revenue" class="font-bold text-success">${cur}${p.revenue.toFixed(2)}</td>
+                <td data-label="Profit" class="font-bold text-accent">${cur}${(p.profit || 0).toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  renderSalesChart(last7);
+  renderPaymentChart(allOrders, cur);
+}
+
+async function renderInstantSalesReport(container, cur) {
+  const { totalRevenue, totalOrdersCount, items } = await getInstantSalesData(currentBranchFilter, currentStartDate, currentEndDate);
+
+  container.innerHTML = `
+    <div class="grid-2 mb-24">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(139,92,246,0.15)"><i class="fa-solid fa-bolt" style="color:#8b5cf6"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${cur}${totalRevenue.toFixed(2)}</div>
+          <div class="stat-label">Total Instant Revenue</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(139,92,246,0.15)"><i class="fa-solid fa-receipt" style="color:#8b5cf6"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${totalOrdersCount}</div>
+          <div class="stat-label">Orders with Instant Items</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="font-bold mb-16"><i class="fa-solid fa-list mr-8"></i> Recent Instant Sales Transactions</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Customer</th>
+              <th>Item Name</th>
+              <th>Qty</th>
+              <th>Price</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:32px;opacity:0.5">No instant sales found</td></tr>' : 
+              items.slice(0, 50).map(item => `
+              <tr>
+                <td data-label="Date">${new Date(item.date).toLocaleString()}</td>
+                <td data-label="Customer">${item.customer}</td>
+                <td data-label="Item Name" class="font-bold">${item.name}</td>
+                <td data-label="Qty">${item.qty}</td>
+                <td data-label="Price">${cur}${item.price.toFixed(2)}</td>
+                <td data-label="Total" class="text-success font-bold">${cur}${item.revenue.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function renderCategorySalesReport(container, cur) {
+  const categorySales = await getCategorySales(currentBranchFilter, currentStartDate, currentEndDate);
+  const totalRevenue = categorySales.reduce((s, c) => s + c.revenue, 0);
+
+  container.innerHTML = `
+    <div class="card mb-24">
+      <div class="font-bold mb-16"><i class="fa-solid fa-tags mr-8"></i> Category-wise Performance</div>
+      <div style="height:300px"><canvas id="categoryChart"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="font-bold mb-16">Revenue Breakdown by Category</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Category</th><th>Qty Sold</th><th>Revenue</th><th>Market Share</th></tr></thead>
+          <tbody>
+            ${categorySales.map(c => `
+              <tr>
+                <td data-label="Category"><span class="badge badge-ghost">${c.category}</span></td>
+                <td data-label="Qty Sold">${c.qty}</td>
+                <td data-label="Revenue" class="font-bold">${cur}${c.revenue.toFixed(2)}</td>
+                <td data-label="Market Share">
+                  <div style="display:flex;align-items:center;gap:10px;justify-content:flex-start">
+                    <div style="flex:1;background:var(--bg-main);height:6px;border-radius:3px;overflow:hidden;max-width:80px">
+                      <div style="width:${(c.revenue / totalRevenue * 100).toFixed(1)}%;background:var(--primary);height:100%"></div>
+                    </div>
+                    <span style="font-size:11px;font-weight:600">${(c.revenue / totalRevenue * 100).toFixed(1)}%</span>
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  const ctx = document.getElementById('categoryChart');
+  if (ctx) {
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: categorySales.map(c => c.category),
+        datasets: [{
+          label: 'Revenue',
+          data: categorySales.map(c => c.revenue),
+          backgroundColor: '#4f46e5',
+          borderRadius: 8
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  }
+}
+
+async function renderSalesAnalysis(container, cur) {
+  const salesTrend = await getMonthlySales(currentBranchFilter);
+  const purchaseTrend = await getPurchasesMonthly(currentBranchFilter);
+
+  container.innerHTML = `
+    <div class="card mb-24">
+      <div class="font-bold mb-16"><i class="fa-solid fa-chart-area mr-8"></i> Profitability Analysis (Sales vs Purchases)</div>
+      <div style="height:350px"><canvas id="analysisChart"></canvas></div>
+    </div>
+
+    <div class="grid-2 gap-16">
+      <div class="stat-card">
+        <div class="stat-info">
+          <div class="stat-label">Total Lifetime Revenue</div>
+          <div class="stat-value text-success">${cur}${salesTrend.reduce((s, m) => s + m.total, 0).toLocaleString()}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-info">
+          <div class="stat-label">Total Procurement Cost</div>
+          <div class="stat-value text-danger">${cur}${purchaseTrend.reduce((s, m) => s + m.total, 0).toLocaleString()}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const ctx = document.getElementById('analysisChart');
+  if (ctx) {
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: salesTrend.map(s => s.label),
+        datasets: [
+          {
+            label: 'Sales Revenue',
+            data: salesTrend.map(s => s.total),
+            borderColor: '#10b981',
+            tension: 0.3,
+            fill: false
+          },
+          {
+            label: 'Purchase Cost',
+            data: purchaseTrend.map(p => p.total),
+            borderColor: '#ef4444',
+            tension: 0.3,
+            fill: false
+          }
+        ]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  }
+}
+
+async function renderPurchaseReport(container, cur) {
+  const purchases = await getPurchases(currentBranchFilter, currentStartDate, currentEndDate);
+  const monthly = await getPurchasesMonthly(currentBranchFilter);
+  const totalSpend = purchases.reduce((s, p) => s + p.total, 0);
+
+  container.innerHTML = `
+    <div class="grid-2 mb-24">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(239,68,68,0.15)"><i class="fa-solid fa-truck-fast" style="color:#ef4444"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${cur}${totalSpend.toLocaleString()}</div>
+          <div class="stat-label">Total Purchase Spending</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(245,158,11,0.15)"><i class="fa-solid fa-boxes-stacked" style="color:#f59e0b"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${purchases.length}</div>
+          <div class="stat-label">Total Orders Placed</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-16">
+      <div class="font-bold mb-16">Monthly Procurement Trend</div>
+      <div style="height:300px"><canvas id="procurementChart"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="font-bold mb-16">Recent Purchases</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Date</th><th>ID</th><th>Supplier</th><th>Total</th><th>Action</th></tr></thead>
+          <tbody>
+            ${purchases.slice(0, 5).map(p => `
+              <tr>
+                <td data-label="Date">${new Date(p.date).toLocaleDateString()}</td>
+                <td data-label="ID">${p.id}</td>
+                <td data-label="Supplier">${p.supplierName}</td>
+                <td data-label="Total" class="font-bold text-danger">${cur}${p.total.toFixed(2)}</td>
+                <td>
+                  <button class="btn btn-ghost btn-sm purchase-return-btn" data-id="${p.id}">
+                    <i class="fa-solid fa-rotate-left"></i> Return
+                  </button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  renderProcurementChart(monthly);
+
+  container.querySelectorAll('.purchase-return-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const pur = purchases.find(p => p.id === btn.dataset.id);
+      if (pur) await openPurchaseReturnModal(pur, cur);
+    };
+  });
+}
+
+async function openPurchaseReturnModal(purchase, cur) {
+  const returns = await getReturns();
+  const allReturns = returns.filter(r => r.purchaseId === purchase.id);
+  const returnedQtyMap = {};
+  allReturns.forEach(r => {
+    r.items.forEach(item => {
+      returnedQtyMap[item.id] = (returnedQtyMap[item.id] || 0) + item.qty;
+    });
+  });
+
+  let returnedItems = (purchase.items || []).map(item => {
+    const alreadyReturned = returnedQtyMap[item.id] || 0;
+    return { ...item, returnQty: 0, availableQty: item.qty - alreadyReturned, alreadyReturned };
+  });
+
+  if (returnedItems.length === 0) {
+    const alreadyReturned = returnedQtyMap[purchase.id] || 0;
+    returnedItems = [{ name: 'Adjustment/Full Return', id: purchase.id, price: purchase.total, qty: 1, returnQty: 0, availableQty: 1 - alreadyReturned, alreadyReturned }];
+  }
+
+  let refundMethod = 'Cash';
+
+  function renderRows() {
+    return returnedItems.map((item, idx) => `
+      <div class="payment-row" style="margin-bottom:12px; display:flex; align-items:center; gap:12px; background:var(--bg-elevated); padding:12px; border-radius:8px ${item.availableQty <= 0 ? 'opacity:0.5' : ''}">
+        <div style="flex:1">
+          <div class="font-bold">${item.emoji || '📦'} ${item.name}</div>
+          <div style="font-size:11px; opacity:0.6">
+            Original: ${item.qty} | 
+            <span class="text-danger">Returned: ${item.alreadyReturned}</span> | 
+            <span class="text-success">Available: ${item.availableQty}</span>
+          </div>
+        </div>
+        <div style="width:120px">
+          <input type="number" class="form-input return-qty-input" data-idx="${idx}" 
+            value="${item.returnQty}" min="0" max="${item.availableQty}" 
+            ${item.availableQty <= 0 ? 'disabled' : ''} />
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function updateModal() {
+    const totalReturn = returnedItems.reduce((sum, item) => sum + (item.returnQty * (item.price || item.cost || 0)), 0);
+    const body = `
+      <div style="padding:10px">
+        <div class="mb-16 text-muted" style="font-size:13px">Select quantities to return to supplier. Stock will be automatically deducted.</div>
+        <div id="returnItemsContainer">${renderRows()}</div>
+
+        <div style="background:var(--bg-elevated); padding:12px; border-radius:8px; margin-top:16px; border:1px dashed var(--border)">
+          <div style="font-size:11px; font-weight:bold; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px">Original Purchase Payment</div>
+          <div style="display:flex; justify-content:space-between; font-size:13px">
+            <span>Method</span>
+            <span class="font-bold">${cur}${purchase.total.toFixed(2)}</span>
+          </div>
+        </div>
+
+        <div class="grid-2 mt-16">
+          <div class="form-group">
+            <label class="form-label">Return Method (Adjustment)</label>
+            <select class="form-select" id="purchaseRefundMethodSelect">
+              <option value="Cash" ${refundMethod === 'Cash' ? 'selected' : ''}>Cash</option>
+              <option value="Card" ${refundMethod === 'Card' ? 'selected' : ''}>Card</option>
+              <option value="UPI" ${refundMethod === 'UPI' ? 'selected' : ''}>UPI</option>
+              <option value="Credit" ${refundMethod === 'Credit' ? 'selected' : ''}>Supplier Credit</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Return Reason / Note</label>
+            <input type="text" class="form-input" id="returnReason" placeholder="e.g. Expired, Wrong item" />
+          </div>
+        </div>
+
+        <div class="mt-20 p-16" style="background:rgba(239,68,68,0.05); border-radius:12px; border:1px solid rgba(239,68,68,0.1)">
+          <div style="display:flex; justify-content:space-between; align-items:center">
+            <span class="font-bold">Total Return Value</span>
+            <span class="font-bold text-danger" style="font-size:20px">${cur}${totalReturn.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    import('../components/Modal.js').then(Modal => {
+      Modal.openModal({
+        title: `Purchase Return - ${purchase.id}`,
+        body: body,
+        footer: `
+          <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          <button class="btn btn-danger" id="confirmPurchaseReturnBtn">Confirm Return to Supplier</button>
+        `
+      });
+
+      setTimeout(() => {
+        document.querySelectorAll('.return-qty-input').forEach(input => {
+          input.oninput = (e) => {
+            const idx = e.target.dataset.idx;
+            const val = parseInt(e.target.value) || 0;
+            const max = parseInt(e.target.max);
+            returnedItems[idx].returnQty = Math.min(val, max);
+            const totalReturn = returnedItems.reduce((sum, item) => sum + (item.returnQty * (item.price || item.cost || 0)), 0);
+            const totalEl = document.querySelector('.text-danger[style*="font-size:20px"]');
+            if (totalEl) totalEl.innerText = `${cur}${totalReturn.toFixed(2)}`;
+          };
+        });
+
+        document.getElementById('purchaseRefundMethodSelect').onchange = (e) => {
+          refundMethod = e.target.value;
+        };
+
+        document.getElementById('confirmPurchaseReturnBtn').onclick = async () => {
+          const itemsToReturn = returnedItems.filter(i => i.returnQty > 0).map(i => ({
+            ...i,
+            qty: i.returnQty
+          }));
+
+          if (itemsToReturn.length === 0) {
+            showToast('Please select at least one item to return.', 'warning');
+            return;
+          }
+
+          const totalReturn = itemsToReturn.reduce((sum, item) => sum + (item.qty * (item.price || item.cost || 0)), 0);
+          const reason = document.getElementById('returnReason').value || 'Not specified';
+
+          const db = await import('../db.js');
+          await db.saveReturn({
+            purchaseId: purchase.id,
+            type: 'purchase',
+            items: itemsToReturn,
+            total: totalReturn,
+            reason: reason,
+            branchId: purchase.branchId,
+            supplierName: purchase.supplierName,
+            supplierId: purchase.supplierId,
+            refundMethod: refundMethod
+          });
+          Modal.closeModal();
+          showToast('Purchase return processed successfully!', 'success');
+          await renderPurchaseReport(container, cur);
+        };
+      }, 0);
+    });
+  }
+}
+
+async function renderCustomerReport(container, cur) {
+  const customers = await getCustomers(currentBranchFilter);
+  const orders = await getOrders(currentBranchFilter, currentStartDate, currentEndDate);
+
+  // Calculate analytics
+  const processed = customers.map(c => {
+    const custOrders = orders.filter(o => o.customer?.id === c.id && o.status !== 'cancelled');
+    
+    // Simple Tiering Logic
+    let tier = { name: 'Bronze', color: '#cd7f32', icon: 'fa-award' };
+    const spent = custOrders.reduce((s, o) => s + (o.total || 0), 0);
+    if (spent > 50000) tier = { name: 'Platinum', color: '#e5e4e2', icon: 'fa-crown' };
+    else if (spent > 10000) tier = { name: 'Gold', color: '#ffd700', icon: 'fa-medal' };
+    else if (spent > 2000) tier = { name: 'Silver', color: '#c0c0c0', icon: 'fa-certificate' };
+
+    return {
+      ...c,
+      tier,
+      orderCount: custOrders.length,
+      totalSpent: spent
+    };
+  }).sort((a, b) => b.totalSpent - a.totalSpent);
+
+  container.innerHTML = `
+    <div class="card">
+      <div class="font-bold mb-16">Customer Activity & Loyalty Report</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Customer</th><th>Phone</th><th>Orders</th><th>Total Spent</th><th>Loyalty Points</th></tr></thead>
+          <tbody>
+            ${processed.map(c => `
+              <tr>
+                <td data-label="Customer">
+                  <div style="text-align:left">
+                    <div class="font-bold">${c.name}</div>
+                    <div style="font-size:10px;margin-top:2px">
+                      <span style="background:${c.tier.color}20;color:${c.tier.color};padding:1px 6px;border-radius:10px;border:1px solid ${c.tier.color}40;text-transform:uppercase;font-weight:700;font-size:9px">
+                        <i class="fa-solid ${c.tier.icon}"></i> ${c.tier.name}
+                      </span>
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px">ID: ${c.id}</div>
+                  </div>
+                </td>
+                <td data-label="Phone">${c.phone}</td>
+                <td data-label="Orders">${c.orderCount}</td>
+                <td data-label="Total Spent" class="font-bold text-accent">${cur}${c.totalSpent.toFixed(2)}</td>
+                <td data-label="Loyalty Points" class="font-bold text-success">${c.loyaltyPoints || 0} Pts</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function renderSupplierReport(container, cur) {
+  const suppliers = await getSuppliers(currentBranchFilter);
+  const purchases = await getPurchases(currentBranchFilter, currentStartDate, currentEndDate);
+
+  const processed = suppliers.map(s => {
+    const supPurchases = purchases.filter(p => p.supplierId === s.id);
+    return {
+      ...s,
+      orderCount: supPurchases.length,
+      totalSpend: supPurchases.reduce((sum, p) => sum + p.total, 0)
+    };
+  }).sort((a, b) => b.totalSpend - a.totalSpend);
+
+  container.innerHTML = `
+    <div class="card">
+      <div class="font-bold mb-16">Supplier Procurement Analysis</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Supplier</th><th>Contact</th><th>Orders</th><th>Total Spending</th></tr></thead>
+          <tbody>
+            ${processed.map(s => `
+              <tr>
+                <td data-label="Supplier">
+                  <div style="text-align:left">
+                    <div class="font-bold">${s.name}</div>
+                    <div style="font-size:11px;color:var(--text-muted)">ID: ${s.id}</div>
+                  </div>
+                </td>
+                <td data-label="Contact">${s.contact}</td>
+                <td data-label="Orders">${s.orderCount}</td>
+                <td data-label="Total Spending" class="text-danger font-bold">${cur}${s.totalSpend.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function renderGSTReport(container, cur) {
+  const orders = (await getOrders(currentBranchFilter, currentStartDate, currentEndDate)).filter(o => o.status !== 'cancelled');
+  const purchases = await getPurchases(currentBranchFilter, currentStartDate, currentEndDate);
+
+  const outputGST = orders.reduce((sum, o) => sum + (o.tax || 0), 0);
+  const inputGST = purchases.reduce((sum, p) => sum + (p.taxAmount || 0), 0);
+  const netPayable = outputGST - inputGST;
+
+  container.innerHTML = `
+    <!-- Net Summary Card -->
+    <div class="stat-card mb-24" style="border-left:4px solid ${netPayable >= 0 ? 'var(--success)' : 'var(--danger)'}; padding:16px 24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+        <div>
+          <div class="stat-label" style="font-size:11px;margin:0">${netPayable >= 0 ? 'Net GST Payable to Govt' : 'Excess Input Tax Credit'}</div>
+          <div class="stat-value" style="font-size:32px;color:${netPayable >= 0 ? 'var(--success)' : 'var(--danger)'}">
+            ${cur}${Math.abs(netPayable).toLocaleString()}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:12px;opacity:0.6">Output: ${cur}${outputGST.toLocaleString()}</div>
+          <div style="font-size:12px;opacity:0.6">Input: ${cur}${inputGST.toLocaleString()}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sales GST Section (Output) -->
+    <div class="card mb-24">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold" style="font-size:16px"><i class="fa-solid fa-arrow-up-right-from-square mr-8 text-accent"></i> Output GST (Sales)</div>
+        ${await hasPermission('reports:export') ? `
+          <button class="btn btn-primary btn-sm" id="exportSalesGstBtn">
+            <i class="fa-solid fa-download"></i> GSTR-1 JSON (Sales)
+          </button>
+        ` : ''}
+      </div>
+      
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Date</th><th>Customer</th><th>Invoice ID</th><th>Taxable Amt</th><th>GST Amt</th></tr></thead>
+          <tbody>
+            ${orders.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No sales recorded</td></tr>' :
+      orders.slice(0, 10).map(o => `
+                <tr>
+                  <td data-label="Date">${new Date(o.date).toLocaleDateString()}</td>
+                  <td data-label="Customer">${o.customer?.name || 'Walk-in'}</td>
+                  <td data-label="Invoice ID" class="font-mono" style="font-size:11px">${o.id}</td>
+                  <td data-label="Taxable Amt">${cur}${(o.subtotal || 0).toFixed(2)}</td>
+                  <td data-label="GST Amt" class="font-bold text-accent">${cur}${(o.tax || 0).toFixed(2)}</td>
+                </tr>
+              `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Purchase GST Section (Input) -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <div class="font-bold" style="font-size:16px"><i class="fa-solid fa-arrow-down-left-and-arrow-up-right-to-center mr-8 text-info"></i> Input GST (Purchases)</div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:4px">For GSTR-2B reconciliation and Input Tax Credit audit.</p>
+        </div>
+        ${await hasPermission('reports:export') ? `
+          <button class="btn btn-ghost btn-sm" id="exportPurchaseGstBtn" style="border:1px solid var(--border)">
+            <i class="fa-solid fa-download"></i> GSTR-2B Register JSON
+          </button>
+        ` : ''}
+      </div>
+
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Date</th><th>Supplier</th><th>Purchase ID</th><th>Taxable Amt</th><th>GST Amt</th></tr></thead>
+          <tbody>
+            ${purchases.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No purchases recorded</td></tr>' :
+      purchases.slice(0, 10).map(p => `
+                <tr>
+                  <td data-label="Date">${new Date(p.date).toLocaleDateString()}</td>
+                  <td data-label="Supplier">${p.supplierName}</td>
+                  <td data-label="Purchase ID" class="font-mono" style="font-size:11px">${p.id}</td>
+                  <td data-label="Taxable Amt">${cur}${(p.subtotal || p.total).toFixed(2)}</td>
+                  <td data-label="GST Amt" class="font-bold text-info">${cur}${(p.taxAmount || 0).toFixed(2)}</td>
+                </tr>
+              `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  const salesExportBtn = document.getElementById('exportSalesGstBtn');
+  if (salesExportBtn) salesExportBtn.onclick = async () => await exportGSTR1Json(orders);
+  
+  const purchaseExportBtn = document.getElementById('exportPurchaseGstBtn');
+  if (purchaseExportBtn) purchaseExportBtn.onclick = async () => await exportPurchaseRegisterJson(purchases);
+}
+
+async function renderStaffIncentiveReport(container, cur) {
+  const staff = await getStaff(currentBranchFilter);
+  const incentives = await getStaffIncentives(currentBranchFilter, currentStartDate, currentEndDate);
+
+  const processed = staff.map(s => {
+    const sIncs = incentives.filter(i => i.staffId === s.id);
+    return {
+      ...s,
+      totalEarned: sIncs.reduce((sum, i) => sum + i.amount, 0),
+      orderCount: sIncs.length
+    };
+  }).sort((a, b) => b.totalEarned - a.totalEarned);
+
+  container.innerHTML = `
+    <div class="grid-2 mb-24">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(79,70,229,0.15)"><i class="fa-solid fa-users-gear" style="color:var(--accent)"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${processed.length}</div>
+          <div class="stat-label">Active Staff Members</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(16,185,129,0.15)"><i class="fa-solid fa-hand-holding-dollar" style="color:var(--success)"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${cur}${processed.reduce((s, st) => s + st.totalEarned, 0).toLocaleString()}</div>
+          <div class="stat-label">Total Staff Payouts Due</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-24">
+      <div class="font-bold mb-16">Staff Earnings Summary</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Staff Member</th><th>Role</th><th>Orders</th><th>Comm %</th><th>Total Earnings</th></tr></thead>
+          <tbody>
+            ${processed.map(s => `
+              <tr>
+                <td data-label="Staff Member">
+                  <div style="text-align:left">
+                    <div class="font-bold">${s.name}</div>
+                    <div style="font-size:11px;opacity:0.6">${s.phone || ''}</div>
+                  </div>
+                </td>
+                <td data-label="Role"><span class="badge badge-primary">${s.specialization || 'Artist'}</span></td>
+                <td data-label="Orders">${s.orderCount}</td>
+                <td data-label="Comm %" class="text-accent font-bold">${s.commissionRate || 0}%</td>
+                <td data-label="Total Earnings" class="text-success font-bold" style="font-size:16px">${cur}${s.totalEarned.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="font-bold mb-16">Detailed Incentive Logs</div>
+      <div class="table-wrap">
+        <table class="responsive-table table-sm">
+          <thead><tr><th>Date</th><th>Staff</th><th>Order ID</th><th>Total</th><th>Incentive</th></tr></thead>
+          <tbody>
+            ${incentives.slice().reverse().slice(0, 20).map(i => `
+              <tr>
+                <td data-label="Date" style="font-size:11px">${new Date(i.date).toLocaleDateString()}</td>
+                <td data-label="Staff">${i.staffName}</td>
+                <td data-label="Order ID" style="font-size:11px;opacity:0.7">${i.orderId}</td>
+                <td data-label="Total">${cur}${i.orderTotal.toFixed(2)}</td>
+                <td data-label="Incentive" class="font-bold text-success">+${cur}${i.amount.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function renderRegisterReport(container, cur) {
+  const shiftsRaw = await getShifts();
+  const branches = await getBranches();
+  const registers = await getRegisters();
+  
+  // Filter shifts by date range
+  const shifts = (shiftsRaw || []).filter(s => {
+    const isBranchMatch = !currentBranchFilter || s.branchId === currentBranchFilter;
+    const isDateMatch = (!currentStartDate || s.openedAt >= currentStartDate) && (!currentEndDate || s.openedAt <= currentEndDate + 'T23:59:59');
+    return isBranchMatch && isDateMatch;
+  });
+  
+  // Sort by date descending
+  shifts.sort((a, b) => new Date(b.openedAt) - new Date(a.openedAt));
+
+  container.innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <div class="font-bold" style="font-size:18px"><i class="fa-solid fa-cash-register mr-8 text-success"></i> Register & Shift History</div>
+        <div class="text-muted" style="font-size:12px">${shifts.length} Shifts Recorded</div>
+      </div>
+      
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead>
+            <tr>
+              <th style="min-width:180px">Shift Timeline</th>
+              <th>Register / Branch</th>
+              <th>Cashier</th>
+              <th>Sales</th>
+              <th>Balance Audit</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${shifts.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:40px;opacity:0.5">No shift history found for this branch.</td></tr>' : 
+              shifts.map(s => {
+                const branchName = branches.find(b => b.id === s.branchId)?.name || 'Branch';
+                const regName = registers.find(r => r.id === s.registerId)?.name || s.registerId || 'Main Terminal';
+                const openDate = new Date(s.openedAt);
+                const closeDate = s.closedAt ? new Date(s.closedAt) : null;
+                
+                // Calculate discrepancy
+                const cashSales = Object.entries(s.collections || {}).reduce((sum, [m, a]) => {
+                  return m.toLowerCase() === 'cash' ? sum + a : sum;
+                }, 0);
+                const totalIn = (s.transactions || []).filter(t => t.type === 'In').reduce((sum, t) => sum + t.amount, 0);
+                const totalOut = (s.transactions || []).filter(t => t.type === 'Out').reduce((sum, t) => sum + t.amount, 0);
+                const expected = (s.openingBalance || 0) + cashSales + totalIn - totalOut;
+                const diff = s.status === 'Closed' ? ((s.closingBalance || 0) - expected) : null;
+
+                return `
+                  <tr>
+                    <td data-label="Timeline">
+                      <div style="display:flex; flex-direction:column; gap:4px">
+                        <div class="flex items-center gap-8">
+                          <span style="font-size:10px; padding:2px 4px; background:var(--bg-elevated); border-radius:4px; font-weight:700; color:var(--success)">OPEN</span>
+                          <span class="font-semibold" style="font-size:12px">${openDate.toLocaleDateString()} ${openDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                        ${s.closedAt ? `
+                          <div class="flex items-center gap-8">
+                            <span style="font-size:10px; padding:2px 4px; background:var(--bg-elevated); border-radius:4px; font-weight:700; color:var(--text-muted)">CLOSE</span>
+                            <span style="font-size:12px; opacity:0.8">${closeDate.toLocaleDateString()} ${closeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        ` : `
+                          <div class="flex items-center gap-8">
+                            <span style="font-size:10px; padding:2px 4px; background:var(--bg-elevated); border-radius:4px; font-weight:700; color:var(--accent)">ACTIVE</span>
+                            <span style="font-size:11px; opacity:0.5; font-style:italic">Ongoing shift...</span>
+                          </div>
+                        `}
+                      </div>
+                    </td>
+                    <td data-label="Register">
+                      <div class="font-semibold">${regName}</div>
+                      <div style="font-size:10px;opacity:0.5">${branchName}</div>
+                    </td>
+                    <td data-label="Cashier">
+                      <div class="badge badge-ghost" style="font-size:11px">${s.openedBy || 'Staff'}</div>
+                    </td>
+                    <td data-label="Sales">
+                      <div class="text-success font-bold">${cur}${(s.sales || 0).toFixed(2)}</div>
+                      <div style="font-size:10px;opacity:0.6">${s.ordersCount || 0} Orders</div>
+                    </td>
+                    <td data-label="Balance Audit">
+                      ${s.status === 'Closed' ? `
+                        <div class="font-bold" style="font-size:13px">${cur}${s.closingBalance.toFixed(2)}</div>
+                        <div style="font-size:10px" class="${diff > 0 ? 'text-success' : diff < 0 ? 'text-danger' : 'text-muted'}">
+                          ${diff === 0 ? 'Balanced' : (diff > 0 ? 'Surplus +' : 'Shortage ') + cur + Math.abs(diff).toFixed(2)}
+                        </div>
+                      ` : '<span style="opacity:0.3">—</span>'}
+                    </td>
+                    <td data-label="Status">
+                      <span class="badge ${s.status === 'Open' ? 'badge-success' : 'badge-ghost'}">${s.status}</span>
+                    </td>
+                    <td data-label="Action">
+                       <button class="btn btn-ghost btn-sm view-shift-report-btn" data-id="${s.id}" title="View Breakdown">
+                         <i class="fa-solid fa-eye"></i>
+                       </button>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Attach modal events
+  container.querySelectorAll('.view-shift-report-btn').forEach(btn => {
+    btn.onclick = () => openShiftSummaryModal(btn.dataset.id, cur, shifts);
+  });
+}
+
+function openShiftSummaryModal(shiftId, cur, allShifts) {
+  const shift = allShifts.find(s => s.id === shiftId);
+  if (!shift) return;
+
+  const cashSales = Object.entries(shift.collections || {}).reduce((sum, [m, a]) => {
+    return m.toLowerCase() === 'cash' ? sum + a : sum;
+  }, 0);
+  const totalIn = (shift.transactions || []).filter(t => t.type === 'In').reduce((s, t) => s + t.amount, 0);
+  const totalOut = (shift.transactions || []).filter(t => t.type === 'Out').reduce((s, t) => s + t.amount, 0);
+  const expected = (shift.openingBalance || 0) + cashSales + totalIn - totalOut;
+  const diff = shift.status === 'Closed' ? ((shift.closingBalance || 0) - expected) : null;
+
+  import('../components/Modal.js').then(Modal => {
+    Modal.openModal({
+      title: `<i class="fa-solid fa-receipt"></i> Shift Audit Summary — ${new Date(shift.openedAt).toLocaleDateString()}`,
+      body: `
+        <div style="display:flex;flex-direction:column;gap:18px">
+          <div class="grid-2">
+            <div class="stat-info">
+              <div style="font-size:11px;opacity:0.6">Cashier / Register</div>
+              <div class="font-bold">${shift.openedBy || '—'} / ${shift.registerId || 'Main'}</div>
+            </div>
+            <div class="stat-info">
+              <div style="font-size:11px;opacity:0.6">Total Sales</div>
+              <div class="font-bold text-accent">${cur}${(shift.sales || 0).toFixed(2)}</div>
+            </div>
+          </div>
+
+          <div style="background:var(--bg-elevated);border-radius:var(--radius-sm);padding:14px">
+            <div class="flex items-center justify-between py-4">
+              <span>Opening Balance</span>
+              <span class="font-bold">${cur}${(shift.openingBalance || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex items-center justify-between py-4 text-success">
+              <span>Cash Sales</span>
+              <span class="font-bold">+${cur}${cashSales.toFixed(2)}</span>
+            </div>
+            <div class="flex items-center justify-between py-4 text-success">
+              <span>Cash In</span>
+              <span class="font-bold">+${cur}${totalIn.toFixed(2)}</span>
+            </div>
+            <div class="flex items-center justify-between py-4 text-danger">
+              <span>Cash Out</span>
+              <span class="font-bold">-${cur}${totalOut.toFixed(2)}</span>
+            </div>
+            <div class="flex items-center justify-between py-8 font-bold text-accent" style="border-top:1px dashed var(--border);margin-top:6px">
+              <span>Expected Cash</span>
+              <span>${cur}${expected.toFixed(2)}</span>
+            </div>
+            ${shift.status === 'Closed' ? `
+              <div class="flex items-center justify-between py-4 font-bold text-success" style="border-top:1px solid var(--border)">
+                <span>Actual Closing Cash</span>
+                <span>${cur}${shift.closingBalance.toFixed(2)}</span>
+              </div>
+              <div class="flex items-center justify-between py-4 ${diff < 0 ? 'text-danger' : 'text-success'}" style="font-size:14px; font-weight:800">
+                <span>Discrepancy</span>
+                <span>${diff === 0 ? 'Balanced' : (diff > 0 ? '+' : '') + cur + diff.toFixed(2)}</span>
+              </div>
+            ` : ''}
+          </div>
+
+          <div>
+            <h4 class="form-label mb-8">Payment Breakdown</h4>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+              ${Object.entries(shift.collections || {}).map(([m, a]) => `
+                <div style="text-align:center;padding:8px;background:var(--bg-elevated);border-radius:var(--radius-sm);font-size:12px">
+                  <div style="opacity:0.6;margin-bottom:2px">${m}</div>
+                  <div class="font-bold">${cur}${(a || 0).toFixed(2)}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          
+          ${shift.notes ? `
+            <div class="card" style="background:rgba(255,255,255,0.02)">
+              <div style="font-size:11px;opacity:0.5;margin-bottom:4px">Closing Notes</div>
+              <div style="font-size:13px;font-style:italic">${shift.notes}</div>
+            </div>
+          ` : ''}
+        </div>
+      `,
+      footer: `<button class="btn btn-primary" onclick="closeModal()">Close Audit View</button>`
+    });
+  });
+}
+
+async function renderLowStockReport(container, cur) {
+  const products = await getProducts(currentBranchFilter);
+  const lowStockThreshold = 10;
+  const lowStockItems = products.filter(p => (p.stock || 0) <= lowStockThreshold);
+
+  container.innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold" style="font-size:16px">
+          <i class="fa-solid fa-triangle-exclamation mr-8 text-danger"></i> Low Stock Alert
+        </div>
+        <span class="badge badge-danger">${lowStockItems.length} Items Needing Restock</span>
+      </div>
+      
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Product</th><th>Category</th><th>Current Stock</th><th>Status</th></tr></thead>
+          <tbody>
+            ${lowStockItems.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:40px;opacity:0.5">All items are sufficiently stocked! ✅</td></tr>' :
+      lowStockItems.map(p => `
+                <tr>
+                  <td data-label="Product">
+                    <div style="display:flex;align-items:center;gap:12px;justify-content:flex-start">
+                      <span style="font-size:24px">${p.emoji || '📦'}</span>
+                      <div style="text-align:left">
+                        <div class="font-bold">${p.name}</div>
+                        <div style="font-size:11px;opacity:0.6">ID: ${p.id}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td data-label="Category"><span class="badge badge-ghost">${p.category || 'General'}</span></td>
+                  <td data-label="Stock" class="font-bold cursor-help" title="Threshold: 10">
+                    <span class="${p.stock <= 0 ? 'text-danger' : 'text-warning'}">${parseFloat(Number(p.stock || 0).toFixed(3))}</span>
+                  </td>
+                  <td data-label="Status">
+                    <div style="display:flex;align-items:center;gap:8px;justify-content:flex-start">
+                      <div style="flex:1;background:var(--bg-main);height:6px;border-radius:3px;overflow:hidden;width:80px">
+                        <div style="width:${Math.min(100, ((p.stock || 0) / 10 * 100))}%;background:${(p.stock || 0) <= 2 ? 'var(--danger)' : 'var(--warning)'};height:100%"></div>
+                      </div>
+                      <span style="font-size:10px;font-weight:700;color:${(p.stock || 0) <= 2 ? 'var(--danger)' : 'var(--warning)'}">
+                        ${(p.stock || 0) <= 0 ? 'OUT' : 'LOW'}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function renderReturnsReport(container, cur) {
+  const returns = await getReturns(currentBranchFilter, currentStartDate, currentEndDate);
+  const canExport = await hasPermission('reports:export');
+
+  container.innerHTML = `
+    <div class="card">
+      <div class="font-bold mb-16"><i class="fa-solid fa-rotate-left mr-8 text-danger"></i> Returns History (Sales & Procurement)</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Return Items</th><th>Total Value</th><th>Method</th><th>Reason</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${returns.length === 0 ? '<tr><td colspan="8" style="text-align:center;padding:40px;opacity:0.5">No returns logged yet</td></tr>' :
+      returns.slice().reverse().map(r => `
+                <tr>
+                  <td data-label="Date" style="font-size:11px">${new Date(r.date).toLocaleString()}</td>
+                  <td data-label="Type"><span class="badge badge-${r.type === 'sales' ? 'accent' : 'primary'}">${r.type.toUpperCase()}</span></td>
+                  <td data-label="Reference">${r.orderId || r.purchaseId || 'N/A'}</td>
+                  <td data-label="Return Items" style="font-size:11px">
+                    ${r.items.map(i => `${i.qty} x ${i.name}`).join('<br>')}
+                  </td>
+                  <td data-label="Total Value" class="font-bold text-danger">${cur}${r.total.toFixed(2)}</td>
+                  <td data-label="Method"><span class="badge badge-warning">${r.refundMethod || 'Cash'}</span></td>
+                  <td data-label="Reason" style="font-size:11px;opacity:0.8">${r.reason}</td>
+                  <td data-label="Actions">
+                    ${canExport ? `
+                      <button class="btn btn-ghost btn-sm print-return-btn" data-id="${r.id}"><i class="fa-solid fa-print"></i></button>
+                    ` : '<span class="text-muted" style="font-size:10px">Locked</span>'}
+                  </td>
+                </tr>
+              `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  const settings = await getSettings();
+  container.querySelectorAll('.print-return-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const ret = returns.find(r => r.id === btn.dataset.id);
+      if (ret) {
+        const cs = await import('../services/CheckoutService.js');
+        cs.showRefundReceipt(ret, settings, cur);
+      }
+    };
+  });
+
+}
+
+async function renderCreditReport(container, cur) {
+  const ordersRaw = await getOrders(currentBranchFilter, currentStartDate, currentEndDate);
+  const orders = ordersRaw.filter(o => o.isCredit);
+
+  // Group by customer
+  const creditMap = {};
+  orders.forEach(o => {
+    const cid = o.customer?.id || 'unknown';
+    if (!creditMap[cid]) {
+      creditMap[cid] = {
+        name: o.customer?.name || 'Unknown Customer',
+        phone: o.customer?.phone || 'N/A',
+        totalOutstanding: 0,
+        orderCount: 0,
+        lastOrderDate: o.date
+      };
+    }
+    const paid = (o.payments || []).reduce((s, p) => s + p.amount, 0);
+    const balance = o.total - paid;
+    creditMap[cid].totalOutstanding += balance;
+    creditMap[cid].orderCount++;
+    if (new Date(o.date) > new Date(creditMap[cid].lastOrderDate)) {
+      creditMap[cid].lastOrderDate = o.date;
+    }
+  });
+
+  const creditList = Object.values(creditMap).sort((a, b) => b.totalOutstanding - a.totalOutstanding);
+  const totalGlobalCredit = creditList.reduce((s, c) => s + c.totalOutstanding, 0);
+
+  container.innerHTML = `
+    <div class="stat-card mb-24" style="border-left:4px solid var(--danger)">
+      <div class="stat-info">
+        <div class="stat-label">Total Outstanding Market Credit</div>
+        <div class="stat-value text-danger" style="font-size:32px">${cur}${totalGlobalCredit.toLocaleString()}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="font-bold mb-16"><i class="fa-solid fa-hand-holding-hand mr-8 text-primary"></i> Credit Summary by Customer</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Customer</th><th>Pending Orders</th><th>Last Activity</th><th>Outstanding Balance</th></tr></thead>
+          <tbody>
+            ${creditList.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:40px;opacity:0.5">No outstanding credit found. Great! 💎</td></tr>' :
+      creditList.map(c => `
+                <tr>
+                  <td data-label="Customer">
+                    <div style="text-align:left">
+                      <div class="font-bold">${c.name}</div>
+                      <div style="font-size:11px;opacity:0.6">${c.phone}</div>
+                    </div>
+                  </td>
+                  <td data-label="Orders"><span class="badge badge-info">${c.orderCount} Orders</span></td>
+                  <td data-label="Last Activity" style="font-size:12px">${new Date(c.lastOrderDate).toLocaleDateString()}</td>
+                  <td data-label="Balance" class="font-bold text-danger" style="font-size:16px">${cur}${c.totalOutstanding.toFixed(2)}</td>
+                </tr>
+              `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+
+// Keep existing chart functions but update variable management
+function renderSalesChart(data) {
+  const ctx = document.getElementById('salesChart');
+  if (!ctx) return;
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+  chartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.label),
+      datasets: [{
+        label: 'Revenue',
+        data: data.map(d => d.total),
+        backgroundColor: 'rgba(79,70,229,0.5)',
+        borderColor: '#818cf8',
+        borderWidth: 2,
+        borderRadius: 6,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+      },
+    },
+  });
+}
+
+function renderPaymentChart(orders, cur) {
+  const ctx = document.getElementById('paymentChart');
+  if (!ctx) return;
+  const methods = {};
+  orders.forEach(o => {
+    if (o.payments) {
+      o.payments.forEach(p => {
+        methods[p.method] = (methods[p.method] || 0) + p.amount;
+      });
+    } else {
+      methods[o.paymentMethod] = (methods[o.paymentMethod] || 0) + o.total;
+    }
+  });
+  const colors = ['#4f46e5', '#10b981', '#f59e0b', '#3b82f6', '#ef4444'];
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(methods),
+      datasets: [{
+        data: Object.values(methods),
+        backgroundColor: colors,
+        borderWidth: 0,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 16, font: { size: 13 } } },
+      },
+      cutout: '65%',
+    },
+  });
+}
+
+function renderProcurementChart(data) {
+  const ctx = document.getElementById('procurementChart');
+  if (!ctx || !data) return;
+  if (procurementChart) { procurementChart.destroy(); procurementChart = null; }
+  procurementChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: data.map(d => d.label),
+      datasets: [{
+        label: 'Procurement Cost',
+        data: data.map(d => d.total),
+        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+        borderColor: '#f59e0b',
+        borderWidth: 3,
+        tension: 0.4,
+        fill: true,
+        pointBackgroundColor: '#f59e0b',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointRadius: 4,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' }, beginAtZero: true },
+      },
+    }
+  });
+}
+
+
+let chartInstance = null;
+let procurementChart = null;
+
+function renderLoginActivityReport(container, cur) {
+  container.innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <div class="font-bold" style="font-size:18px"><i class="fa-solid fa-shield-halved mr-8 text-primary"></i> Login Activity & System Audit</div>
+        <button class="btn btn-ghost btn-sm" id="refresh-login-logs">
+          <i class="fa-solid fa-sync-alt mr-4"></i> Refresh Logs
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead>
+            <tr>
+              <th>User / Role</th>
+              <th>Login Time</th>
+              <th>IP Address</th>
+              <th>Device / OS</th>
+              <th>Browser</th>
+              <th>Register</th>
+            </tr>
+          </thead>
+          <tbody id="login-logs-body">
+            <tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.5"><i class="fa-solid fa-spinner fa-spin mr-8"></i> Loading logs from Hub...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  async function loadLogs() {
+    const tableBody = document.getElementById('login-logs-body');
+    if (!window.syncEngine || !window.syncEngine.isConnected) {
+      tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--danger)">Offline - Hub connection required</td></tr>';
+      return;
+    }
+
+    const res = await window.syncEngine.getLoginActivities(100);
+    if (!res.success) {
+      tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--danger)">${res.message}</td></tr>`;
+      return;
+    }
+
+    if (res.logs.length === 0) {
+      tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.5">No login activity recorded yet.</td></tr>';
+      return;
+    }
+
+    tableBody.innerHTML = res.logs.map(log => {
+      const date = new Date(log.timestamp);
+      const isMobile = log.deviceType === 'Mobile/Tablet';
+      return `
+        <tr>
+          <td data-label="User / Role">
+            <div style="text-align:left">
+              <div class="font-bold">${log.userName || 'Unknown'}</div>
+              <div class="badge badge-ghost" style="font-size:10px">${log.role || 'Staff'}</div>
+            </div>
+          </td>
+          <td data-label="Login Time">
+            <div style="text-align:left">
+              <div>${date.toLocaleDateString()}</div>
+              <div style="font-size:11px;opacity:0.6">${date.toLocaleTimeString()}</div>
+            </div>
+          </td>
+          <td data-label="IP Address">
+            <code style="font-size:11px;color:var(--primary)">${log.ip || 'Local'}</code>
+          </td>
+          <td data-label="Device / OS">
+            <div style="display:flex;align-items:center;gap:8px;justify-content:flex-start">
+              <i class="fa-solid ${isMobile ? 'fa-mobile-screen' : 'fa-desktop'}" style="opacity:0.6"></i>
+              <div style="text-align:left">
+                <div style="font-size:13px">${log.os || 'Unknown OS'}</div>
+                <div style="font-size:10px;opacity:0.5">${log.deviceType || 'Desktop'}</div>
+              </div>
+            </div>
+          </td>
+          <td data-label="Browser">
+            <span class="badge badge-primary-light" style="font-size:11px">${log.browser || 'Browser'}</span>
+          </td>
+          <td data-label="Register">
+             <div style="font-size:13px">${log.registerName || 'N/A'}</div>
+             <div style="font-size:10px;opacity:0.5">${log.branchName || ''}</div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  loadLogs();
+  document.getElementById('refresh-login-logs').onclick = loadLogs;
+}
+
+async function exportPurchaseRegisterJson(purchases) {
+  const register = {
+    reportType: "GSTR_PURCHASE_REGISTER",
+    generatedAt: new Date().toISOString(),
+    branch: store.branch?.name || "All Branches",
+    summary: {
+      totalTaxableValue: purchases.reduce((s, p) => s + (p.subtotal || p.total), 0),
+      totalTaxAmount: purchases.reduce((s, p) => s + (p.taxAmount || 0), 0),
+      totalValue: purchases.reduce((s, p) => s + p.total, 0),
+      count: purchases.length
+    },
+    purchases: purchases.map(p => ({
+      ctin: p.supplierGstin || "UNREGISTERED",
+      inum: p.supplierInvoiceNo || p.id,
+      idt: new Date(p.date).toLocaleDateString('en-GB'),
+      val: p.total,
+      pos: p.placeOfSupply || "33",
+      rchrg: "N",
+      inv_typ: "R",
+      txval: p.subtotal || p.total,
+      rt: p.taxRate || 0,
+      iamt: 0,
+      camt: (p.taxAmount || 0) / 2,
+      samt: (p.taxAmount || 0) / 2,
+      supplierName: p.supplierName
+    }))
+  };
+
+  const blob = new Blob([JSON.stringify(register, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `PurchaseRegister_${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportGSTR1Json(orders) {
+  const settings = await getSettings();
+  const gstr1 = {
+    gstin: settings.gstin || "NOT_PROVIDED", 
+    fp: new Date().toLocaleString('en-IN', { month: '2-digit', year: 'numeric' }).replace('/', ''),
+    gt: orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0),
+    cur_gt: orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0),
+    b2b: [],
+    b2cs: [],
+    hsn: { data: [] }
+  };
+
+  const hsnMap = {};
+
+  orders.filter(o => o.status !== 'cancelled').forEach(o => {
+    if (o.customer?.gstin) {
+      let b2bEntry = gstr1.b2b.find(ctin => ctin.ctin === o.customer.gstin);
+      if (!b2bEntry) {
+        b2bEntry = { ctin: o.customer.gstin, inv: [] };
+        gstr1.b2b.push(b2bEntry);
+      }
+      b2bEntry.inv.push({
+        inum: o.id,
+        idt: new Date(o.date).toLocaleDateString('en-GB'),
+        val: o.total,
+        pos: settings.stateCode || "33",
+        rchrg: "N",
+        inv_typ: "R",
+        itms: [{
+          num: 1,
+          itm_det: {
+            rt: o.taxRate || 0,
+            txval: o.subtotal,
+            iamt: 0,
+            camt: (o.tax || 0) / 2,
+            samt: (o.tax || 0) / 2,
+            csamt: 0
+          }
+        }]
+      });
+    } else {
+      gstr1.b2cs.push({
+        sply_ty: "INTER",
+        pos: settings.stateCode || "33",
+        typ: "OE",
+        rt: o.taxRate || 0,
+        txval: (o.subtotal || 0),
+        iamt: 0,
+        camt: (o.tax || 0) / 2,
+        samt: (o.tax || 0) / 2,
+        csamt: 0
+      });
+    }
+
+    (o.items || []).forEach(item => {
+      const code = item.hsnCode || "9999";
+      if (!hsnMap[code]) {
+        hsnMap[code] = { hsn_sc: code, desc: item.name, uqc: "NOS", qty: 0, val: 0, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
+      }
+
+      const itemTax = item.finalTax || 0;
+      const discountTotal = (item.itemDiscount || 0) * item.qty;
+      const discountedTotal = Math.max(0, (item.price * item.qty) - discountTotal);
+      let taxValueNet = discountedTotal;
+      if (item.taxType === 'inclusive') {
+        taxValueNet = discountedTotal - itemTax;
+      }
+
+      hsnMap[code].qty += item.qty;
+      hsnMap[code].val += taxValueNet + itemTax;
+      hsnMap[code].txval += taxValueNet;
+      hsnMap[code].camt += itemTax / 2;
+      hsnMap[code].samt += itemTax / 2;
+    });
+  });
+
+  gstr1.hsn.data = Object.values(hsnMap);
+
+  const blob = new Blob([JSON.stringify(gstr1, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `GSTR1_${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}

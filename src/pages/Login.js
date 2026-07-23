@@ -1,0 +1,348 @@
+import { setSession, clearStore, updateData, updateSettings } from '../db.js';
+import { showToast } from '../components/Toast.js';
+
+export function renderLogin(container) {
+  let currentStep = 'credentials'; // 'credentials', 'branch', 'register'
+  let authenticatedUser = null;
+  let selectedBranch = null;
+  let selectedRegisterId = null;
+
+  // Cloud-fetched data — ONLY populated from verified user's license
+  let cloudBranches = [];
+  let cloudRegisters = [];
+
+  // Wipe stale session data — but NOT in standalone/Electron mode (local stores are the source of truth)
+  const isElectron = /Electron/i.test(navigator.userAgent);
+  if (!isElectron) {
+    clearStore('users');
+    clearStore('branches');
+    clearStore('registers');
+  }
+
+  // REMOVED: Aggressive window listeners that cause full-page re-renders and wipe inputs.
+  function updateUI() {
+    const limits = window.syncEngine?.getLimits() || { maxBranches: 1 };
+    let allowedBranches = cloudBranches.slice(0, limits.maxBranches);
+
+    container.innerHTML = `
+    <div class="login-split-container">
+      <!-- Hero Section (Left) -->
+      <div class="login-hero-section">
+        <div class="hero-branding anim-slide-up">
+          <div class="hero-logo-box">
+            <i class="fa-solid fa-antigravity"></i>
+          </div>
+          <h1 class="hero-title">
+            The Future of <span>Modern POS</span>
+          </h1>
+          <p class="hero-desc">
+            Experience the next generation of business management. A sleek, powerful, 
+            and intuitive platform designed to scale with your enterprise.
+          </p>
+          
+          <div class="hero-stats">
+            <div class="hero-stat-item">
+              <span class="hero-stat-value">100%</span>
+              <span class="hero-stat-label">Cloud Sync</span>
+            </div>
+            <div class="hero-stat-item">
+              <span class="hero-stat-value">256-bit</span>
+              <span class="hero-stat-label">Secure</span>
+            </div>
+            <div class="hero-stat-item">
+              <span class="hero-stat-value">24/7</span>
+              <span class="hero-stat-label">Reliability</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Form Section (Right) -->
+      <div class="login-form-section">
+        <div class="login-form-wrapper">
+          <div class="login-card-premium">
+            <div class="login-form-header">
+              <h2 class="login-form-title">
+                ${currentStep === 'credentials' ? 'Sign In' : ''}
+                ${currentStep === 'branch' ? 'Select Branch' : ''}
+                ${currentStep === 'register' ? 'Select Register' : ''}
+              </h2>
+              <p class="login-form-subtitle">
+                ${currentStep === 'credentials' ? 'Welcome back! Please enter your details.' : ''}
+                ${currentStep === 'branch' ? `Select branch for <b>${authenticatedUser.name}</b>` : ''}
+                ${currentStep === 'register' ? `Select register for <b>${selectedBranch.name}</b>` : ''}
+              </p>
+            </div>
+
+            <div id="loginStepContent">
+              ${currentStep === 'credentials' ? `
+                <form id="credentialForm">
+                  <div class="premium-input-group">
+                    <label class="premium-label">Phone Number</label>
+                    <div class="premium-input-wrap">
+                      <i class="fa-solid fa-phone"></i>
+                      <input type="tel" class="premium-input" id="loginUsername" placeholder="Enter your phone number" required />
+                    </div>
+                  </div>
+                  <div class="premium-input-group">
+                    <label class="premium-label">Password</label>
+                    <div class="premium-input-wrap">
+                      <i class="fa-solid fa-shield-halved"></i>
+                      <input type="password" class="premium-input" id="loginPass" placeholder="••••••••" required />
+                    </div>
+                  </div>
+                  <button type="submit" class="btn btn-primary w-full btn-lg mt-8" style="height: 56px; border-radius: 16px;">
+                    Verify Account & Continue <i class="fa-solid fa-arrow-right-long ml-8"></i>
+                  </button>
+                </form>
+              ` : ''}
+
+              ${currentStep === 'branch' ? `
+                <div class="anim-slide-up">
+                  <div style="display:flex; flex-direction:column; gap:12px">
+                    ${(() => {
+          try {
+            const limits = window.syncEngine?.getLimits() || { maxBranches: 1 };
+            const allowedB = Array.isArray(cloudBranches) ? cloudBranches : [];
+            return allowedB.map((b, idx) => {
+              const bId = b.id || b.branchId || b._id;
+              const restricted = idx >= limits.maxBranches;
+              return `
+                        <button class="btn btn-ghost branch-option-btn" data-id="${bId}" ${restricted ? 'data-restricted="true" disabled' : ''} 
+                          style="justify-content:flex-start; height:64px; padding:0 24px; border-radius: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); ${restricted ? 'opacity:0.5; cursor:not-allowed' : ''}">
+                          <div class="hero-logo-box" style="width:36px; height:36px; border-radius:10px; font-size:16px; margin:0 16px 0 0; background:${restricted ? '#64748b' : ''}; box-shadow:none">
+                            <i class="fa-solid fa-store"></i>
+                          </div>
+                          <div style="flex:1; text-align:left">
+                            <div class="font-bold" style="color:#fff">
+                              ${b.name || 'Unnamed Branch'}
+                              ${restricted ? '<span style="font-size:9px; background:var(--warning); color:black; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">PREMIUM ONLY</span>' : ''}
+                            </div>
+                            <div style="font-size:11px; color:#64748b">${b.address || ''}</div>
+                          </div>
+                        </button>
+                      `;
+            }).join('');
+          } catch(e) { console.error('Branch Render Error:', e); return '<p>Error loading branches</p>'; }
+        })()}
+                  </div>
+                  <button type="button" class="btn btn-ghost w-full mt-24" id="backToCredBtn">
+                    <i class="fa-solid fa-arrow-left-long mr-8"></i> Back to Login
+                  </button>
+                </div>
+              ` : ''}
+
+              ${currentStep === 'register' ? (() => {
+        try {
+          const limits = window.syncEngine?.getLimits() || { maxRegistersPerBranch: 1 };
+          const bId = selectedBranch?.id || selectedBranch?.branchId || selectedBranch?._id;
+          const branchRegs = (cloudRegisters || []).filter(r => (r.branchId || r.id) === bId).slice(0, limits.maxRegistersPerBranch);
+          
+          return `
+          <div class="anim-slide-up">
+                    <div style="display:flex; flex-direction:column; gap:12px">
+                      ${branchRegs.map((r, idx) => {
+                const rId = r.id || r.registerId || r._id;
+                const restricted = idx >= limits.maxRegistersPerBranch;
+                return `
+                        <button class="btn btn-ghost register-option-btn" data-id="${rId}" ${restricted ? 'data-restricted="true" disabled' : ''} 
+                          style="justify-content:flex-start; height:60px; padding:0 24px; border-radius: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); ${restricted ? 'opacity:0.5; cursor:not-allowed' : ''}">
+                          <div class="hero-logo-box" style="width:32px; height:32px; border-radius:10px; font-size:14px; margin:0 16px 0 0; background:${restricted ? '#64748b' : 'linear-gradient(135deg, #10b981, #059669)'}; box-shadow:none">
+                            <i class="fa-solid fa-cash-register"></i>
+                          </div>
+                          <div style="flex:1; text-align:left">
+                            <div class="font-bold" style="color:#fff">
+                              ${r.name || 'Unnamed Register'}
+                            </div>
+                          </div>
+                        </button>
+                      `;
+              }).join('')}
+                      ${branchRegs.length === 0 ? '<p style="text-align:center; padding:32px; color:#64748b; font-style:italic">No active registers found.</p>' : ''}
+                    </div>
+                    <button type="button" class="btn btn-ghost w-full mt-24" id="backToBranchBtn">
+                      <i class="fa-solid fa-arrow-left-long mr-8"></i> Back to Branches
+                    </button>
+                  </div>
+          `;
+        } catch(e) { console.error('Register Render Error:', e); return '<p>Error loading registers</p>'; }
+      })() : ''}
+            </div>
+
+            <div class="login-action-area">
+              <p style="color: #334155; font-size: 11px; margin-top: 24px;">© 2026 POS Enterprise v2.4.0</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    `;
+
+    // Event Listeners
+    if (currentStep === 'credentials') {
+      document.getElementById('credentialForm').onsubmit = (e) => {
+        e.preventDefault();
+        const username = document.getElementById('loginUsername').value.trim();
+        const pass = document.getElementById('loginPass').value;
+
+        if (!username || !pass) { showToast('Please enter email and password', 'error'); return; }
+
+        // Show loading overlay while verifying
+        showLoginLoading();
+
+        const doLogin = async () => {
+          try {
+            // If not connected, force a quick connect attempt
+            if (window.syncEngine && !window.syncEngine.isConnected) {
+              window.syncEngine.connect();
+              await new Promise(r => setTimeout(r, 1500));
+            }
+
+            const res = await window.syncEngine.verifyCredentials(username, pass);
+
+            if (res.success && res.user) {
+              authenticatedUser = res.user;
+              cloudBranches = res.branches || [];
+              cloudRegisters = res.registers || [];
+              for (const b of cloudBranches) updateData('branches', b, true);
+              for (const r of cloudRegisters) updateData('registers', r, true);
+              const userLicenseKey = res.licenseKey || res.user?.licenseKey;
+              if (userLicenseKey) {
+                updateSettings({
+                  licenseKey: userLicenseKey,
+                  networkId: res.networkId || userLicenseKey
+                });
+              }
+              currentStep = 'branch';
+              hideLoginLoading();
+              updateUI();
+            } else {
+              hideLoginLoading();
+              showToast(res.message || 'Verification Failed. Check your connection.', 'error');
+            }
+          } catch (err) {
+            console.error('[Login] verifyCredentials error:', err);
+            hideLoginLoading();
+          }
+        };
+
+        doLogin();
+      };
+    }
+
+    if (currentStep === 'branch') {
+      container.querySelectorAll('.branch-option-btn').forEach(btn => {
+        btn.onclick = () => {
+          const bId = btn.dataset.id;
+          console.log('[Login] Selecting Branch:', bId);
+          selectedBranch = cloudBranches.find(b => (b.id || b.branchId || b._id?.toString()) === bId);
+          console.log('[Login] Selected Branch Data:', selectedBranch);
+          if (!selectedBranch) {
+            showToast('Branch data missing. Try logging in again.', 'error');
+            return;
+          }
+
+          // Auto-skip register screen if no registers are configured for this branch
+          const limits = window.syncEngine?.getLimits() || { maxRegistersPerBranch: 1 };
+          const bIdStr = selectedBranch.id || selectedBranch.branchId || selectedBranch._id;
+          const branchRegs = (cloudRegisters || []).filter(r => (r.branchId || r.id) === bIdStr).slice(0, limits.maxRegistersPerBranch);
+
+          if (branchRegs.length === 0) {
+            console.log('[Login] No registers found for this branch. Auto-skipping to dashboard.');
+            selectedRegisterId = null;
+            finalizeLogin();
+            return;
+          }
+
+          currentStep = 'register';
+          updateUI();
+        };
+      });
+      document.getElementById('backToCredBtn').onclick = () => {
+        currentStep = 'credentials';
+        authenticatedUser = null;
+        updateUI();
+      };
+    }
+
+    if (currentStep === 'register') {
+      container.querySelectorAll('.register-option-btn').forEach(btn => {
+        btn.onclick = () => {
+          selectedRegisterId = btn.dataset.id;
+          finalizeLogin();
+        };
+      });
+      document.getElementById('backToBranchBtn').onclick = () => {
+        currentStep = 'branch';
+        selectedBranch = null;
+        updateUI();
+      };
+      const finishBtn = document.getElementById('finishLoginBtn');
+      if (finishBtn) {
+        finishBtn.onclick = () => finalizeLogin();
+      }
+    }
+  }
+
+  function showLoginLoading() {
+    let overlay = document.getElementById('login-loading-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'login-loading-overlay';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;display:flex;justify-content:center;align-items:center;background:rgba(0,0,0,0.65);z-index:10000;';
+      overlay.innerHTML = `<div style="text-align:center;color:#fff;">
+        <i class="fa-solid fa-spinner fa-spin" style="font-size:52px;margin-bottom:16px;display:block;"></i>
+        <div style="font-size:18px;font-weight:600;letter-spacing:0.5px;">Logging in…</div>
+      </div>`;
+      document.body.appendChild(overlay);
+    }
+  }
+
+  function hideLoginLoading() {
+    const overlay = document.getElementById('login-loading-overlay');
+    if (overlay) overlay.remove();
+  }
+
+  function finalizeLogin() {
+    console.log('[Login] Finalizing login process...');
+    console.log('[Login] User:', authenticatedUser);
+    console.log('[Login] Branch:', selectedBranch);
+    const loginAt = new Date().toISOString();
+    // Save session with login timestamp for session-based filtering
+    import('../db.js').then(async ({ saveSession, saveLoginActivity }) => {
+      await saveSession({
+        user: authenticatedUser,
+        branch: selectedBranch,
+        registerId: selectedRegisterId,
+        loginAt,
+        sessionId: 'LA-' + Date.now()
+      });
+      // Record login activity entry
+      await saveLoginActivity({
+        id: 'LA-' + Date.now(),
+        userId: authenticatedUser.id,
+        userName: authenticatedUser.name,
+        userRole: authenticatedUser.role,
+        branchId: selectedBranch?.id || null,
+        branchName: selectedBranch?.name || null,
+        loginAt,
+        logoutAt: null,
+        status: 'active'
+      });
+    });
+    showLoginLoading();
+    setTimeout(() => {
+      console.log('[Login] Redirecting to Dashboard and reloading...');
+      window.location.hash = 'dashboard';
+      window.location.reload();
+    }, 1500);
+  }
+
+  // Pre-fetch limits if available
+  const limits = window.syncEngine?.getLimits() || { maxBranches: 1 };
+
+  // On page load, just render the credentials form
+  updateUI();
+
+
+}

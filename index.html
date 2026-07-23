@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>POS — Point of Sale</title>
+  <meta name="description" content="A modern Point of Sale app for managing products, orders, and sales." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+
+<body>
+  <div id="app">
+    <div id="sidebar"></div>
+    <div id="main-content">
+      <div id="topbar"></div>
+      <div id="page-container"></div>
+    </div>
+  </div>
+
+  <!-- Mobile: Sidebar overlay -->
+  <div id="sidebar-overlay"></div>
+
+  <!-- Mobile: Bottom Navigation -->
+  <nav id="bottom-nav">
+    <div class="bottom-nav-inner">
+      <button class="bottom-nav-item active" data-page="dashboard" id="bnav-dashboard">
+        <i class="fa-solid fa-gauge-high"></i>
+        <span>Home</span>
+      </button>
+      <button class="bottom-nav-item" data-page="pos" id="bnav-pos">
+        <i class="fa-solid fa-cash-register"></i>
+        <span>POS</span>
+      </button>
+      <button class="bottom-nav-item" data-page="register" id="bnav-register">
+        <i class="fa-solid fa-cash-register"></i>
+        <span>Register</span>
+      </button>
+      <button class="bottom-nav-item" data-page="orders" id="bnav-orders">
+        <i class="fa-solid fa-receipt"></i>
+        <span>Orders</span>
+      </button>
+      <button class="bottom-nav-item" data-page="reports" id="bnav-reports">
+        <i class="fa-solid fa-chart-line"></i>
+        <span>Reports</span>
+      </button>
+      <button class="bottom-nav-item" data-page="settings" id="bnav-settings">
+        <i class="fa-solid fa-gear"></i>
+        <span>Settings</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Mobile: Cart Drawer -->
+  <div id="cart-drawer-backdrop"></div>
+  <div id="cart-drawer">
+    <div class="cart-drawer-handle" id="cartDrawerHandle"></div>
+    <div id="cart-drawer-inner" style="flex:1;display:flex;flex-direction:column;overflow:hidden;"></div>
+  </div>
+
+  <!-- Mobile: Checkout FAB -->
+  <div class="mobile-checkout-fab hidden" id="mobileCheckoutFab"></div>
+
+  <div id="kioskAlertContainer" style="pointer-events:none"></div>
+  <div id="toast-container"></div>
+  <div id="pos-modal-overlay" class="pos-modal-overlay hidden"></div>
+  
+  <!-- Label Printing Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/litepicker/dist/plugins/ranges.js"></script>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>
