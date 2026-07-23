@@ -1123,7 +1123,7 @@ async function setupBackupTab(container) {
     try {
       const res = await BackupService.exportBackup();
       if (res && res.success) {
-        showToast('Snapshot created successfully! 🛡️', 'success');
+        showToast(res.skipped ? 'Already up to date — no changes since last backup.' : 'Snapshot created successfully! 🛡️', res.skipped ? 'info' : 'success');
         await setupBackupTab(container); // Re-render
       }
     } catch (err) {

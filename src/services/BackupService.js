@@ -163,6 +163,12 @@ export const BackupService = {
 
         const checksum = await generateChecksum(JSON.stringify(payload));
 
+        // Skip creating a duplicate backup if nothing has changed since the last one.
+        const history = await read(KEYS.BACKUP_HISTORY) || [];
+        if (history.length > 0 && settings.backupSettings?.lastChecksum === checksum) {
+            return { success: true, skipped: true };
+        }
+
         const backupData = {
             version: '3.0',
             appVersion: '2.5.0',
@@ -198,6 +204,7 @@ export const BackupService = {
 
             // Add to history
             await this.recordHistory(backupDate, expiryDate, jsonString.length, finalPath, filename);
+            await this.rememberChecksum(checksum);
             return { success: true, path: finalPath };
         }
 
@@ -211,7 +218,14 @@ export const BackupService = {
         URL.revokeObjectURL(url);
 
         await this.recordHistory(backupDate, expiryDate, jsonString.length, 'Default Downloads', filename);
+        await this.rememberChecksum(checksum);
         return { success: true };
+    },
+
+    async rememberChecksum(checksum) {
+        const fresh = await getSettings();
+        fresh.backupSettings = { ...fresh.backupSettings, lastChecksum: checksum };
+        await saveSettings(fresh);
     },
 
     async recordHistory(date, expiry, size, path, filename) {
@@ -261,12 +275,18 @@ export const BackupService = {
             const filePath = `${config.customPath}/${filename}`;
             
             const result = await this.exportBackup(null, filePath);
-            
+
             if (result && result.success) {
                 // Update last backup time
                 settings.backupSettings.lastAutoBackup = now;
                 await saveSettings(settings);
-                console.log('[BackupService] Auto-backup successful.');
+
+                if (result.skipped) {
+                    console.log('[BackupService] Auto-backup skipped — no changes since last backup.');
+                } else {
+                    console.log('[BackupService] Auto-backup successful.');
+                    window.showToast?.('Auto-backup completed 🛡️', 'success');
+                }
 
                 // Perform Retention Cleanup
                 await this.performRetention(config.customPath, retentionDays);
