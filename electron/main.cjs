@@ -287,14 +287,25 @@ app.on('before-quit', () => {
 });
 
 // ─── IPC Handlers ─────────────────────────────────────────
+// Resolve the window that actually sent the IPC call, falling back to the
+// module-level mainWindow reference. This is more robust than trusting
+// mainWindow alone — if it's ever stale/null when a dialog IPC fires, the
+// old code silently short-circuited to a fake { canceled: true } with no
+// dialog ever shown, which looked exactly like "nothing happens when I click".
+function windowForEvent(event) {
+  return BrowserWindow.fromWebContents(event.sender) || mainWindow;
+}
+
 ipcMain.handle('show-save-dialog', async (event, options) => {
-  if (!mainWindow) return { canceled: true };
-  return await dialog.showSaveDialog(mainWindow, options);
+  const win = windowForEvent(event);
+  if (!win) return { canceled: true };
+  return await dialog.showSaveDialog(win, options);
 });
 
-ipcMain.handle('select-directory', async () => {
-  if (!mainWindow) return { canceled: true };
-  return await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'] });
+ipcMain.handle('select-directory', async (event) => {
+  const win = windowForEvent(event);
+  if (!win) return { canceled: true };
+  return await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
 });
 
 ipcMain.handle('save-file-from-buffer', async (event, { filePath, buffer }) => {

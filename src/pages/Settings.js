@@ -12,7 +12,6 @@ import { MediaService } from '../services/MediaService.js';
 
 let activeSettingsTab = 'general';
 let advancedConnectionExpanded = false;
-let backupActiveTab = 'export';
 
 window.SettingsPage = {
   render: () => {
@@ -176,11 +175,6 @@ const CURRENCIES = [
 export async function renderSettings(container) {
   const branchId = store.branch?.id;
   const s = await getSettings(branchId);
-  // Only reset backupActiveTab if it is incompatible with the current mode
-  const standaloneTabs = ['automated', 'history'];
-  if (!standaloneTabs.includes(backupActiveTab)) {
-    backupActiveTab = 'automated';
-  }
 
   if (!(await hasPermission('settings:manage'))) {
     container.innerHTML = `
@@ -490,12 +484,7 @@ export async function renderSettings(container) {
         </div>
    
         <!-- Backup Tab Content -->
-        <div class="settings-tab-content ${activeSettingsTab === 'backup' ? 'active' : ''}" id="tab-backup">
-          <div style="opacity: ${syncEngine.checkCapability('data_backup') ? '1' : '0.5'}; pointer-events: ${syncEngine.checkCapability('data_backup') ? 'auto' : 'none'}; position: relative;">
-            ${!syncEngine.checkCapability('data_backup') ? '<div style="position:absolute; top:0; right:0; font-size:10px; background:var(--bg-elevated); border:1px solid var(--border); padding:2px 8px; border-radius:10px; color:var(--text-muted); font-weight:700;"><i class="fa-solid fa-lock mr-4"></i> PRO ONLY</div>' : ''}
-            ${renderBackupTab(s)}
-          </div>
-        </div>
+        <div class="settings-tab-content ${activeSettingsTab === 'backup' ? 'active' : ''}" id="tab-backup"></div>
 
         <!-- Add-ons Tab Content -->
         <div class="settings-tab-content ${activeSettingsTab === 'addons' ? 'active' : ''}" id="tab-addons">
@@ -983,10 +972,45 @@ function setupDangerZone(container) {
   };
 }
 
+function timeAgo(date) {
+  if (!date) return null;
+  const seconds = Math.floor((new Date() - date) / 1000);
+  if (seconds < 60) return 'just now';
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+  return date.toLocaleDateString();
+}
+
 async function setupBackupTab(container) {
   const isElectron = /Electron/i.test(navigator.userAgent);
   const backupTabElement = container.querySelector('#tab-backup');
   if (!backupTabElement) return;
+
+  const canBackup = syncEngine.checkCapability('data_backup');
+  if (!canBackup) {
+    backupTabElement.innerHTML = `
+      <div style="height:360px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:40px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:14px; gap:16px;">
+        <div style="width:72px; height:72px; border-radius:50%; background:rgba(var(--primary-rgb), 0.1); display:flex; align-items:center; justify-content:center;">
+          <i class="fa-solid fa-shield-halved" style="font-size:32px; color:var(--primary);"></i>
+        </div>
+        <div>
+          <h2 style="margin-bottom:8px;">Backup & Restore</h2>
+          <p style="color:var(--text-muted); max-width:320px; font-size:14px;">Automated snapshots, restore, and retention policies are premium features.</p>
+        </div>
+        <button class="btn btn-primary" onclick="window.selectedSettingsTab='license'; renderSettings(document.getElementById('page-container'))" style="border-radius:10px; padding:12px 24px; font-weight:700;">
+          🚀 Upgrade to Pro Now
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  const settings = await getSettings();
+  const b = settings.backupSettings || {};
 
   // --- PREMIUM STANDALONE / ELECTRON DASHBOARD ---
   const history = await read(KEYS.BACKUP_HISTORY) || [];
@@ -1006,7 +1030,9 @@ async function setupBackupTab(container) {
           <div class="status-pulse" style="background: ${isHealthy ? 'var(--success)' : 'var(--warning)'}"></div>
         </div>
         <p style="font-size:13px; color:var(--text-muted); line-height:1.6">
-          ${isHealthy ? 'Your data is securely backed up within the last 24 hours. Good job!' : 'Your last backup was more than 24 hours ago. We recommend taking a snapshot now.'}
+          ${lastBackup
+            ? `Last snapshot taken <b>${timeAgo(lastBackup)}</b>. ${isHealthy ? 'Your data is secure.' : 'We recommend taking a fresh snapshot.'}`
+            : 'No snapshots yet. Create your first backup to keep your data safe.'}
         </p>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:20px">
           <div class="stat-box">
@@ -1027,7 +1053,7 @@ async function setupBackupTab(container) {
           <button id="pBackupNowBtn" class="btn btn-primary" style="padding:14px; border-radius:12px; display:flex; align-items:center; justify-content:center; gap:10px; font-weight:700">
             <i class="fa-solid fa-shield-halved"></i> Create Secure Snapshot
           </button>
-          <button id="pImportBtn" class="btn" style="padding:14px; border-radius:12px; background:rgba(255,255,255,0.05); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; gap:10px; font-weight:700; color:var(--text-main)">
+          <button id="pImportBtn" class="btn" style="padding:14px; border-radius:12px; background:var(--bg-elevated); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; gap:10px; font-weight:700; color:var(--text-main)">
             <i class="fa-solid fa-file-import"></i> Restore from File
           </button>
           <input type="file" id="pBackupFileInput" accept=".json" style="display:none">
@@ -1036,38 +1062,39 @@ async function setupBackupTab(container) {
 
       <!-- Automation Card -->
       <div class="backup-card">
-        <div style="font-size:12px; color:var(--text-muted); text-transform:uppercase; font-weight:800; letter-spacing:1px; margin-bottom:12px">Automation</div>
-        <div style="display:flex; flex-direction:column; gap:16px">
+        <div style="font-size:12px; color:var(--text-muted); text-transform:uppercase; font-weight:800; letter-spacing:1px; margin-bottom:12px">Automation ${!isElectron ? '<span style="font-weight:600; text-transform:none; letter-spacing:0; opacity:0.7">(Desktop app only)</span>' : ''}</div>
+        <div style="display:flex; flex-direction:column; gap:16px; ${!isElectron ? 'opacity:0.5; pointer-events:none;' : ''}">
            <div style="display:flex; justify-content:space-between; align-items:center">
               <div>
                  <div style="font-weight:700; font-size:14px">Auto-Backup</div>
-                 <div style="font-size:11px; color:var(--text-muted)">Save to disk on every app close</div>
+                 <div style="font-size:11px; color:var(--text-muted)">Save to disk automatically</div>
               </div>
               <label class="switch">
-                 <input type="checkbox" id="pAutoBackupToggle" ${s.backupSettings?.enabled ? 'checked' : ''}>
+                 <input type="checkbox" id="pAutoBackupToggle" ${b.enabled ? 'checked' : ''}>
                  <span class="slider round"></span>
               </label>
            </div>
-           <div style="background:rgba(255,255,255,0.02); padding:12px; border-radius:10px; border:1px solid var(--border-light)">
+           <div style="background:var(--bg-elevated); padding:12px; border-radius:10px; border:1px solid var(--border)">
               <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px">Target Directory</div>
               <div style="display:flex; gap:8px">
-                 <input type="text" id="pBackupPath" readonly value="${s.backupSettings?.customPath || 'Not Selected'}" style="flex:1; background:transparent; border:none; color:var(--text-main); font-size:12px">
-                 <button id="pBrowseBtn" style="background:var(--primary); border:none; padding:4px 10px; border-radius:6px; color:white; cursor:pointer"><i class="fa-solid fa-folder-open"></i></button>
+                 <input type="text" id="pBackupPath" readonly value="${b.customPath || 'Not selected'}" style="flex:1; background:transparent; border:none; color:${b.customPath ? 'var(--text-main)' : 'var(--danger)'}; font-size:12px">
+                 <button type="button" id="pBrowseBtn" style="background:var(--primary); border:none; padding:4px 10px; border-radius:6px; color:white; cursor:pointer"><i class="fa-solid fa-folder-open"></i></button>
               </div>
+              ${!b.customPath ? `<div style="font-size:11px; color:var(--danger); margin-top:8px"><i class="fa-solid fa-triangle-exclamation mr-4"></i>Select a folder to enable auto-backup.</div>` : ''}
            </div>
-           
+
            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
               <div>
                  <div style="font-size:11px; color:var(--text-muted); margin-bottom:4px">Interval</div>
                  <select id="pBackupInterval" class="form-input" style="height:36px; padding:0 8px; font-size:12px; border-radius:8px">
-                    <option value="onExit" ${s.backupSettings?.interval === 'onExit' ? 'selected' : ''}>On App Close</option>
-                    <option value="hourly" ${s.backupSettings?.interval === 'hourly' ? 'selected' : ''}>Hourly</option>
-                    <option value="daily" ${s.backupSettings?.interval === 'daily' ? 'selected' : ''}>Daily</option>
+                    <option value="onExit" ${b.interval === 'onExit' ? 'selected' : ''}>On App Close</option>
+                    <option value="hourly" ${b.interval === 'hourly' ? 'selected' : ''}>Hourly</option>
+                    <option value="daily" ${b.interval === 'daily' ? 'selected' : ''}>Daily</option>
                  </select>
               </div>
               <div>
                  <div style="font-size:11px; color:var(--text-muted); margin-bottom:4px">Retention (Days)</div>
-                 <input type="number" id="pBackupRetention" class="form-input" value="${s.backupSettings?.retentionDays || 7}" min="1" max="90" style="height:36px; padding:0 8px; font-size:12px; border-radius:8px">
+                 <input type="number" id="pBackupRetention" class="form-input" value="${b.retentionDays || 7}" min="1" max="90" style="height:36px; padding:0 8px; font-size:12px; border-radius:8px">
               </div>
            </div>
         </div>
@@ -1076,7 +1103,7 @@ async function setupBackupTab(container) {
 
     <!-- History Tabs -->
     <div class="card" style="border-radius:20px; overflow:hidden">
-       <div style="display:flex; gap:20px; padding:16px 24px; background:rgba(255,255,255,0.02); border-bottom:1px solid var(--border)">
+       <div style="display:flex; gap:20px; padding:16px 24px; background:var(--bg-elevated); border-bottom:1px solid var(--border)">
           <div class="backup-tab-btn active" data-tab="exports" style="font-weight:700; font-size:13px; cursor:pointer; opacity:1; border-bottom:2px solid var(--primary); padding-bottom:8px">Recent Snapshots</div>
           <div class="backup-tab-btn" data-tab="imports" style="font-weight:700; font-size:13px; cursor:pointer; opacity:0.5; padding-bottom:8px">Import History</div>
        </div>
@@ -1120,7 +1147,7 @@ async function setupBackupTab(container) {
       message: 'This will merge records from the file. We recommend creating a snapshot before proceeding. Continue?',
       okText: 'Start Restoration'
     });
-    if (!confirmed) return;
+    if (!confirmed) { fileInput.value = ''; return; }
 
     try {
       importBtn.disabled = true;
@@ -1135,42 +1162,59 @@ async function setupBackupTab(container) {
     } finally {
       importBtn.disabled = false;
       importBtn.innerHTML = '<i class="fa-solid fa-file-import"></i> Restore from File';
+      fileInput.value = '';
     }
   };
 
   // 3. Automation Listeners
-  backupTabElement.querySelector('#pBrowseBtn').onclick = async () => {
-    if (window.electronAPI?.selectDirectory) {
+  const browseBtn = backupTabElement.querySelector('#pBrowseBtn');
+  browseBtn.onclick = async () => {
+    if (!window.electronAPI?.selectDirectory) {
+      showToast('Folder selection is only available in the desktop app.', 'error');
+      return;
+    }
+    browseBtn.disabled = true;
+    try {
       const res = await window.electronAPI.selectDirectory();
-      if (!res.canceled && res.filePaths.length > 0) {
-        const path = res.filePaths[0];
-        const settings = await getSettings();
-        settings.backupSettings = { ...settings.backupSettings, customPath: path, enabled: true };
-        await saveSettings(settings);
-        showToast('Backup directory updated! 📂', 'success');
-        await setupBackupTab(container);
-      }
+      if (res.canceled || !res.filePaths?.length) return;
+
+      const path = res.filePaths[0];
+      const fresh = await getSettings();
+      fresh.backupSettings = { ...fresh.backupSettings, customPath: path, enabled: true };
+      await saveSettings(fresh);
+      showToast('Backup directory updated! 📂', 'success');
+      await setupBackupTab(container);
+    } catch (err) {
+      console.error('[Settings] selectDirectory failed:', err);
+      showToast('Could not open folder picker: ' + err.message, 'error');
+    } finally {
+      browseBtn.disabled = false;
     }
   };
 
   backupTabElement.querySelector('#pAutoBackupToggle').onchange = async (e) => {
-    const settings = await getSettings();
-    settings.backupSettings = { ...settings.backupSettings, enabled: e.target.checked };
-    await saveSettings(settings);
+    const fresh = await getSettings();
+    if (e.target.checked && !fresh.backupSettings?.customPath) {
+      e.target.checked = false;
+      showToast('Select a backup folder first.', 'error');
+      return;
+    }
+    fresh.backupSettings = { ...fresh.backupSettings, enabled: e.target.checked };
+    await saveSettings(fresh);
     showToast(e.target.checked ? 'Auto-backup enabled! 🛡️' : 'Auto-backup disabled.', 'info');
   };
 
   backupTabElement.querySelector('#pBackupInterval').onchange = async (e) => {
-    const settings = await getSettings();
-    settings.backupSettings = { ...settings.backupSettings, interval: e.target.value };
-    await saveSettings(settings);
+    const fresh = await getSettings();
+    fresh.backupSettings = { ...fresh.backupSettings, interval: e.target.value };
+    await saveSettings(fresh);
     showToast(`Interval set to: ${e.target.value}`, 'info');
   };
 
   backupTabElement.querySelector('#pBackupRetention').onchange = async (e) => {
-    const settings = await getSettings();
-    settings.backupSettings = { ...settings.backupSettings, retentionDays: parseInt(e.target.value) || 7 };
-    await saveSettings(settings);
+    const fresh = await getSettings();
+    fresh.backupSettings = { ...fresh.backupSettings, retentionDays: parseInt(e.target.value) || 7 };
+    await saveSettings(fresh);
     showToast(`Retention set to: ${e.target.value} days`, 'info');
   };
 
@@ -1235,141 +1279,6 @@ async function renderStandaloneImportHistory() {
       </div>
     `;
   }).join('');
-}
-
-async function renderImportHistory() {
-  const container = document.getElementById('importHistoryTableContainer');
-  if (!container) return;
-
-  const history = await read(KEYS.IMPORT_HISTORY) || [];
-
-  if (history.length === 0) {
-    container.innerHTML = `
-      <div style="padding:40px; text-align:center; color:var(--text-muted); background:var(--bg-elevated); border-radius:12px; border:1px dashed var(--border)">
-         <i class="fa-solid fa-clock-rotate-left mb-12" style="font-size:32px; opacity:0.3"></i>
-         <div style="font-size:14px; font-weight:600">No Import History</div>
-         <div style="font-size:12px">Your successful data restorations will appear here.</div>
-      </div>
-    `;
-    return;
-  }
-
-  const rows = history.map(item => {
-    const importDate = new Date(item.date).toLocaleDateString() + ' ' + new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    return `
-      <tr style="border-bottom: 1px solid var(--border); font-size:13px">
-        <td style="padding:12px 8px">
-          <div style="font-weight:700">${importDate}</div>
-        </td>
-        <td style="padding:12px 8px; color:var(--text-muted)">
-          ${item.filename}
-        </td>
-        <td style="padding:12px 8px">
-          <span class="badge badge-success">${item.count} records</span>
-        </td>
-      </tr>
-    `;
-  }).join('');
-
-  container.innerHTML = `
-    <table style="width:100%; border-collapse:collapse; text-align:left">
-      <thead>
-        <tr style="border-bottom: 2px solid var(--border); color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:1px">
-          <th style="padding:8px">Import Date</th>
-          <th style="padding:8px">Filename</th>
-          <th style="padding:8px">Records Restored</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows}
-      </tbody>
-    </table>
-  `;
-}
-
-async function renderBackupHistory() {
-  const container = document.getElementById('backupHistoryTableContainer');
-  if (!container) return;
-
-  const history = await read(KEYS.BACKUP_HISTORY) || [];
-  
-  if (history.length === 0) {
-    container.innerHTML = `
-      <div style="padding:40px; text-align:center; background:rgba(255,255,255,0.02); border-radius:12px; border:1px dashed var(--border)">
-        <i class="fa-solid fa-folder-open mb-12" style="font-size:32px; opacity:0.2"></i>
-        <p class="text-muted" style="font-size:13px">No past exports found on this device.</p>
-      </div>
-    `;
-    return;
-  }
-
-  const getExpiryLabel = (expiryDate) => {
-    const now = new Date();
-    const exp = new Date(expiryDate);
-    
-    if (now.toDateString() === exp.toDateString()) {
-      return '<span style="color:var(--danger); font-weight:700">Expires Today</span>';
-    }
-
-    const diff = exp.getTime() - now.getTime();
-    if (diff < 0) return '<span style="color:var(--danger)">Expired</span>';
-    
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    return `<span style="color:var(--warning)">Expires in ${days} day${days > 1 ? 's' : ''}</span>`;
-  };
-
-  const formatSize = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  const rows = history.map(item => {
-    const isExpired = new Date() > new Date(item.expiry);
-    return `
-    <tr style="border-bottom: 1px solid var(--border); opacity: ${isExpired ? '0.6' : '1'}">
-      <td style="padding:12px 8px; font-size:13px; font-weight:600">
-        ${new Date(item.date).toLocaleDateString()} 
-        <span style="font-size:11px; color:var(--text-muted); font-weight:400">${new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-        ${item.dateLimit ? `<div style="font-size:10px; color:var(--primary); margin-top:2px">Snapshot: ${new Date(item.dateLimit).toLocaleDateString()}</div>` : ''}
-      </td>
-      <td style="padding:12px 8px; font-size:12px;">
-        <div>${new Date(item.expiry).toLocaleDateString()}</div>
-        <div style="font-size:10px; opacity:0.8">${getExpiryLabel(item.expiry)}</div>
-      </td>
-      <td style="padding:12px 8px; font-size:12px; font-family:monospace">${formatSize(item.size)}</td>
-      <td style="padding:12px 8px; font-size:11px; text-align:right">
-        <div style="display:flex; align-items:center; justify-content:flex-end; gap:8px">
-          <span style="background:rgba(16,185,129,0.1); color:#10b981; padding:2px 8px; border-radius:10px; font-weight:800">GENERATED</span>
-          ${!isExpired ? `
-            <button class="btn btn-ghost btn-sm btn-download-history" data-id="${item.id}" title="Download this backup" style="padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:10px; cursor:pointer">
-              <i class="fa-solid fa-download"></i>
-            </button>
-          ` : ''}
-        </div>
-      </td>
-    </tr>
-  `;
-  }).join('');
-
-  container.innerHTML = `
-    <table style="width:100%; border-collapse:collapse; text-align:left">
-      <thead>
-        <tr style="border-bottom: 2px solid var(--border); color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:1px">
-          <th style="padding:8px">Backup Date</th>
-          <th style="padding:8px">Expiry Date</th>
-          <th style="padding:8px">File Size</th>
-          <th style="padding:8px; text-align:right">Status / Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows}
-      </tbody>
-    </table>
-  `;
 }
 
 async function showSyncDetails(store, label) {
@@ -1556,129 +1465,6 @@ function setupLicenseListeners(container) {
   }
 
   // Note: License status changes are handled by the global sync-message listener
-}
-
-function renderBackupTab(settings) {
-  const s = settings;
-
-  const renderSubTabNav = (isHub = false) => `
-    <div style="display:flex; gap:4px; margin-bottom:16px; background:var(--bg-elevated); padding:4px; border-radius:12px;">
-      ${(isHub ? ['automated', 'history'] : ['export', 'history']).map(tab => `
-        <button class="backup-tab-btn" data-backup-tab="${tab}" style="flex:1; padding:9px 12px; cursor:pointer; font-weight:600; font-size:13px; border:none; border-radius:9px; transition:all 0.2s;
-          background:${backupActiveTab === tab ? 'var(--bg-main)' : 'transparent'};
-          color:${backupActiveTab === tab ? 'var(--primary)' : 'var(--text-muted)'};
-          box-shadow:${backupActiveTab === tab ? '0 2px 8px rgba(0,0,0,0.15)' : 'none'};">
-          ${isHub
-            ? { automated: '🤖 Automated Backups', history: '📥 Local Import' }[tab]
-            : { export: '📤 Export Records', history: '📜 History' }[tab]
-          }
-        </button>`).join('')}
-    </div>
-  `;
-
-  // --- STANDALONE / ELECTRON MODE (New Automated UI) ---
-  const b = s.backupSettings || { interval: 'daily', retentionDays: 30, enabled: true };
-
-  if (backupActiveTab === 'history') {
-    return `
-      ${renderSubTabNav(true)}
-
-      <div class="card">
-         <div class="font-bold mb-16" style="font-size:16px">
-           <i class="fa-solid fa-file-import" style="color:var(--text-muted)"></i> Local Import & Restore
-         </div>
-         <p class="text-muted mb-16" style="font-size:12px">Select a previously exported JSON file to restore your data.</p>
-         <button id="backupImportBtn" class="btn btn-secondary w-full" style="font-weight:700">
-            <i class="fa-solid fa-upload mr-8"></i> Select File & Restore
-         </button>
-         <input type="file" id="backupFileInput" accept=".json" style="display:none" />
-      </div>
-    `;
-  }
-
-  // DEFAULT: Automated Backups Tab
-  return `
-    ${renderSubTabNav(true)}
-    
-    <!-- Configuration Section -->
-    <div class="card mb-20" style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; overflow:hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
-       <div style="background: linear-gradient(90deg, rgba(var(--primary-rgb), 0.1) 0%, transparent 100%); padding:16px 20px; border-bottom:1px solid var(--border-light);">
-         <div class="font-bold" style="font-size:16px; display:flex; align-items:center; gap:10px">
-           <div style="width:32px; height:32px; background:var(--primary); border-radius:8px; display:flex; align-items:center; justify-content:center; color:white">
-             <i class="fa-solid fa-gear"></i>
-           </div>
-           Backup Configuration
-         </div>
-       </div>
-       
-       <div style="padding:24px;">
-         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px; margin-bottom:24px">
-            <div class="form-group">
-              <label class="form-label" style="font-weight:700; margin-bottom:8px; color:var(--text-main)">Backup Frequency</label>
-              <div style="position:relative">
-                <select class="form-select" id="sBackupInterval" style="height:44px; padding-left:12px; border-radius:10px; background:var(--bg-main); border:1.5px solid var(--border)">
-                   <option value="manual" ${b.interval === 'manual' ? 'selected' : ''}>Manual (Disabled)</option>
-                   <option value="hourly" ${b.interval === 'hourly' ? 'selected' : ''}>Hourly (High Security)</option>
-                   <option value="daily" ${b.interval === 'daily' ? 'selected' : ''}>Daily (Recommended)</option>
-                   <option value="weekly" ${b.interval === 'weekly' ? 'selected' : ''}>Weekly</option>
-                </select>
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="form-label" style="font-weight:700; margin-bottom:8px; color:var(--text-main)">Retention Policy</label>
-              <div style="position:relative">
-                <input type="number" class="form-input" id="sBackupRetention" value="${b.retentionDays || 30}" min="1" max="365" style="height:44px; padding-left:12px; border-radius:10px; background:var(--bg-main); border:1.5px solid var(--border)" />
-                <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:12px; color:var(--text-muted)">Days</span>
-              </div>
-            </div>
-         </div>
-
-         <!-- New Path Selection Row -->
-         <div class="form-group mb-24">
-            <label class="form-label" style="font-weight:700; margin-bottom:8px; color:var(--text-main)">Local Storage Path (Electron Only)</label>
-            <div style="display:flex; gap:10px">
-               <input type="text" class="form-input" id="sBackupPath" value="${b.customPath || ''}" placeholder="Default: server/backups/" readonly style="height:44px; flex:1; border-radius:10px; background:var(--bg-main); border:1.5px solid var(--border); font-size:13px" />
-               <button class="btn btn-secondary" id="browseBackupPathBtn" style="border-radius:10px; padding:0 20px; font-weight:600; white-space:nowrap">
-                  <i class="fa-solid fa-folder-open mr-8"></i> Browse...
-               </button>
-            </div>
-         </div>
-
-         
-         <div style="background:rgba(var(--primary-rgb), 0.05); padding:16px; border-radius:12px; border:1px solid rgba(var(--primary-rgb), 0.1); display:flex; justify-content:space-between; align-items:center;">
-            <div style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:8px">
-               <i class="fa-solid fa-cloud-bolt" style="color:var(--primary); font-size:14px"></i>
-               <span>Automated backups are securely synced to your <b>ZeInfoTech Sync Hub</b>.</span>
-            </div>
-            <button class="btn btn-primary" id="saveBackupSettingsBtn" style="border-radius:10px; padding:10px 20px; font-weight:700; box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3)">
-               <i class="fa-solid fa-shield-halved mr-8"></i> Apply Settings
-            </button>
-         </div>
-       </div>
-    </div>
-
-    <!-- Server Backups List -->
-    <div class="card" style="border-radius:16px; border:1px solid var(--border); box-shadow: 0 4px 20px rgba(0,0,0,0.05);">
-       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid var(--border-light)">
-          <div class="font-bold" style="font-size:16px; display:flex; align-items:center; gap:10px">
-            <i class="fa-solid fa-clock-rotate-left" style="color:var(--text-muted)"></i> 
-            Backup History
-          </div>
-          <button id="triggerHubBackupBtn" class="btn btn-ghost btn-sm" style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:10px; padding:6px 14px; font-weight:600">
-             <i class="fa-solid fa-plus mr-6" style="color:var(--primary)"></i> Run Instant Backup
-          </button>
-       </div>
-
-       <div id="hubBackupsContainer" style="min-height:200px">
-          <div style="text-align:center; padding:60px 0; color:var(--text-muted);">
-             <div class="spinner-container" style="margin-bottom:16px">
-                <i class="fa-solid fa-circle-notch fa-spin" style="font-size:32px; color:var(--primary)"></i>
-             </div>
-             <div style="font-size:14px; font-weight:500">Connecting to Sync Hub...</div>
-          </div>
-       </div>
-    </div>
-  `;
 }
 
 // --- CATEGORIES TAB ---

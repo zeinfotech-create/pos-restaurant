@@ -51,7 +51,16 @@
   --transition-slow: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ============================================ 
+/* Theme classes (dark/light) are applied to <body>, not <html> — custom
+   properties inherit as already-resolved values, so an alias declared on
+   :root would freeze at :root's own (dark-default) cascade instead of
+   picking up body's theme override. Declaring it here, on body itself,
+   resolves --text-primary using body's actual winning theme value. */
+body {
+  --text-main: var(--text-primary);
+}
+
+/* ============================================
    Backup Dashboard UI
    ============================================ */
 .backup-dashboard {
@@ -62,9 +71,8 @@
 }
 
 .backup-card {
-  background: var(--bg-glass);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 20px;
   padding: 24px;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -137,23 +145,23 @@
   align-items: center;
   padding: 16px;
   background: var(--bg-elevated);
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--border);
   border-radius: 12px;
   margin-bottom: 10px;
   transition: all 0.2s;
 }
 
 .history-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: var(--border);
+  background: var(--bg-hover);
+  border-color: var(--primary-light);
 }
 
 .stat-box {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-elevated);
   border-radius: 12px;
   padding: 12px;
   text-align: center;
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--border);
 }
 
 .stat-box .value {
@@ -170,8 +178,59 @@
   letter-spacing: 1px;
 }
 
-/* ============================================ 
-   Themes System 
+/* Toggle switch (used by Backup > Automation, etc.) */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch .slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--border);
+  transition: 0.2s;
+}
+
+.switch .slider::before {
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: #fff;
+  transition: 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.switch input:checked + .slider {
+  background: var(--primary);
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(18px);
+}
+
+.switch .slider.round {
+  border-radius: 24px;
+}
+
+.switch .slider.round::before {
+  border-radius: 50%;
+}
+
+/* ============================================
+   Themes System
    ============================================ */
 
 /* DARK THEMES (01-05) */

@@ -19,7 +19,6 @@ const mongoose = require('mongoose');
 const crypto = require('crypto');
 const axios = require('axios');
 const DBManager = require('./dbManager');
-const BackupService = require('./backupService');
 const DB_TYPE = DBManager.getType();
 
 const User = require('./models/User');
@@ -193,9 +192,6 @@ async function connectDB() {
         console.error('❌ MongoDB connection failed:', err.message);
         setTimeout(connectDB, 5000);
     }
-
-    // Initialize Backup Service
-    BackupService.init(ModelMap);
 }
 
 // ============================================================
@@ -364,116 +360,6 @@ const server = http.createServer(async (req, res) => {
             } catch (err) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ success: false, message: 'Server Login Error' }));
-            }
-        });
-        return;
-    }
-
-    // ── BACKUP API ENDPOINTS ────────────────────────────────────────────────
-    
-    // 1. Get Backups List
-    if (req.url.startsWith('/api/backups') && !req.url.includes('/trigger') && !req.url.includes('/download') && !req.url.includes('/restore') && !req.url.includes('/settings') && req.method === 'GET') {
-        const url = new URL(req.url, `http://${req.headers.host}`);
-        const licenseKey = url.searchParams.get('licenseKey');
-        
-        if (!licenseKey) {
-            res.writeHead(400);
-            return res.end(JSON.stringify({ error: 'licenseKey required' }));
-        }
-
-        const backups = await BackupService.getBackups(licenseKey);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify(backups));
-    }
-
-    // 2. Trigger Manual Backup
-    if (req.url.startsWith('/api/backups/trigger') && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', async () => {
-            const { licenseKey } = JSON.parse(body);
-            if (!licenseKey) {
-                res.writeHead(400);
-                return res.end(JSON.stringify({ error: 'licenseKey required' }));
-            }
-            const result = await BackupService.performBackup(licenseKey, 'manual');
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(result));
-        });
-        return;
-    }
-
-    // 3. Download Backup
-    if (req.url.startsWith('/api/backups/download/') && req.method === 'GET') {
-        const url = new URL(req.url, `http://${req.headers.host}`);
-        const filename = url.pathname.split('/').pop();
-        const licenseKey = url.searchParams.get('licenseKey');
-
-        let filePath = path.join(__dirname, 'backups', filename);
-
-        if (!fs.existsSync(filePath) && licenseKey) {
-            const Setting = ModelMap['settings'];
-            const settingsRecord = await DBManager.findOne(Setting, 'settings', { licenseKey });
-            if (settingsRecord?.backupSettings?.customPath) {
-                filePath = path.join(settingsRecord.backupSettings.customPath, filename);
-            }
-        }
-
-        if (!fs.existsSync(filePath)) {
-            res.writeHead(404);
-            return res.end(JSON.stringify({ error: 'File not found' }));
-        }
-
-        res.writeHead(200, {
-            'Content-Type': 'application/json',
-            'Content-Disposition': `attachment; filename="${filename}"`
-        });
-        const stream = fs.createReadStream(filePath);
-        return stream.pipe(res);
-    }
-
-    // 4. Restore Backup
-    if (req.url.startsWith('/api/backups/restore') && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', async () => {
-            const { licenseKey, filename, wipe } = JSON.parse(body);
-            try {
-                const results = await BackupService.restoreBackup(licenseKey, filename, wipe);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true, results }));
-            } catch (err) {
-                res.writeHead(500);
-                res.end(JSON.stringify({ success: false, error: err.message }));
-            }
-        });
-        return;
-    }
-
-    // 5. Update Backup Settings
-    if (req.url.startsWith('/api/backups/settings') && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', async () => {
-            const { licenseKey, backupSettings } = JSON.parse(body);
-            try {
-                const Setting = ModelMap['settings'];
-                const settings = await DBManager.findOne(Setting, 'settings', { licenseKey });
-                
-                const updatedSettings = {
-                    ...settings,
-                    backupSettings: {
-                        ...settings?.backupSettings,
-                        ...backupSettings
-                    }
-                };
-                
-                await DBManager.upsert(Setting, 'settings', { licenseKey }, updatedSettings);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true }));
-            } catch (err) {
-                res.writeHead(500);
-                res.end(JSON.stringify({ success: false, error: err.message }));
             }
         });
         return;

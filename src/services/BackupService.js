@@ -1,5 +1,4 @@
-import { read, write, updateData, deleteData, KEYS, getSettings, saveSettings } from '../db.js';
-import { syncEngine } from './syncEngine.js';
+import { read, write, updateData, KEYS, getSettings, saveSettings } from '../db.js';
 
 // Helper for data integrity
 async function generateChecksum(data) {
@@ -10,135 +9,6 @@ async function generateChecksum(data) {
 }
 
 export const BackupService = {
-    /**
-     * Gets the Hub API URL based on syncEngine's current connection.
-     */
-    getHubApiUrl() {
-        if (!syncEngine.hubUrl) return null;
-        // hubUrl is ws://ip:3030?...
-        const url = new URL(syncEngine.hubUrl.replace('ws://', 'http://').replace('wss://', 'https://'));
-        return `${url.protocol}//${url.host}/api/backups`;
-    },
-
-    /**
-     * Fetches the list of automated backups from the Hub.
-     */
-    async getHubBackups() {
-        const settings = await getSettings();
-        const licenseKey = settings.licenseKey;
-        if (!licenseKey) return [];
-
-        const baseUrl = this.getHubApiUrl();
-        if (!baseUrl) return [];
-
-        try {
-            const res = await fetch(`${baseUrl}?licenseKey=${licenseKey}`);
-            if (!res.ok) throw new Error('Failed to fetch backups from hub');
-            return await res.json();
-        } catch (err) {
-            console.error('[BackupService] getHubBackups failed:', err);
-            return [];
-        }
-    },
-
-    /**
-     * Triggers a manual backup on the Hub.
-     */
-    async triggerHubBackup() {
-        const settings = await getSettings();
-        const licenseKey = settings.licenseKey;
-        const baseUrl = this.getHubApiUrl();
-        if (!baseUrl) throw new Error('Sync Hub is offline');
-
-        const res = await fetch(`${baseUrl}/trigger`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ licenseKey })
-        });
-
-        if (!res.ok) throw new Error('Hub backup failed');
-        return await res.json();
-    },
-
-    /**
-     * Downloads a backup file from the Hub.
-     */
-    async downloadHubBackup(filename) {
-        const baseUrl = this.getHubApiUrl();
-        if (!baseUrl) throw new Error('Sync Hub is offline');
-
-        const settings = await getSettings();
-        const licenseKey = settings.licenseKey;
-        const res = await fetch(`${baseUrl}/download/${filename}?licenseKey=${licenseKey}`);
-        if (!res.ok) throw new Error('Download failed');
-
-        const blob = await res.blob();
-
-        // ─── Electron Mode (Choose Location) ──────────────────
-        if (window.electronAPI?.showSaveDialog) {
-            const { canceled, filePath } = await window.electronAPI.showSaveDialog({
-                defaultPath: filename,
-                filters: [{ name: 'JSON Backup', extensions: ['json'] }]
-            });
-
-            if (canceled || !filePath) return;
-
-            const buffer = await blob.arrayBuffer();
-            const result = await window.electronAPI.saveFileFromBuffer({ filePath, buffer });
-            
-            if (result.success) {
-                if (window.showToast) window.showToast('Backup saved successfully! 📂', 'success');
-            } else {
-                throw new Error(result.error || 'Failed to save file');
-            }
-            return;
-        }
-
-        // ─── Web Mode (Default Download) ──────────────────────
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        if (window.showToast) window.showToast('Backup downloaded to default folder 📂', 'success');
-    },
-
-    /**
-     * Restores data from a Hub backup.
-     */
-    async restoreHubBackup(filename, wipe = false) {
-        const settings = await getSettings();
-        const licenseKey = settings.licenseKey;
-        const baseUrl = this.getHubApiUrl();
-        if (!baseUrl) throw new Error('Sync Hub is offline');
-
-        const res = await fetch(`${baseUrl}/restore`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ licenseKey, filename, wipe })
-        });
-
-        if (!res.ok) throw new Error('Restore failed');
-        return await res.json();
-    },
-
-    /**
-     * Updates automated backup settings on the Hub.
-     */
-    async updateHubSettings(backupSettings) {
-        // Always save locally — this is the source of truth in standalone/Electron
-        // mode, and the background server shares the same DB, so no separate
-        // Hub API call is needed.
-        const freshSettings = await getSettings();
-        freshSettings.backupSettings = { ...freshSettings.backupSettings, ...backupSettings };
-        await saveSettings(freshSettings);
-
-        return { success: true };
-    },
-
     /**
      * Imports data from a JSON backup file with integrity checks and stats.
      */
@@ -245,29 +115,6 @@ export const BackupService = {
             reader.onerror = () => reject(new Error('Failed to read file.'));
             reader.readAsText(file);
         });
-    },
-
-    /**
-     * Placeholder for cloud download (if metadata exists in history).
-     */
-    async downloadBackup(id) {
-        const history = await read(KEYS.BACKUP_HISTORY) || [];
-        const entry = history.find(h => h.id === id);
-        if (!entry) throw new Error('Backup record not found.');
-        
-        // If data was stored locally (rare), trigger download
-        if (entry.data) {
-            const blob = new Blob([entry.data], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = entry.filename || 'backup.json';
-            a.click();
-            URL.revokeObjectURL(url);
-            return;
-        }
-        
-        throw new Error('Backup data not available for local download. Please use Hub backups.');
     },
 
     /**
