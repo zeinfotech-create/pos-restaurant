@@ -33,9 +33,6 @@ ios/
 .env.local
 .env.development.local
 .env.test.local
-# WhatsApp Library data
-.wwebjs_auth/
-.wwebjs_cache/
 
 # Build artifacts
 .cache/

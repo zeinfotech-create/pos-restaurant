@@ -1,4 +1,4 @@
-import { db, getSettings, getDeviceId, updateData, deleteData, getDataById, updateSettings, addWhatsAppLog, getOrders, saveOrder, updateOrder, clearStore, read, KEYS, getCachedLicenseStatus, saveCachedLicenseStatus, getScheduledReminders, updateScheduledReminderStatus, getDeletedTombstones, clearExpiredTombstones, verifyLocalUser } from '../db.js';
+import { db, getSettings, getDeviceId, updateData, deleteData, getDataById, updateSettings, getOrders, saveOrder, updateOrder, clearStore, read, KEYS, getCachedLicenseStatus, saveCachedLicenseStatus, getDeletedTombstones, clearExpiredTombstones, verifyLocalUser } from '../db.js';
 import { showSuspendedOverlay } from './LicenseService.js';
 
 class SyncEngine {
@@ -10,8 +10,6 @@ class SyncEngine {
         this.isSilent = false; // Flag to prevent broadcast loops
         this.isRegistered = false; // Tracking Hub registration
         this.adbStatus = 'disconnected';
-        this.whatsappStatus = 'disconnected';
-        this.whatsappQR = '';
         this.health = 'offline';
         this.retryCount = 0;
         this.maxRetriesBeforeOffline = 5;
@@ -33,7 +31,6 @@ class SyncEngine {
                 register_shift: true,
                 cloud_sync: true,
                 data_backup: true,
-                whatsapp: false,
                 pro_addons: false
             }
         };
@@ -134,7 +131,7 @@ class SyncEngine {
                     modules: {
                         inventory: 'full', reports: 'full',
                         register_shift: true, cloud_sync: true,
-                        data_backup: true, whatsapp: true,
+                        data_backup: true,
                         pro_addons: true, industry_setup: true
                     }
                 };
@@ -154,7 +151,7 @@ class SyncEngine {
                     modules: {
                         inventory: 'none', reports: 'none',
                         register_shift: false, cloud_sync: false,
-                        data_backup: false, whatsapp: false,
+                        data_backup: false,
                         pro_addons: false
                     }
                 };
@@ -167,7 +164,7 @@ class SyncEngine {
                 this.hasStorageListener = true;
             }
             
-            // In Standalone/Electron, we still need the server for WhatsApp and Notifications
+            // In Standalone/Electron, we still need the server for Notifications
             // Use Port 3030 for local EXE server to avoid conflicts with Port 3030 (Cloud Hub)
             let hubIp = settings.syncHubIp || '127.0.0.1';
             if (hubIp === 'localhost') hubIp = '127.0.0.1';
@@ -176,7 +173,6 @@ class SyncEngine {
             this.hubUrl = `${wsProtocol}//${hubIp}:3030?licenseKey=${this.licenseKey}`;
             
             this.connect();
-            this.startReminderService();
             return;
         }
     }
@@ -198,9 +194,9 @@ class SyncEngine {
                         'products', 'orders', 'returns',
                         'customers', 'suppliers', 'purchases', 'branches', 'users', 'staff',
                         'registers', 'shifts', 'appointments', 'staff_incentives',
-                        'daily_stats', 'whatsapp_logs', 'inventory_logs',
+                        'daily_stats', 'inventory_logs',
                         'categories', 'sub_categories', 'credit_history', 'loyalty_history',
-                        'scheduled_reminders', 'login_activity', 'import_tracker', 'import_history',
+                        'login_activity', 'import_tracker', 'import_history',
                         'backup_history', 'license_status'
                     ];
                     for (const store of tenantStores) {
@@ -544,20 +540,6 @@ class SyncEngine {
 
             this.reRegister();
             this.requestAdbStatus();
-            this.requestWhatsAppStatus();
-
-            // Auto-reconnect WhatsApp
-            this._waAutoReconnectScheduled = true;
-            setTimeout(async () => {
-                this._waAutoReconnectScheduled = false;
-                if ((this.whatsappStatus === 'disconnected' || this.whatsappStatus === '') && this.isConnected) {
-                    const settings = await getSettings();
-                    if (settings.whatsappSessionId) {
-                        console.log('SyncEngine: Auto-initializing saved WhatsApp session:', settings.whatsappSessionId);
-                        this.initWhatsApp(settings.whatsappSessionId);
-                    }
-                }
-            }, 3000);
         };
 
         this.ws.onmessage = async (event) => {
@@ -589,27 +571,6 @@ class SyncEngine {
                         console.warn('SyncEngine: Received force_disconnect from Hub:', message.message);
                         showSuspendedOverlay(message.message);
                         this.disconnect();
-                        break;
-
-                    case 'whatsapp_status':
-                        console.log(`SyncEngine: WhatsApp Status Update [${message.status}]`, message.qr ? '(QR Received)' : '');
-                        this.whatsappStatus = message.status;
-                        this.whatsappQR = message.qr || '';
-                        window.dispatchEvent(new CustomEvent('sync-message', { detail: message }));
-                        if (message.status === 'disconnected' && !this._waAutoReconnectScheduled && !this._waReconnecting) {
-                            getSettings().then(settings => {
-                                if (settings.whatsappSessionId && this.isConnected) {
-                                    this._waReconnecting = true;
-                                    console.log('SyncEngine: WhatsApp disconnected — auto-reinit session:', settings.whatsappSessionId);
-                                    setTimeout(() => {
-                                        this._waReconnecting = false;
-                                        if (this.whatsappStatus === 'disconnected' && this.isConnected) {
-                                            this.initWhatsApp(settings.whatsappSessionId);
-                                        }
-                                    }, 2000);
-                                }
-                            });
-                        }
                         break;
 
                     case 'server_status':
@@ -707,13 +668,6 @@ class SyncEngine {
                     case 'pos_setup_result':
                         // Response to initSetup/verifyOtp/setupBranch/setupAdmin — see _setupRequest()
                         window.dispatchEvent(new CustomEvent('sync-setup-result', { detail: message }));
-                        break;
-
-                    case 'whatsapp_send_result':
-                        if (message.requestId && this.pendingRequests.has(message.requestId)) {
-                            this.pendingRequests.get(message.requestId).resolve(message);
-                            this.pendingRequests.delete(message.requestId);
-                        }
                         break;
 
                     case 'verify_license_result':
@@ -981,35 +935,6 @@ class SyncEngine {
     }
 
     async requestAdbStatus() { if (this.isConnected) this.ws.send(JSON.stringify({ type: 'get_adb_status' })); }
-    async initWhatsApp(sessionId) { if (this.isConnected) this.ws.send(JSON.stringify({ type: 'whatsapp_init', sessionId })); }
-    async sendWhatsApp(to, text, type = 'general') {
-        if (!this.isConnected) return { success: false, message: 'Sync Hub Offline' };
-        return new Promise((resolve) => {
-            const requestId = 'wa-' + Date.now();
-            this.pendingRequests.set(requestId, { resolve });
-            this.ws.send(JSON.stringify({ type: 'send_whatsapp', to, text, requestId }));
-            setTimeout(() => { if (this.pendingRequests.has(requestId)) { this.pendingRequests.delete(requestId); resolve({ success: false, message: 'Send timeout' }); } }, 30000);
-        });
-    }
-
-    async requestWhatsAppStatus() { if (this.isConnected) this.ws.send(JSON.stringify({ type: 'get_whatsapp_status' })); }
-
-    startReminderService() {
-        setInterval(() => {
-            if (this.whatsappStatus === 'ready' || this.whatsappStatus === 'authenticated') {
-                this.checkAndSendReminders();
-                this.processScheduledReminders();
-            }
-        }, 300000); // 5 mins
-    }
-
-    async checkAndSendReminders() {
-        // Implementation for overdue reminders
-    }
-
-    async processScheduledReminders() {
-        // Implementation for scheduled reminders
-    }
 }
 
 export const syncEngine = new SyncEngine();

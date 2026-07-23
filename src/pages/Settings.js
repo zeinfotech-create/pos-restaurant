@@ -7,12 +7,11 @@ import { showToast } from '../components/Toast.js';
 import { reloadSettings, store } from '../store.js';
 import { openModal, closeModal, showConfirm, showAlert } from '../components/Modal.js';
 import { syncEngine } from '../services/syncEngine.js';
-import { BillRenderer } from '../utils/billRenderer.js';
 import { BackupService } from '../services/BackupService.js';
 import { MediaService } from '../services/MediaService.js';
 
-let waActiveTab = 'connection';
 let activeSettingsTab = 'general';
+let advancedConnectionExpanded = false;
 let backupActiveTab = 'export';
 
 window.SettingsPage = {
@@ -246,13 +245,6 @@ export async function renderSettings(container) {
             ${!syncEngine.checkCapability('pro_addons') ? '<i class="fa-solid fa-lock" style="position:absolute; bottom:-2px; right:-2px; font-size:9px; color:var(--text-muted)"></i>' : ''}
           </span>
           <span>Add-ons</span>
-        </button>
-        <button class="settings-nav-item ${activeSettingsTab === 'whatsapp' ? 'active' : ''}" data-tab="whatsapp">
-          <span class="settings-nav-icon" style="background:rgba(37,211,102,0.12);color:#25d366">
-            <i class="fa-brands fa-whatsapp"></i>
-            ${!syncEngine.checkCapability('whatsapp') ? '<i class="fa-solid fa-lock" style="position:absolute; bottom:-2px; right:-2px; font-size:9px; color:var(--text-muted)"></i>' : ''}
-          </span>
-          <span>WhatsApp</span>
         </button>
         <button class="settings-nav-item ${activeSettingsTab === 'backup' ? 'active' : ''}" data-tab="backup">
           <span class="settings-nav-icon" style="background:rgba(245,158,11,0.12);color:#f59e0b">
@@ -507,6 +499,32 @@ export async function renderSettings(container) {
 
         <!-- Add-ons Tab Content -->
         <div class="settings-tab-content ${activeSettingsTab === 'addons' ? 'active' : ''}" id="tab-addons">
+          <div class="card" style="padding:0; overflow:hidden;">
+            <button type="button" id="toggleAdvancedConnectionBtn" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px; background:none; border:none; cursor:pointer; font-weight:700; font-size:13px; color:var(--text-main);">
+              <span><i class="fa-solid fa-plug" style="color:var(--text-muted); margin-right:8px"></i> Advanced Connection Settings</span>
+              <i class="fa-solid ${advancedConnectionExpanded ? 'fa-chevron-up' : 'fa-chevron-down'}" style="color:var(--text-muted); font-size:11px"></i>
+            </button>
+            ${advancedConnectionExpanded ? `
+            <div style="border-radius:12px; margin:0 16px 16px;
+              background:${syncEngine.isConnected ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)'};
+              border:1px solid ${syncEngine.isConnected ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'};">
+              <div style="display:flex; align-items:center; gap:12px; padding:12px 16px;">
+                <div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${syncEngine.isConnected ? 'var(--success)' : 'var(--danger)'};box-shadow:0 0 6px ${syncEngine.isConnected ? 'var(--success)' : 'var(--danger)'}"></div>
+                <div style="flex:1">
+                  <div style="font-weight:700;font-size:13px;color:var(--text-main)">Sync Hub — ${syncEngine.isConnected ? '🟢 Online' : '🔴 Offline'}</div>
+                  <div style="font-size:11px;color:var(--text-muted)">${syncEngine.isConnected ? `Connected to ws://${s.syncHubIp || window.location.hostname}:3030` : 'Not connected — set Hub IP below and click Reconnect'}</div>
+                </div>
+              </div>
+              <div style="padding:0 16px 14px; display:flex; gap:8px;">
+                <input class="form-input" id="gHubIpInput" value="${s.syncHubIp || window.location.hostname || '192.168.1.9'}" placeholder="Hub IP e.g. 192.168.1.9" style="flex:1; margin:0; font-size:13px;" />
+                <button class="btn btn-ghost" id="gReconnectHubBtn" style="flex-shrink:0; border:1px solid var(--border); border-radius:10px; font-weight:700; white-space:nowrap;">
+                  🔄 Reconnect Hub
+                </button>
+              </div>
+            </div>
+            ` : ''}
+          </div>
+
           <div style="opacity: ${syncEngine.checkCapability('pro_addons') ? '1' : '0.5'}; pointer-events: ${syncEngine.checkCapability('pro_addons') ? 'auto' : 'none'}; position: relative;">
             ${!syncEngine.checkCapability('pro_addons') ? '<div style="position:absolute; top:12px; right:12px; font-size:10px; background:var(--bg-elevated); border:1px solid var(--border); padding:2px 8px; border-radius:10px; color:var(--text-muted); font-weight:700;"><i class="fa-solid fa-lock mr-4"></i> PRO ONLY</div>' : ''}
 
@@ -525,14 +543,6 @@ export async function renderSettings(container) {
             </div>
           </div>
           ${renderTabSaveContainer('saveAddonsBtn', 'Add-ons')}
-        </div>
-
-        <!-- WhatsApp Tab Content -->
-        <div class="settings-tab-content ${activeSettingsTab === 'whatsapp' ? 'active' : ''}" id="tab-whatsapp">
-          <div style="opacity: ${syncEngine.checkCapability('whatsapp') ? '1' : '0.5'}; pointer-events: ${syncEngine.checkCapability('whatsapp') ? 'auto' : 'none'}; position: relative;">
-            ${!syncEngine.checkCapability('whatsapp') ? '<div style="position:absolute; top:12px; right:12px; font-size:10px; background:var(--bg-elevated); border:1px solid var(--border); padding:2px 8px; border-radius:10px; color:var(--text-muted); font-weight:700;"><i class="fa-solid fa-lock mr-4"></i> PRO ONLY</div>' : ''}
-            ${await renderWhatsAppTab(s)}
-          </div>
         </div>
 
         <!-- License Tab Content -->
@@ -736,6 +746,29 @@ export async function renderSettings(container) {
     container.querySelector('#sStoreLogoFile').value = '';
   });
 
+  container.querySelector('#toggleAdvancedConnectionBtn')?.addEventListener('click', async () => {
+    advancedConnectionExpanded = !advancedConnectionExpanded;
+    await renderSettings(document.getElementById('page-container'));
+  });
+
+  // Reconnect Hub button — save IP and re-init WebSocket
+  container.querySelector('#gReconnectHubBtn')?.addEventListener('click', async () => {
+    const hubIp = container.querySelector('#gHubIpInput')?.value.trim();
+    if (!hubIp) return showToast('Enter a Hub IP address', 'error');
+    const cur = await getSettings();
+    cur.syncHubIp = hubIp;
+    await saveSettings(cur);
+    showToast('Reconnecting to hub...', 'info');
+    const licKey = syncEngine.licenseKey || 'GLOBAL';
+    syncEngine.hubUrl = `ws://${hubIp}:3030?licenseKey=${licKey}`;
+    syncEngine.retryCount = 0;
+    if (syncEngine.ws) { try { syncEngine.ws.close(); } catch (e) { } }
+    setTimeout(() => {
+      syncEngine.connect();
+      setTimeout(async () => await renderSettings(document.getElementById('page-container')), 2000);
+    }, 300);
+  });
+
   // 1. General Settings
   container.querySelector('#saveGeneralBtn')?.addEventListener('click', async () => {
     const storeName = container.querySelector('#sStoreName')?.value.trim();
@@ -822,7 +855,7 @@ export async function renderSettings(container) {
       autoPrintReceipt: document.getElementById('sAutoPrintReceipt')?.checked || false
     });
   });
-  setupWhatsAppListeners(container, s);
+  setupSyncStatusListeners();
   setupLicenseListeners(container);
   await setupBackupTab(container);
   setupCategoriesListeners(container);
@@ -1414,7 +1447,7 @@ async function renderLicenseTab() {
 
     const moduleList = `
       <div style="margin-top:20px; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-         ${['Inventory', 'Reports', 'Employees', 'Suppliers', 'Offers', 'Cloud Sync', 'WhatsApp Pro'].map(name => `
+         ${['Inventory', 'Reports', 'Employees', 'Suppliers', 'Offers', 'Cloud Sync'].map(name => `
            <div style="padding:10px 14px; border-radius:12px; background:var(--bg-elevated); border:1px solid rgba(16,185,129,0.2); display:flex; align-items:center; gap:10px;">
               <div style="width:8px; height:8px; border-radius:50%; background:var(--success); box-shadow:0 0 6px var(--success)"></div>
               <div style="font-size:12px; font-weight:600; text-transform:capitalize; color:var(--text-main)">${name}</div>
@@ -1496,7 +1529,8 @@ function setupLicenseListeners(container) {
   const fixBtn = container.querySelector('#fixConnectionBtn');
   if (fixBtn) {
     fixBtn.onclick = () => {
-      window.selectedSettingsTab = 'whatsapp';
+      window.selectedSettingsTab = 'addons';
+      advancedConnectionExpanded = true;
       renderSettings(container.closest('.page-card') || document.getElementById('page-container'));
       window.showToast('Check Hub IP and click Reconnect Hub', 'info');
     };
@@ -1891,181 +1925,7 @@ function setupCategoriesListeners(container) {
   });
 }
 
-function renderWhatsAppTab(settings) {
-  const waStatus = syncEngine.whatsappStatus || 'disconnected';
-  const hubConnected = syncEngine.isConnected;
-  const qr = syncEngine.whatsappQR || '';
-  const sessionId = settings.whatsappSessionId || '';
-
-  const isReady = waStatus === 'ready' || waStatus === 'authenticated' || waStatus === 'connected';
-
-  if (!syncEngine.checkCapability('whatsapp')) {
-    return `
-      <div style="height:400px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:40px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:14px; gap:20px;">
-        <div style="width:80px; height:80px; border-radius:50%; background:rgba(37,211,102,0.1); display:flex; align-items:center; justify-content:center;">
-          <i class="fa-brands fa-whatsapp" style="font-size:40px; color:#25D366;"></i>
-        </div>
-        <div>
-          <h2 style="margin-bottom:8px;">WhatsApp Pro Integration</h2>
-          <p style="color:var(--text-muted); max-width:320px; font-size:14px;">Automated bills, payment reminders, and customer notifications are premium features.</p>
-        </div>
-        <div style="background:#fff; padding:12px 24px; border:1px solid var(--border); border-radius:12px; font-weight:700; color:var(--primary);">
-            <i class="fa-solid fa-lock mr-8"></i> PREMIUM ONLY
-        </div>
-        <button class="btn btn-primary" onclick="window.selectedSettingsTab='license'; renderSettings(document.getElementById('page-container'))" style="border-radius:10px; padding:12px 24px; font-weight:700;">
-          🚀 Upgrade to Pro Now
-        </button>
-      </div>
-    `;
-  }
-
-  const statusConfig = {
-    ready: { color: 'var(--success)', icon: '✅', label: 'Connected' },
-    authenticated: { color: 'var(--success)', icon: '✅', label: 'Authenticated' },
-    connected: { color: 'var(--success)', icon: '✅', label: 'Connected' },
-    qr: { color: '#f59e0b', icon: '📷', label: 'Scan QR Code' },
-    initializing: { color: '#3b82f6', icon: '⏳', label: 'Initializing...' },
-    disconnected: { color: 'var(--danger)', icon: '❌', label: 'Disconnected' },
-  };
-  const st = statusConfig[waStatus] || statusConfig.disconnected;
-
-  const renderSubTabNav = () => `
-    <div style="display:flex; gap:4px; margin-bottom:24px; background:var(--bg-elevated); padding:4px; border-radius:12px;">
-      ${['connection', 'template'].map(tab => `
-        <button class="wa-tab-btn" data-wa-tab="${tab}" style="flex:1; padding:9px 12px; cursor:pointer; font-weight:600; font-size:13px; border:none; border-radius:9px; transition:all 0.2s;
-          background:${waActiveTab === tab ? 'var(--bg-main)' : 'transparent'};
-          color:${waActiveTab === tab ? 'var(--primary)' : 'var(--text-muted)'};
-          box-shadow:${waActiveTab === tab ? '0 2px 8px rgba(0,0,0,0.15)' : 'none'};">
-          ${{ connection: '🔗 Connection', template: '🧾 Template' }[tab]}
-        </button>`).join('')}
-    </div>
-  `;
-
-  let content = '';
-
-  // ── CONNECTION TAB ──
-  if (waActiveTab === 'connection') {
-    content = `
-      <!-- Hub Status -->
-      <div style="border-radius:12px; margin-bottom:16px;
-        background:${hubConnected ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)'};
-        border:1px solid ${hubConnected ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'};">
-        <div style="display:flex; align-items:center; gap:12px; padding:12px 16px;">
-          <div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${hubConnected ? 'var(--success)' : 'var(--danger)'};box-shadow:0 0 6px ${hubConnected ? 'var(--success)' : 'var(--danger)'}"></div>
-          <div style="flex:1">
-            <div style="font-weight:700;font-size:13px;color:var(--text-main)">Sync Hub — ${hubConnected ? '🟢 Online' : '🔴 Offline'}</div>
-            <div style="font-size:11px;color:var(--text-muted)">${hubConnected ? `Connected to ws://${settings.syncHubIp || window.location.hostname}:3030` : 'Not connected — set Hub IP below and click Reconnect'}</div>
-          </div>
-        </div>
-        <div style="padding:0 16px 14px; display:flex; gap:8px;">
-          <input class="form-input" id="waHubIpInput" value="${settings.syncHubIp || window.location.hostname || '192.168.1.9'}" placeholder="Hub IP e.g. 192.168.1.9" style="flex:1; margin:0; font-size:13px;" />
-          <button class="btn btn-ghost" id="waReconnectHubBtn" style="flex-shrink:0; border:1px solid var(--border); border-radius:10px; font-weight:700; white-space:nowrap;">
-            🔄 Reconnect Hub
-          </button>
-        </div>
-      </div>
-
-        <div style="font-size:11px; color:var(--text-muted); margin-bottom:12px; padding:0 4px">
-          <i class="fa-solid fa-circle-info mr-4"></i> Note: Sending WhatsApp messages requires an <b>active internet connection</b> on your Hub PC.
-        </div>
-
-      <!-- WhatsApp Status -->
-      <div style="display:flex; align-items:center; gap:16px; padding:18px; border-radius:14px; margin-bottom:20px;
-        background:var(--bg-elevated); border:1px solid var(--border);">
-        <div style="font-size:30px">${st.icon}</div>
-        <div style="flex:1">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600">WhatsApp Status</div>
-          <div style="font-size:22px;font-weight:800;color:${st.color}">${st.label}</div>
-        </div>
-      </div>
-
-      ${qr ? `
-        <!-- QR Scan -->
-        <div style="text-align:center; padding:24px; background:#fff; border-radius:14px; margin-bottom:20px;">
-          <div style="font-weight:700;font-size:14px;color:#333;margin-bottom:12px">📷 Scan this QR with WhatsApp</div>
-          <img src="${qr}" style="width:220px;height:220px;border-radius:8px;" />
-          <div style="font-size:11px;color:#666;margin-top:10px">Open WhatsApp → Linked Devices → Link a Device</div>
-        </div>
-      ` : ''}
-
-      <!-- Session -->
-      <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:14px; padding:18px; margin-bottom:16px;">
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);display:block;margin-bottom:8px">Session ID / Device Name</label>
-        <div style="display:flex; gap:8px; margin-bottom:12px;">
-          <input class="form-input" id="waSessionIdInput" value="${sessionId}" placeholder="e.g. pos-device-1" style="flex:1; margin:0; font-size:13px;" ${isReady ? 'readonly' : ''} />
-          <button class="btn btn-ghost" id="waResetSessionBtn" title="Clear Session Info" style="flex-shrink:0; border:1px solid var(--border); border-radius:10px;" ${isReady ? 'disabled' : ''}>
-            🗑️ Reset
-          </button>
-        </div>
-        ${!isReady ? `<button class="btn btn-primary w-full" id="waConnectBtn" style="border-radius:10px;font-weight:700">🔗 Connect WhatsApp</button>` : ''}
-        ${isReady ? `<button class="btn btn-danger w-full" id="waLogoutBtn" style="border-radius:10px;font-weight:700">🚪 Logout Session</button>` : ''}
-      </div>
-
-      ${isReady ? `
-        <!-- Test Message -->
-        <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:14px; padding:18px;">
-          <div style="font-weight:700;font-size:14px;margin-bottom:4px">📨 Send Test Message</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Verify the connection by sending a test WhatsApp message</div>
-          <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);display:block;margin-bottom:8px">Phone Number (with country code, no +)</label>
-          <input class="form-input" id="waTestPhone" placeholder="919876543210" style="margin-bottom:12px;" />
-          <button class="btn btn-ghost w-full" id="waTestMsgBtn" style="border:1px solid var(--border);border-radius:10px;font-weight:700">
-            📤 Send Test
-          </button>
-        </div>
-      ` : ''}
-    `;
-  }
-
-  // ── TEMPLATE TAB ──
-  else if (waActiveTab === 'template') {
-    const t = settings.whatsappTemplates?.order || {};
-    content = `
-      <div class="card">
-        <div style="font-weight:700;font-size:15px;margin-bottom:16px">🧾 Bill Template</div>
-        <div class="form-group">
-          <label class="form-label">Header Text</label>
-          <input class="form-input" id="waHeader" value="${t.headerText || 'Thank you for your order!'}" />
-        </div>
-        <div class="form-group mt-16">
-          <label class="form-label">Sub-Header</label>
-          <input class="form-input" id="waSubheader" value="${t.subHeaderText || ''}" />
-        </div>
-        <div class="form-group mt-16">
-          <label class="form-label">Footer Text</label>
-          <textarea class="form-input" id="waFooter" rows="2">${t.footerText || 'Visit us again!'}</textarea>
-        </div>
-        <div class="mt-16" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="waShowItems" ${t.showItems !== false ? 'checked' : ''}/> Show Items</label>
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="waShowTax" ${t.showTax !== false ? 'checked' : ''}/> Show Tax</label>
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="waShowHeader" ${t.showHeader !== false ? 'checked' : ''}/> Show Header</label>
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="waShowFooter" ${t.showFooter !== false ? 'checked' : ''}/> Show Footer</label>
-        </div>
-        <button class="btn btn-primary w-full mt-16" id="waSaveTemplatesBtn">💾 Save Template</button>
-      </div>
-      <div class="card mt-16">
-        <div style="font-weight:700;font-size:15px;margin-bottom:12px">👁️ Live Preview</div>
-        <div id="waBillPreview" style="background:var(--bg-main);color:#fff;padding:16px;border-radius:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;line-height:1.6;border:1px solid var(--border)"></div>
-      </div>
-    `;
-  }
-
-
-  return `<div>${renderSubTabNav()}<div id="waSubTabContent">${content}</div></div>`;
-}
-
-function setupWhatsAppListeners(container, settings) {
-  // Global listener for sync messages — re-render WhatsApp tab when status changes
-  if (!window._waStatusRegistered) {
-    window.addEventListener('sync-message', (e) => {
-      if (e.detail.type === 'whatsapp_status') {
-        if (document.querySelector('.settings-nav-item[data-tab="whatsapp"].active')) {
-          renderSettings(document.getElementById('page-container'));
-        }
-      }
-    });
-    window._waStatusRegistered = true;
-  }
-
+function setupSyncStatusListeners() {
   // Global listener for license upgrade status changes (UI update only)
   if (!window._subStatusRegistered) {
     window.addEventListener('sync-message', async (e) => {
@@ -2089,164 +1949,6 @@ function setupWhatsAppListeners(container, settings) {
     });
     window._subStatusRegistered = true;
   }
-
-  // Sub-tab switching
-  container.querySelectorAll('.wa-tab-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      waActiveTab = btn.dataset.waTab;
-      await renderSettings(document.getElementById('page-container'));
-    });
-  });
-
-  // ── CONNECTION ──
-  const connectBtn = document.getElementById('waConnectBtn');
-  if (connectBtn) {
-    connectBtn.onclick = async () => {
-      const sessionId = document.getElementById('waSessionIdInput')?.value.trim();
-      if (!sessionId) return showToast('Please enter a session ID', 'error');
-      if (!syncEngine.isConnected) return showToast('Sync Hub is offline — set Hub IP and click Reconnect Hub first', 'error');
-      const s = await getSettings();
-      s.whatsappSessionId = sessionId;
-      await saveSettings(s);
-      syncEngine.initWhatsApp(sessionId);
-      showToast('Connecting WhatsApp...', 'info');
-      await renderSettings(document.getElementById('page-container'));
-    };
-  }
-
-  const resetSessionBtn = document.getElementById('waResetSessionBtn');
-  if (resetSessionBtn) {
-    resetSessionBtn.onclick = async () => {
-      const confirmed = await showConfirm({
-        title: 'Reset WhatsApp Session',
-        message: 'This will clear the Session ID and disconnect. You can then enter a new ID and reconnect. Continue?',
-        okText: 'Yes, Reset'
-      });
-      if (confirmed) {
-        const s = await getSettings();
-        s.whatsappSessionId = '';
-        await saveSettings(s);
-        syncEngine.whatsappStatus = 'disconnected';
-        syncEngine.whatsappQR = '';
-        await renderSettings(document.getElementById('page-container'));
-        showToast('Session cleared. Enter an ID to connect.', 'success');
-      }
-    };
-  }
-
-  // Reconnect Hub button — save IP and re-init WebSocket
-  const reconnectHubBtn = document.getElementById('waReconnectHubBtn');
-  if (reconnectHubBtn) {
-    reconnectHubBtn.onclick = async () => {
-      const hubIp = document.getElementById('waHubIpInput')?.value.trim();
-      if (!hubIp) return showToast('Enter a Hub IP address', 'error');
-      const s = await getSettings();
-      s.syncHubIp = hubIp;
-      await saveSettings(s);
-      showToast('Reconnecting to hub...', 'info');
-      // Re-init the syncEngine with the new IP using the correct licenseKey URL format
-      const licKey = syncEngine.licenseKey || 'GLOBAL';
-      syncEngine.hubUrl = `ws://${hubIp}:3030?licenseKey=${licKey}`;
-      syncEngine.retryCount = 0;
-      if (syncEngine.ws) { try { syncEngine.ws.close(); } catch (e) { } }
-      setTimeout(() => {
-        syncEngine.connect();
-        setTimeout(async () => await renderSettings(document.getElementById('page-container')), 2000);
-      }, 300);
-    };
-  }
-
-  const logoutBtn = document.getElementById('waLogoutBtn');
-  if (logoutBtn) {
-    logoutBtn.onclick = async () => {
-      const confirmed = await showConfirm({
-        title: 'Logout WhatsApp',
-        message: 'Are you sure you want to logout your WhatsApp session?',
-        okText: 'Yes, Logout'
-      });
-      if (confirmed) {
-        // Set guard flag BEFORE logout so auto-reconnect doesn't immediately re-init
-        syncEngine._waManualLogout = true;
-        syncEngine._waReconnecting = true;
-        // Clear saved session ID so auto-reconnect has nothing to re-init with
-        const s = await getSettings();
-        s.whatsappSessionId = '';
-        await saveSettings(s);
-        syncEngine.logoutWhatsApp();
-        showToast('Logging out WhatsApp...', 'info');
-        setTimeout(async () => {
-          syncEngine._waReconnecting = false;
-          await renderSettings(document.getElementById('page-container'));
-        }, 1500);
-      }
-    };
-  }
-
-  // Test Message
-  const testMsgBtn = document.getElementById('waTestMsgBtn');
-  if (testMsgBtn) {
-    testMsgBtn.onclick = async () => {
-      const phone = document.getElementById('waTestPhone')?.value.trim();
-      if (!phone) return showToast('Enter a phone number to test', 'error');
-      const s = await getSettings();
-      syncEngine.sendWhatsApp(
-        phone,
-        `✅ *Test Message from ${s.storeName || 'Your POS'}*\n\nWhatsApp integration is working correctly!\n\n_Sent at ${new Date().toLocaleTimeString()}_`,
-        'test'
-      );
-      showToast('Test message sent! Check your WhatsApp.', 'success');
-    };
-  }
-
-  // ── TEMPLATE ──
-  if (waActiveTab === 'template') {
-    const updatePreview = () => {
-      const header = document.getElementById('waHeader')?.value || '';
-      const subheader = document.getElementById('waSubheader')?.value || '';
-      const footer = document.getElementById('waFooter')?.value || '';
-      const showItems = document.getElementById('waShowItems')?.checked ?? true;
-      const showTax = document.getElementById('waShowTax')?.checked ?? true;
-      const showHeader = document.getElementById('waShowHeader')?.checked ?? true;
-      const showFooter = document.getElementById('waShowFooter')?.checked ?? true;
-      const mockOrder = {
-        id: 'TEST-001',
-        storeName: settings.storeName,
-        date: new Date().toISOString(),
-        items: [{ name: 'Masala Dosa', emoji: '🍛', price: 120, qty: 2, itemDiscount: 0, taxRate: 5 }],
-        subtotal: 240,
-        discount: 0,
-        tax: 12,
-        total: 252,
-        payments: [{ method: 'Cash', amount: 252 }]
-      };
-      const tmpl = { headerText: header, subHeaderText: subheader, footerText: footer, showHeader, showFooter, showItems, showTax, showPayments: true };
-      const preview = document.getElementById('waBillPreview');
-      if (preview) preview.innerText = BillRenderer.renderAsText(mockOrder, tmpl, settings);
-    };
-    ['waHeader', 'waSubheader', 'waFooter', 'waShowItems', 'waShowTax', 'waShowHeader', 'waShowFooter'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', updatePreview);
-      document.getElementById(id)?.addEventListener('change', updatePreview);
-    });
-    updatePreview();
-
-    document.getElementById('waSaveTemplatesBtn')?.addEventListener('click', async () => {
-      const s = await getSettings();
-      if (!s.whatsappTemplates) s.whatsappTemplates = {};
-      s.whatsappTemplates.order = {
-        headerText: document.getElementById('waHeader').value.trim(),
-        subHeaderText: document.getElementById('waSubheader').value.trim(),
-        footerText: document.getElementById('waFooter').value.trim(),
-        showHeader: document.getElementById('waShowHeader').checked,
-        showFooter: document.getElementById('waShowFooter').checked,
-        showItems: document.getElementById('waShowItems').checked,
-        showTax: document.getElementById('waShowTax').checked,
-        showPayments: true
-      };
-      await saveSettings(s);
-      showToast('Template saved ✅', 'success');
-    });
-  }
-
 }
 
 

@@ -290,7 +290,6 @@ export const KEYS = {
   APPOINTMENTS: 'pos_appointments',
   STAFF_INCENTIVES: 'pos_staff_incentives',
   DAILY_STATS: 'pos_daily_stats',
-  WHATSAPP_LOGS: 'pos_whatsapp_logs',
   IMPORT_TRACKER: 'pos_import_tracker',
   IS_LOCKED: 'pos_is_locked',
   RETURNS: 'pos_returns',
@@ -301,7 +300,6 @@ export const KEYS = {
   CATEGORIES: 'pos_categories',
   SUB_CATEGORIES: 'pos_sub_categories',
   CREDIT_HISTORY: 'pos_credit_history',
-  SCHEDULED_REMINDERS: 'pos_scheduled_reminders',
   LOGIN_ACTIVITY: 'pos_login_activity',
   // Tombstones: track deleted record IDs so pos_full_state won't resurrect them
   DELETED_TOMBSTONES: 'pos_deleted_tombstones'
@@ -2503,52 +2501,6 @@ export async function clearStore(store, isSilent = true) {
       detail: { type: 'clear', store }
     }));
   }
-}
-
-// WhatsApp Logs
-export async function getWhatsAppLogs() {
-  return await db.getAll(KEYS.WHATSAPP_LOGS) || [];
-}
-
-export async function addWhatsAppLog(log) {
-  const newLog = {
-    ...log,
-    id: Date.now(),
-    timestamp: new Date().toISOString()
-  };
-  await db.put(KEYS.WHATSAPP_LOGS, newLog);
-  return newLog;
-}
-
-export async function clearWhatsAppLogs() {
-  await db.clear(KEYS.WHATSAPP_LOGS);
-}
-
-// Scheduled Reminders
-export async function getScheduledReminders() {
-  return await db.getAll(KEYS.SCHEDULED_REMINDERS) || [];
-}
-
-export async function saveScheduledReminder(data) {
-  if (!data.id) data.id = 'rem-' + Date.now();
-  await db.put(KEYS.SCHEDULED_REMINDERS, data);
-  return data;
-}
-
-export async function updateScheduledReminderStatus(id, status, error = null) {
-  return await db.update(KEYS.SCHEDULED_REMINDERS, id, async (item) => {
-    item.status = status;
-    item.updatedAt = new Date().toISOString();
-    if (error) {
-      item.error = error;
-      item.status = 'failed';
-    }
-    return item;
-  });
-}
-
-export async function deleteScheduledReminder(id) {
-  await db.delete(KEYS.SCHEDULED_REMINDERS, id);
 }
 
 // Initialization logic moved to DbService.performMigration or handled on app start

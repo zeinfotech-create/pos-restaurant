@@ -339,9 +339,6 @@ function renderStatusBadge(status) {
 
 async function viewOrderDetail(order, cur) {
   const settings = await getSettings();
-  const waStatus = window.syncEngine?.whatsappStatus;
-  const isWaReady = waStatus === 'ready' || waStatus === 'authenticated' || waStatus === 'connected';
-  const hasCustomerPhone = order.customer && order.customer.phone;
   const allReturns = (await getReturns()).filter(r => r.orderId === order.id);
   const hasReturns = allReturns.length > 0;
 
@@ -355,9 +352,6 @@ async function viewOrderDetail(order, cur) {
           ` : ''}
           ${await hasPermission('orders:refund') ? `
             <button class="btn btn-danger" id="returnOrderBtn"><i class="fa-solid fa-rotate-left"></i> Process Return</button>
-          ` : ''}
-          ${isWaReady && hasCustomerPhone ? `
-            <button class="btn btn-whatsapp btn-whatsapp-icon" id="whatsappReceiptBtn" title="WhatsApp Receipt"><i class="fa-brands fa-whatsapp"></i></button>
           ` : ''}
           ${hasReturns ? `
             <button class="btn btn-primary" id="printSaleBtn"><i class="fa-solid fa-print"></i> Sale Print</button>
@@ -374,7 +368,6 @@ async function viewOrderDetail(order, cur) {
     const closeBtn = document.getElementById('closeDetailBtn');
     const printBtn = document.getElementById('printOrderBtn');
     const returnBtn = document.getElementById('returnOrderBtn');
-    const waBtn = document.getElementById('whatsappReceiptBtn');
     const printSaleBtn = document.getElementById('printSaleBtn');
     const printReturnBtn = document.getElementById('printReturnBtn');
 
@@ -410,58 +403,6 @@ async function viewOrderDetail(order, cur) {
       };
     }
 
-    if (waBtn) {
-      waBtn.onclick = async () => {
-        const originalContent = '<i class="fa-brands fa-whatsapp"></i>';
-        waBtn.disabled = true;
-        waBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
-        waBtn.style.opacity = '0.8';
-
-        try {
-          const { BillRenderer } = await import('../utils/billRenderer.js');
-          const waTemplate = settings.whatsappTemplates?.order || {
-            headerText: 'Thank you for your order!',
-            subHeaderText: 'Here is your bill summary:',
-            footerText: 'Visit us again!',
-            showHeader: true,
-            showFooter: true,
-            showItems: true,
-            showTax: true,
-            showPayments: true
-          };
-          const messageBody = BillRenderer.renderAsText(order, waTemplate, settings);
-
-          let phone = order.customer.phone.replace(/\D/g, '');
-          if (phone.length === 10) phone = '91' + phone;
-
-          const result = await window.syncEngine.sendWhatsApp(phone, messageBody, 'receipt');
-          
-          if (result && result.success) {
-            showToast('✅ WhatsApp Receipt Sent Successfully!', 'success');
-            // Flash success state on button
-            waBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
-            waBtn.style.background = 'var(--success)';
-            setTimeout(() => {
-              waBtn.innerHTML = originalContent;
-              waBtn.style.background = '';
-              waBtn.disabled = false;
-              waBtn.style.opacity = '1';
-            }, 3000);
-          } else {
-            showToast(result?.message || 'Failed to send WhatsApp receipt.', 'error');
-            waBtn.innerHTML = originalContent;
-            waBtn.disabled = false;
-            waBtn.style.opacity = '1';
-          }
-        } catch (err) {
-          console.error('[WhatsApp Manual Receipt Error]', err);
-          showToast('An error occurred while sending.', 'error');
-          waBtn.innerHTML = originalContent;
-          waBtn.disabled = false;
-          waBtn.style.opacity = '1';
-        }
-      };
-    }
   }, 0);
 }
 

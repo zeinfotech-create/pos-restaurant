@@ -1,4 +1,4 @@
-import { getSettings, saveOrder, updateProduct, updateShiftSales, saveStaffIncentive, updateAppointmentStatus, getCustomers, saveScheduledReminder } from '../db.js';
+import { getSettings, saveOrder, updateProduct, updateShiftSales, saveStaffIncentive, updateAppointmentStatus, getCustomers } from '../db.js';
 import { store, getCartTotals, clearCart } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
@@ -317,25 +317,6 @@ export async function openQuickCheckout(onSuccess = null) {
                             <div id="qc-credit-info-box" style="margin-top:16px; padding:20px; background:rgba(255, 71, 87, 0.03); border:2px solid rgba(255, 71, 87, 0.3); border-radius:16px; ${checkoutMode === 'paid' ? 'display:none' : ''}">
                                 <label style="font-size:10px; font-weight:800; color:var(--danger); text-transform:uppercase; display:block; margin-bottom:8px">Credit Note (Required)</label>
                                 <input type="text" id="qc-credit-note" class="qc-split-input" placeholder="e.g. Order #New" style="width:100%; height:40px; font-size:14px; text-align:left; border-bottom:1px solid var(--border)" />
-                                
-                                <label style="display:flex; align-items:center; gap:10px; margin-top:16px; cursor:pointer">
-                                    <input type="checkbox" id="qc-send-wa-check" checked style="width:16px; height:16px; accent-color:var(--success)" />
-                                    <span style="font-size:12px; font-weight:700; color:var(--success)">
-                                        <i class="fa-brands fa-whatsapp"></i> WhatsApp Reminder
-                                    </span>
-                                </label>
-
-                                <div id="qc-wa-schedule-container" style="margin-top:16px; border-top:1px dashed var(--border); padding-top:16px; transition: opacity 0.3s ease">
-                                    <label style="font-size:10px; font-weight:800; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:8px">Schedule Follow-up</label>
-                                    <select id="qc-wa-schedule" class="qc-split-input" style="width:100%; height:36px; font-size:13px; text-align:left; background:var(--bg-main); border:1px solid var(--border); border-radius:8px; padding:0 8px;">
-                                        <option value="none">No Follow-up</option>
-                                        <option value="tomorrow">Tomorrow</option>
-                                        <option value="3days">After 3 Days</option>
-                                        <option value="7days">After 1 Week</option>
-                                        <option value="custom">Pick Specific Date & Time</option>
-                                    </select>
-                                    <input type="datetime-local" id="qc-wa-custom-date" class="qc-split-input" style="display:none; width:100%; height:36px; font-size:13px; margin-top:8px; background:var(--bg-main); border:1px solid var(--border); border-radius:8px; padding:0 8px;" />
-                                </div>
                             </div>
                             ` : ''}
 
@@ -556,34 +537,6 @@ export async function openQuickCheckout(onSuccess = null) {
             };
         }
 
-        const scheduleSel = document.getElementById('qc-wa-schedule');
-        if (scheduleSel) {
-            scheduleSel.onchange = (e) => {
-                const customDate = document.getElementById('qc-wa-custom-date');
-                if (customDate) customDate.style.display = e.target.value === 'custom' ? 'block' : 'none';
-            };
-        }
-
-        const qcWaCheck = document.getElementById('qc-send-wa-check');
-        if (qcWaCheck) {
-            qcWaCheck.onchange = (e) => {
-                const container = document.getElementById('qc-wa-schedule-container');
-                const sched = document.getElementById('qc-wa-schedule');
-                const custom = document.getElementById('qc-wa-custom-date');
-                if (!e.target.checked) {
-                    if (container) container.style.opacity = '0.4';
-                    if (sched) {
-                        sched.disabled = true;
-                        sched.value = 'none';
-                    }
-                    if (custom) custom.style.display = 'none';
-                } else {
-                    if (container) container.style.opacity = '1';
-                    if (sched) sched.disabled = false;
-                }
-            };
-        }
-
         if (focusInput) {
             const activeInp = document.querySelectorAll('.qc-split-input')[activeIndex];
             if (activeInp) { activeInp.focus(); activeInp.select(); }
@@ -691,9 +644,6 @@ export async function openQuickCheckout(onSuccess = null) {
 
         const isUnpaid = checkoutMode === 'unpaid';
         const creditNote = document.getElementById('qc-credit-note')?.value;
-        const sendWa = document.getElementById('qc-send-wa-check')?.checked;
-        const waSchedule = document.getElementById('qc-wa-schedule')?.value;
-        const waCustomDate = document.getElementById('qc-wa-custom-date')?.value;
 
         // Mode logic
         if (isUnpaid) {
@@ -719,26 +669,11 @@ export async function openQuickCheckout(onSuccess = null) {
 
         const validPayments = isUnpaid ? [] : payments.filter(p => p.amount > 0.01);
 
-        // Determine scheduledFor date
-        let scheduledFor = null;
-        if (waSchedule && waSchedule !== 'none') {
-            const now = new Date();
-            if (waSchedule === 'tomorrow') scheduledFor = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 10, 0, 0);
-            else if (waSchedule === '3days') scheduledFor = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 10, 0, 0);
-            else if (waSchedule === '7days') scheduledFor = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 10, 0, 0);
-            else if (waSchedule === 'custom' && waCustomDate) scheduledFor = new Date(waCustomDate);
-        }
-
         const confirmData = () => ({
             isCredit: isUnpaid,
             creditInfo: creditNote || (isUnpaid ? 'Unpaid Sale' : ''),
             redeemedPoints,
-            creditUsed: 0,
-            sendWhatsApp: sendWa,
-            scheduledReminder: scheduledFor ? {
-                date: scheduledFor.toISOString(),
-                type: waSchedule
-            } : null
+            creditUsed: 0
         });
 
         await confirmOrder(validPayments, getCartTotals(), settings, cur, confirmData());

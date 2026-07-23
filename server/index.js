@@ -18,7 +18,6 @@ const WebSocket = require('ws');
 const mongoose = require('mongoose');
 const crypto = require('crypto');
 const axios = require('axios');
-const whatsappService = require('./whatsappService');
 const DBManager = require('./dbManager');
 const BackupService = require('./backupService');
 const DB_TYPE = DBManager.getType();
@@ -43,8 +42,6 @@ const LoginActivity = require('./models/LoginActivity');
 const LoyaltyHistory = require('./models/LoyaltyHistory');
 const CreditHistory = require('./models/CreditHistory');
 const DailyStats = require('./models/DailyStats');
-const WhatsAppLog = require('./models/WhatsAppLog');
-const ScheduledReminder = require('./models/ScheduledReminder');
 const Record = require('./models/Record');
 const UpgradeKey = require('./models/UpgradeKey');
 
@@ -68,8 +65,6 @@ const ModelMap = {
     'loyalty_history': LoyaltyHistory,
     'credit_history': CreditHistory,
     'daily_stats': DailyStats,
-    'whatsapp_logs': WhatsAppLog,
-    'scheduled_reminders': ScheduledReminder,
     'import_tracker': Record,
     'backup_history': Record,
     'import_history': Record,
@@ -1234,7 +1229,7 @@ const server = http.createServer(async (req, res) => {
                     License, User, Branch, Product, Register, Customer, Supplier, Order, Setting,
                     Purchase, Appointment, Staff, Shift, Return,
                     InventoryLog, LoginActivity, LoyaltyHistory, CreditHistory, DailyStats,
-                    WhatsAppLog, ScheduledReminder, Record
+                    Record
                 ];
 
                 const results = await Promise.all(modelsToWipe.map(model => {
@@ -1539,8 +1534,7 @@ const server = http.createServer(async (req, res) => {
                         modules: {
                              inventory: 'full',
                              reports: 'advanced',
-                             appointments: true,
-                             whatsapp: true
+                             appointments: true
                         }
                     }
                 };
@@ -1832,9 +1826,6 @@ function getDefaultSettings(licenseKey, branchId = null) {
         autoLockMinutes: 0,
         isInstalled: false,
         businessType: 'Restaurant',
-        whatsappSessionId: '',
-        whatsappTemplates: {},
-        whatsappReminders: {},
         syncHubIp: '',
         email: '',
         updatedAt: new Date()
@@ -1926,8 +1917,7 @@ async function getLicenseStatus(licenseKey) {
             inventory: 'basic',
             reports: 'daily',
             appointments: false,
-            industry_setup: false,
-            whatsapp: false
+            industry_setup: false
         }
     };
 
@@ -1941,7 +1931,6 @@ async function getLicenseStatus(licenseKey) {
                 reports: 'advanced',
                 appointments: true,
                 industry_setup: true,
-                whatsapp: true,
                 pro_addons: true,
                 register_shift: true,
                 cloud_sync: false,
@@ -1998,8 +1987,7 @@ async function getLicenseStatus(licenseKey) {
                 inventory: 'advanced',
                 reports: 'full',
                 appointments: true,
-                industry_setup: true,
-                whatsapp: true
+                industry_setup: true
             },
             createdAt: createdAt
         };
@@ -2022,7 +2010,6 @@ async function getLicenseStatus(licenseKey) {
                 reports: 'full',
                 appointments: true,
                 industry_setup: true,
-                whatsapp: true,
                 pro_addons: true,
                 register_shift: true,
                 cloud_sync: true,
@@ -2147,22 +2134,6 @@ wss.on('connection', (ws, req) => {
                         licenseStatus: status
                     });
                     send(ws, { type: 'server_status', dbConnected: isDbConnected });
-
-                    // Auto-restore WhatsApp session if Hub doesn't have it but settings do
-                    if (whatsappService.status === 'disconnected') {
-                        const sessionSetting = await DBManager.findOne(Setting, 'settings', { 
-                            licenseKey: key, 
-                            whatsappSessionId: { $exists: true } 
-                        });
-                        
-                        if (sessionSetting && sessionSetting.whatsappSessionId) {
-                            console.log(`[Hub] Auto-restoring WhatsApp session for ${key}: ${sessionSetting.whatsappSessionId}`);
-                            whatsappService.init(sessionSetting.whatsappSessionId, (update) => {
-                                console.log(`[Hub] WhatsApp Status Broadcast for ${key}: ${update.status}`);
-                                broadcastToLicense(key, { type: 'whatsapp_status', ...update });
-                            });
-                        }
-                    }
                     break;
                 }
 
@@ -2174,7 +2145,7 @@ wss.on('connection', (ws, req) => {
                     console.log(`[Hub] 📂 Fetch All Request for ${licenseKey} (Branch: ${branchId || 'All'})`);
 
                     const results = {};
-                    const branchScopedStores = ['products', 'registers', 'customers', 'suppliers', 'orders', 'purchases', 'appointments', 'staff', 'shifts', 'returns', 'whatsapp_logs', 'scheduled_reminders', 'categories', 'sub_categories'];
+                    const branchScopedStores = ['products', 'registers', 'customers', 'suppliers', 'orders', 'purchases', 'appointments', 'staff', 'shifts', 'returns', 'categories', 'sub_categories'];
 
                     const fetchPromises = Object.entries(ModelMap).map(async ([store, Model]) => {
                         let query = { licenseKey };
@@ -2953,41 +2924,11 @@ wss.on('connection', (ws, req) => {
                 }
 
                 // --------------------------------------------------------
-                // Peripheral stubs (ADB / WhatsApp)
+                // Peripheral stubs (ADB)
                 // --------------------------------------------------------
                 case 'get_adb_status':
                     send(ws, { type: 'adb_status', status: 'disconnected' });
                     break;
-
-                case 'get_whatsapp_status': {
-                    const status = whatsappService.getStatus();
-                    console.log(`[Hub] Status request for WhatsApp: ${status.status} (Session: ${status.sessionId})`);
-                    send(ws, { type: 'whatsapp_status', ...status });
-                    break;
-                }
-
-                case 'whatsapp_init': {
-                    const { sessionId } = msg;
-                    if (!sessionId) break;
-                    console.log(`[Hub] WhatsApp Init Requested for ${licenseKey} (Session: ${sessionId})`);
-                    whatsappService.init(sessionId, (update) => {
-                        console.log(`[Hub] WhatsApp Status Broadcast for ${licenseKey}: ${update.status}`);
-                        broadcastToLicense(licenseKey, { type: 'whatsapp_status', ...update });
-                    });
-                    break;
-                }
-                case 'whatsapp_logout': {
-                    await whatsappService.logout();
-                    broadcastToLicense(licenseKey, { type: 'whatsapp_status', status: 'disconnected', qr: '' });
-                    break;
-                }
-                case 'send_whatsapp': {
-                    const { to, text, requestId } = msg;
-                    if (!to || !text) break;
-                    const success = await whatsappService.sendMessage(to, text);
-                    send(ws, { type: 'whatsapp_send_result', requestId, success });
-                    break;
-                }
 
                 // --------------------------------------------------------
                 // ONBOARDING HANDLERS (Database-First)

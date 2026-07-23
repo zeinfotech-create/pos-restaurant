@@ -2,7 +2,7 @@
 // CheckoutService.js — Global checkout and receipt logic
 // ============================================================
 
-import { getProducts, saveOrder, getSettings, saveSettings, updateProduct, updateShiftSales, saveStaffIncentive, updateAppointmentStatus, getReturns, getCustomers, addWhatsAppLog, saveScheduledReminder } from '../db.js';
+import { getProducts, saveOrder, getSettings, saveSettings, updateProduct, updateShiftSales, saveStaffIncentive, updateAppointmentStatus, getReturns, getCustomers } from '../db.js';
 import { store, getCartTotals, clearCart } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
@@ -168,7 +168,7 @@ export async function openCheckout() {
                                 <i class="fa-solid fa-plus mr-4" style="color:var(--primary)"></i> Add Method
                             </button>
                         </div>
-                        <div style="font-size:12px;color:var(--text-muted);font-weight:700">Balanced: ${Math.abs(due) < 0.01 ? '✅' : '⏳'}</div>
+                        <div style="font-size:12px;color:var(--text-muted);font-weight:700" id="balanced-indicator">Balanced: ${Math.abs(due) < 0.01 ? '✅' : '⏳'}</div>
                     </div>
                     
                     <div id="paymentRowsContainer" style="${checkoutMode === 'unpaid' ? 'opacity:0.3; pointer-events:none; filter:grayscale(1);' : ''}">
@@ -244,7 +244,7 @@ export async function openCheckout() {
                        <div>
                            <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px dashed var(--border)">
                                <span style="font-weight:600;color:var(--text-secondary)">Total Collected</span>
-                               <span style="font-weight:800;font-size:18px;color:var(--success)">${cur}${paid.toFixed(2)}</span>
+                               <span style="font-weight:800;font-size:18px;color:var(--success)" id="total-collected-val">${cur}${paid.toFixed(2)}</span>
                            </div>
                            ${usePoints ? `
                             <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px dashed var(--border)">
@@ -316,25 +316,6 @@ export async function openCheckout() {
                            <label class="form-label" style="font-size:10px; font-weight:800; color:var(--danger); text-transform:uppercase">Credit Note (Required)</label>
                            <input type="text" class="form-input" id="creditInfo" placeholder="e.g. Sales Credit / Order #New" value=""
                              style="background:var(--bg-main); border-color:rgba(255, 71, 87, 0.2); padding:14px; font-size:14px; margin-bottom:16px" />
-                           
-                           <label style="display:flex; align-items:center; gap:10px; margin-bottom:16px; cursor:pointer">
-                               <input type="checkbox" id="sendWaReminderCheck" checked style="width:18px; height:18px; accent-color:var(--success)" />
-                               <span style="font-size:13px; font-weight:700; color:var(--success)">
-                                   <i class="fa-brands fa-whatsapp" style="margin-right:4px"></i> Send WhatsApp Reminder
-                               </span>
-                           </label>
-
-                           <div id="waScheduleContainer" style="border-top:1px dashed rgba(255, 71, 87, 0.2); padding-top:16px">
-                               <label class="form-label" style="font-size:10px; font-weight:800; color:var(--text-muted); text-transform:uppercase">Schedule Follow-up</label>
-                               <select id="waReminderSchedule" class="form-input" style="background:var(--bg-main); border-color:var(--border); font-size:13px; font-weight:600; padding:10px; width:100%">
-                                   <option value="none">No Follow-up</option>
-                                   <option value="tomorrow">Tomorrow</option>
-                                   <option value="3days">After 3 Days</option>
-                                   <option value="7days">After 1 Week</option>
-                                   <option value="custom">Pick Specific Date & Time</option>
-                               </select>
-                               <input type="datetime-local" id="waReminderCustomDate" class="form-input" style="display:none; margin-top:8px; background:var(--bg-main); border-color:var(--border); font-size:13px; font-weight:600; padding:10px; width:100%" />
-                           </div>
                          </div>
                        ` : ''}
 
@@ -428,8 +409,7 @@ export async function openCheckout() {
         const paid = payments.reduce((s, p) => s + p.amount, 0);
         const outstanding = Math.max(0, total - redeemedPoints - paid);
         const creditNote = document.getElementById('creditInfo')?.value;
-        const sendWa = document.getElementById('sendWaReminderCheck')?.checked;
-        
+
         // Mode logic
         const isUnpaid = checkoutMode === 'unpaid';
         const creditApplied = 0; // Simplified for this view
@@ -457,8 +437,7 @@ export async function openCheckout() {
             isCredit: isUnpaid,
             creditInfo: creditNote || (isUnpaid ? 'Unpaid Transaction' : ''),
             redeemedPoints,
-            creditUsed: creditApplied,
-            sendWhatsApp: sendWa
+            creditUsed: creditApplied
         });
 
         await confirmOrder(validPayments, getCartTotals(), settings, cur, confirmData());
@@ -472,34 +451,75 @@ export async function openCheckout() {
       };
     });
 
+    const applyPaymentAmountChange = (idx, newVal) => {
+      // Dynamic Smart Balancing
+      if (payments.length > 1) {
+        const diff = newVal - payments[idx].amount;
+        payments[idx].amount = newVal;
+
+        let remainingDiff = diff;
+        // Strategy: Adjust the OTHER rows starting from the last one
+        for (let i = payments.length - 1; i >= 0; i--) {
+          if (i !== idx && remainingDiff !== 0) {
+            const prevAmt = payments[i].amount;
+            payments[i].amount = prevAmt - remainingDiff;
+            if (payments[i].amount < 0) {
+              remainingDiff = -payments[i].amount;
+              payments[i].amount = 0;
+            } else {
+              remainingDiff = 0;
+            }
+          }
+        }
+      } else {
+        payments[idx].amount = newVal;
+      }
+    };
+
+    // Patches just the numbers that need to move after an amount edit,
+    // instead of updateUI()'s full modalBody.innerHTML replace — a full
+    // re-render tears down and rebuilds every input, which steals focus and
+    // resets the cursor after every single keystroke (so typing a second
+    // digit lands nowhere, or the field appears to just not accept input).
+    // Only the OTHER rows' values + the summary numbers need to move live;
+    // the field the user is actively typing into is left alone until blur.
+    const livePatchPaymentUI = (skipIdx) => {
+      const { total: liveTotal } = getCartTotals();
+      document.querySelectorAll('.payment-amount-input').forEach(input => {
+        const i = parseInt(input.dataset.idx);
+        if (i !== skipIdx) input.value = payments[i].amount.toFixed(2);
+      });
+      const paidNow = payments.reduce((s, p) => s + p.amount, 0);
+      const dueNow = liveTotal - redeemedPoints - paidNow;
+      const totalCollectedEl = document.getElementById('total-collected-val');
+      if (totalCollectedEl) totalCollectedEl.textContent = `${cur}${paidNow.toFixed(2)}`;
+      const dueLabelEl = document.getElementById('due-label');
+      const dueValEl = document.getElementById('due-val');
+      const dueColor = dueNow > 0.05 ? 'var(--danger)' : 'var(--accent)';
+      if (dueLabelEl) {
+        dueLabelEl.textContent = dueNow > 0.05 ? 'Outstanding Balance' : 'Change Due';
+        dueLabelEl.style.color = dueColor;
+      }
+      if (dueValEl) {
+        dueValEl.textContent = `${cur}${Math.abs(dueNow).toFixed(2)}`;
+        dueValEl.style.color = dueColor;
+      }
+      const balancedEl = document.getElementById('balanced-indicator');
+      if (balancedEl) balancedEl.textContent = `Balanced: ${Math.abs(dueNow) < 0.01 ? '✅' : '⏳'}`;
+    };
+
     document.querySelectorAll('.payment-amount-input').forEach(el => {
+      el.oninput = (e) => {
+        const idx = parseInt(e.target.dataset.idx);
+        const newVal = parseFloat(e.target.value) || 0;
+        applyPaymentAmountChange(idx, newVal);
+        livePatchPaymentUI(idx);
+      };
+
       el.onchange = (e) => {
         const idx = parseInt(e.target.dataset.idx);
         const newVal = parseFloat(e.target.value) || 0;
-
-        // Dynamic Smart Balancing
-        if (payments.length > 1) {
-          const diff = newVal - payments[idx].amount;
-          payments[idx].amount = newVal;
-
-          let remainingDiff = diff;
-          // Strategy: Adjust the OTHER rows starting from the last one
-          for (let i = payments.length - 1; i >= 0; i--) {
-            if (i !== idx && remainingDiff !== 0) {
-              const prevAmt = payments[i].amount;
-              const adjustment = Math.max(-prevAmt, -remainingDiff); // Don't go below 0
-              payments[i].amount = prevAmt - remainingDiff;
-              if (payments[i].amount < 0) {
-                remainingDiff = -payments[i].amount;
-                payments[i].amount = 0;
-              } else {
-                remainingDiff = 0;
-              }
-            }
-          }
-        } else {
-          payments[idx].amount = newVal;
-        }
+        applyPaymentAmountChange(idx, newVal);
         updateUI();
       };
 
@@ -538,10 +558,23 @@ export async function openCheckout() {
     const addBtn = document.getElementById('addPaymentBtn');
     if (addBtn) {
       addBtn.onclick = () => {
-        const paidSoFar = payments.reduce((s, p) => s + p.amount, 0);
         const nextMethod = ALL_METHODS.find(m => !payments.map(px => px.method).includes(m));
         if (nextMethod) {
-          payments.push({ method: nextMethod, amount: Math.max(0, total - paidSoFar) });
+          // Split the amount already covered across the existing row(s) AND
+          // the new one, instead of leaving the new row at ₹0 (which is what
+          // "total - paidSoFar" always evaluates to once the order is already
+          // fully covered — the normal case, since a single row starts out
+          // pre-filled with the full total). A visible even split is what
+          // "split across payment methods" actually means; the user can then
+          // fine-tune either amount, and editing one row already rebalances
+          // the others (see .payment-amount-input's onchange below).
+          const paidSoFar = payments.reduce((s, p) => s + p.amount, 0);
+          const targetAmount = Math.max(paidSoFar, total);
+          const rowCount = payments.length + 1;
+          const evenShare = parseFloat((targetAmount / rowCount).toFixed(2));
+          payments.forEach(p => { p.amount = evenShare; });
+          const remainder = parseFloat((targetAmount - evenShare * payments.length).toFixed(2));
+          payments.push({ method: nextMethod, amount: remainder });
           updateUI();
         }
       };
@@ -694,29 +727,6 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
       status: creditData.isCredit ? 'credit' : 'completed'
     });
 
-    // Handle Scheduled Reminder if any
-    if (creditData.scheduledReminder && order.customer && order.customer.phone) {
-        const sched = creditData.scheduledReminder;
-        const freshCustomers = await getCustomers();
-        const customer = freshCustomers.find(c => c.id === order.customer.id);
-        const debt = (customer?.creditBalance || 0).toFixed(2);
-        const settings = await getSettings();
-        
-        await saveScheduledReminder({
-            id: 'rem-' + Date.now(),
-            licenseKey: settings.licenseKey || 'GLOBAL',
-            branchId: store.branch?.id || 'b1',
-            customerId: customer.id,
-            phone: customer.phone,
-            name: customer.name,
-            message: `⏰ *Scheduled Reminder*\n\nDear *${customer.name}*, just a friendly follow-up regarding your outstanding balance of *${settings.currency}${debt}*.\n\nThank you!`,
-            scheduledFor: sched.date,
-            status: 'pending',
-            createdAt: new Date().toISOString()
-        });
-        showToast('Follow-up reminder scheduled! 📅', 'success');
-    }
-
     if (store.selectedAppointmentId) {
       await updateAppointmentStatus(store.selectedAppointmentId, 'Completed');
     }
@@ -749,61 +759,6 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
     clearCart();
     closeModal();
     showToast('Payment successful! 🎉', 'success');
-
-    // --- Automatic WhatsApp Receipt Sending ---
-    const waStatus = window.syncEngine?.whatsappStatus;
-    const waReady = waStatus === 'connected' || waStatus === 'ready' || waStatus === 'authenticated';
-
-    if (order.customer && order.customer.phone && window.syncEngine?.isConnected && waReady) {
-      setTimeout(async () => {
-        const { BillRenderer } = await import('../utils/billRenderer.js');
-        const s = await getSettings();
-        
-        // 1. Send Order Receipt
-        const waTemplate = s.whatsappTemplates?.order || {
-          headerText: 'Thank you for your order!',
-          subHeaderText: 'Here is your bill summary:',
-          footerText: 'Visit us again!',
-          showHeader: true,
-          showFooter: true,
-          showItems: true,
-          showTax: true,
-          showPayments: true
-        };
-        const messageBody = BillRenderer.renderAsText(order, waTemplate, s);
-
-        let phone = order.customer.phone.replace(/\D/g, '');
-        if (phone.length === 10) phone = '91' + phone;
-
-        window.syncEngine.sendWhatsApp(phone, messageBody, 'receipt');
-
-        // 2. Send Debt Reminder if requested
-        if (creditData.sendWhatsApp && creditData.isCredit) {
-            // Fetch fresh customer to get accurate total debt balance
-            const customers = await getCustomers();
-            const fresh = customers.find(c => c.id === order.customer.id);
-            if (fresh) {
-                const totalDebt = (fresh.creditBalance || 0).toFixed(2);
-                const reminderMsg = `⏰ *Payment Reminder*\n\nDear *${fresh.name}*, you have an outstanding balance of *${cur}${totalDebt}*.\n\nPlease contact *${s.storeName || 'us'}* to settle your dues.\n\nThank you!`;
-                
-                await window.syncEngine.sendWhatsApp(phone, reminderMsg, 'reminder');
-                
-                // Log it
-                await addWhatsAppLog({
-                    customerId: fresh.id,
-                    phone: phone,
-                    name: fresh.name,
-                    message: reminderMsg,
-                    type: 'Checkout Reminder',
-                    status: 'sent'
-                });
-            }
-        }
-
-        showToast('WhatsApp updates sent! ✅', 'success');
-      }, 500); 
-    }
-    // ------------------------------------------
 
     // No receipt modal popup after checkout — if auto-print is enabled,
     // render the receipt into a detached (off-screen, never shown) container
@@ -1098,18 +1053,11 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
  * Displays the final receipt modal
  */
 export async function showReceipt(order, settings, cur) {
-  const waStatus = window.syncEngine?.whatsappStatus;
-  const isWaReady = waStatus === 'ready' || waStatus === 'authenticated' || waStatus === 'connected';
-  const hasCustomerPhone = order.customer && order.customer.phone;
-
   openModal({
     title: '🧾 Receipt',
     body: await renderReceiptBody(order, settings, cur),
     footer: `
       <button class="btn btn-ghost" id="closeReceiptBtn">Close</button>
-      ${isWaReady && hasCustomerPhone ? `
-        <button class="btn btn-whatsapp btn-whatsapp-icon" id="whatsappReceiptManualBtn" title="WhatsApp Receipt"><i class="fa-brands fa-whatsapp"></i></button>
-      ` : ''}
       <button class="btn btn-primary" id="printReceiptBtn"><i class="fa-solid fa-print"></i> Print Receipt</button>
     `,
     sidePanel: false
@@ -1120,7 +1068,6 @@ export async function showReceipt(order, settings, cur) {
 
     const closeBtn = document.getElementById('closeReceiptBtn');
     const printBtn = document.getElementById('printReceiptBtn');
-    const waBtn = document.getElementById('whatsappReceiptManualBtn');
 
     if (closeBtn) closeBtn.onclick = closeModal;
     if (printBtn) {
@@ -1131,59 +1078,6 @@ export async function showReceipt(order, settings, cur) {
       if (settings?.autoPrintReceipt) {
         setTimeout(doPrint, 500);
       }
-    }
-
-    if (waBtn) {
-      waBtn.onclick = async () => {
-        const originalContent = '<i class="fa-brands fa-whatsapp"></i>';
-        waBtn.disabled = true;
-        waBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
-        waBtn.style.opacity = '0.8';
-
-        try {
-          const { BillRenderer } = await import('../utils/billRenderer.js');
-          const waTemplate = settings.whatsappTemplates?.order || {
-            headerText: 'Thank you for your order!',
-            subHeaderText: 'Here is your bill summary:',
-            footerText: 'Visit us again!',
-            showHeader: true,
-            showFooter: true,
-            showItems: true,
-            showTax: true,
-            showPayments: true
-          };
-          const messageBody = BillRenderer.renderAsText(order, waTemplate, settings);
-
-          let phone = order.customer.phone.replace(/\D/g, '');
-          if (phone.length === 10) phone = '91' + phone;
-
-          const result = await window.syncEngine.sendWhatsApp(phone, messageBody, 'receipt');
-          
-          if (result && result.success) {
-            showToast('✅ WhatsApp Receipt Sent Successfully!', 'success');
-            // Flash success state on button
-            waBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
-            waBtn.style.background = 'var(--success)';
-            setTimeout(() => {
-              waBtn.innerHTML = originalContent;
-              waBtn.style.background = '';
-              waBtn.disabled = false;
-              waBtn.style.opacity = '1';
-            }, 3000);
-          } else {
-            showToast(result?.message || 'Failed to send WhatsApp receipt.', 'error');
-            waBtn.innerHTML = originalContent;
-            waBtn.disabled = false;
-            waBtn.style.opacity = '1';
-          }
-        } catch (err) {
-          console.error('[WhatsApp Manual Receipt Error Checkout]', err);
-          showToast('An error occurred while sending.', 'error');
-          waBtn.innerHTML = originalContent;
-          waBtn.disabled = false;
-          waBtn.style.opacity = '1';
-        }
-      };
     }
 
     // Keyboard Shortcuts (Enter = Print, Esc = Close)

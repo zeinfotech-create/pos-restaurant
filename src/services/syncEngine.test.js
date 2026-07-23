@@ -21,7 +21,7 @@ vi.mock('../db.js', () => ({
     daysLeft: 5,
     branchLimit: 2,
     productLimit: 50,
-    modules: { whatsapp: true }
+    modules: { cloud_sync: true }
   }),
   saveCachedLicenseStatus: vi.fn(),
   updateSettings: vi.fn(),
@@ -52,8 +52,8 @@ describe('SyncEngine Service', () => {
   });
 
   it('should accurately verify capabilities based on license features', async () => {
-    // WhatsApp module is enabled in trial cache mock
-    expect(syncEngine.checkCapability('whatsapp')).toBe(true);
+    // cloud_sync module is enabled in trial cache mock
+    expect(syncEngine.checkCapability('cloud_sync')).toBe(true);
   });
 
   it('should only unlock capabilities in standalone mode once Lifetime-activated', () => {
@@ -64,12 +64,12 @@ describe('SyncEngine Service', () => {
 
     // Not yet activated — no trial grace period on the desktop build, nothing unlocks
     syncEngine.isLifetimeActivated = false;
-    syncEngine.licenseStatus = { type: 'unactivated', modules: { whatsapp: false } };
-    expect(syncEngine.checkCapability('whatsapp')).toBe(false);
+    syncEngine.licenseStatus = { type: 'unactivated', modules: { cloud_sync: false } };
+    expect(syncEngine.checkCapability('cloud_sync')).toBe(false);
 
     // Activated — everything unlocks regardless of licenseStatus modules
     syncEngine.isLifetimeActivated = true;
-    expect(syncEngine.checkCapability('whatsapp')).toBe(true);
+    expect(syncEngine.checkCapability('cloud_sync')).toBe(true);
 
     syncEngine.deploymentMode = originalMode;
     syncEngine.isLifetimeActivated = originalActivated;
