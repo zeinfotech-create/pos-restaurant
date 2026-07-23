@@ -221,6 +221,7 @@ async function openUserProfileModal() {
   const currentRegister = store.registerId ? (await getBranchRegisters(store.branch?.id)).find(r => r.id === store.registerId)?.name || 'Unknown' : 'No Register';
   const settings = await getSettings('global_settings');
   const lockEnabled = !!settings.autoLockMinutes && settings.autoLockMinutes > 0;
+  const canSwitchBranch = store.user?.role === 'Admin' && (await getBranches()).length > 1;
   openModal({
     title: '<i class="fa-solid fa-user-circle"></i> User Profile',
     body: `
@@ -232,7 +233,7 @@ async function openUserProfileModal() {
         </div>
 
         <div style="display:flex; flex-direction:column; gap:10px">
-          ${store.user?.role === 'Admin' ? `
+          ${canSwitchBranch ? `
           <button class="btn btn-ghost w-full" id="mSwitchBranchBtn" style="justify-content:flex-start; padding:12px 16px">
             <i class="fa-solid fa-right-left mr-12 text-primary"></i> Switch Branch
           </button>` : ''}
