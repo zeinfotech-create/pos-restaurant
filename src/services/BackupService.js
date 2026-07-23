@@ -258,12 +258,17 @@ export const BackupService = {
         const interval = config.interval || 'onExit'; // hourly, daily, onExit
         const retentionDays = config.retentionDays || 7;
 
-        let shouldRun = isExiting; // Always run on exit if enabled
-
-        if (!shouldRun && interval === 'hourly') {
-            if (now - lastAuto > 60 * 60 * 1000) shouldRun = true;
-        } else if (!shouldRun && interval === 'daily') {
-            if (now - lastAuto > 24 * 60 * 60 * 1000) shouldRun = true;
+        // Only "On App Close" means "always back up when exiting" — Hourly/Daily
+        // must respect their own elapsed-time gate even at exit time, otherwise
+        // picking "Daily" but closing the app several times a day would still
+        // back up on every single close.
+        let shouldRun = false;
+        if (interval === 'onExit') {
+            shouldRun = isExiting;
+        } else if (interval === 'hourly') {
+            shouldRun = (now - lastAuto) > 60 * 60 * 1000;
+        } else if (interval === 'daily') {
+            shouldRun = (now - lastAuto) > 24 * 60 * 60 * 1000;
         }
 
         if (!shouldRun) return;

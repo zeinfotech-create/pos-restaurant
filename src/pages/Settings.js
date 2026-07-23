@@ -12,6 +12,9 @@ import { MediaService } from '../services/MediaService.js';
 
 let activeSettingsTab = 'general';
 let advancedConnectionExpanded = false;
+let exportHistoryPage = 1;
+let importHistoryPage = 1;
+const BACKUP_HISTORY_PAGE_SIZE = 5;
 
 window.SettingsPage = {
   render: () => {
@@ -1012,6 +1015,13 @@ async function setupBackupTab(container) {
   const settings = await getSettings();
   const b = settings.backupSettings || {};
 
+  // Suggest an already-installed cloud-sync folder (OneDrive/Dropbox/Google
+  // Drive) instead of making the user browse for one manually — only worth
+  // checking if no folder has been chosen yet.
+  const detectedCloudFolders = (!b.customPath && window.electronAPI?.detectCloudFolders)
+    ? await window.electronAPI.detectCloudFolders().catch(() => [])
+    : [];
+
   // --- PREMIUM STANDALONE / ELECTRON DASHBOARD ---
   const history = await read(KEYS.BACKUP_HISTORY) || [];
   const imports = await read(KEYS.IMPORT_HISTORY) || [];
@@ -1081,6 +1091,23 @@ async function setupBackupTab(container) {
                  <button type="button" id="pBrowseBtn" style="background:var(--primary); border:none; padding:4px 10px; border-radius:6px; color:white; cursor:pointer"><i class="fa-solid fa-folder-open"></i></button>
               </div>
               ${!b.customPath ? `<div style="font-size:11px; color:var(--danger); margin-top:8px"><i class="fa-solid fa-triangle-exclamation mr-4"></i>Select a folder to enable auto-backup.</div>` : ''}
+              ${detectedCloudFolders.length > 0 ? `
+                <div style="margin-top:12px; padding:12px; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); border-radius:10px;">
+                  <div style="font-size:12px; font-weight:700; color:var(--success); margin-bottom:8px"><i class="fa-solid fa-cloud mr-6"></i>${detectedCloudFolders.map(c => c.provider).join(' / ')} detected on this PC</div>
+                  <div style="display:flex; flex-direction:column; gap:6px">
+                    ${detectedCloudFolders.map(c => `
+                      <button type="button" class="btn btn-ghost btn-sm use-cloud-folder-btn" data-path="${c.path.replace(/"/g, '&quot;')}" data-provider="${c.provider}" style="justify-content:flex-start; border:1px solid var(--border); border-radius:8px; font-size:12px; font-weight:600; padding:8px 10px;">
+                        <i class="fa-solid fa-check mr-6" style="color:var(--success)"></i> Use ${c.provider}
+                      </button>
+                    `).join('')}
+                  </div>
+                </div>
+              ` : `
+              <div style="font-size:11px; color:var(--text-muted); margin-top:8px; line-height:1.5">
+                <i class="fa-solid fa-lightbulb mr-4" style="color:var(--warning)"></i>
+                Tip: point this to a <b>OneDrive / Google Drive / Dropbox</b> folder so backups are also protected if this PC has a problem — those apps upload every new file automatically in the background.
+              </div>
+              `}
            </div>
 
            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
@@ -1124,6 +1151,7 @@ async function setupBackupTab(container) {
       const res = await BackupService.exportBackup();
       if (res && res.success) {
         showToast(res.skipped ? 'Already up to date — no changes since last backup.' : 'Snapshot created successfully! 🛡️', res.skipped ? 'info' : 'success');
+        if (!res.skipped) exportHistoryPage = 1;
         await setupBackupTab(container); // Re-render
       }
     } catch (err) {
@@ -1192,6 +1220,27 @@ async function setupBackupTab(container) {
     }
   };
 
+  backupTabElement.querySelectorAll('.use-cloud-folder-btn').forEach(btn => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        const basePath = btn.dataset.path;
+        const provider = btn.dataset.provider;
+        const targetPath = `${basePath}\\POS-Backups`;
+        const fresh = await getSettings();
+        fresh.backupSettings = { ...fresh.backupSettings, customPath: targetPath, enabled: true };
+        await saveSettings(fresh);
+        showToast(`Backups will now sync via ${provider}! ☁️`, 'success');
+        await setupBackupTab(container);
+      } catch (err) {
+        console.error('[Settings] use-cloud-folder failed:', err);
+        showToast('Could not set that folder: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  });
+
   backupTabElement.querySelector('#pAutoBackupToggle').onchange = async (e) => {
     const fresh = await getSettings();
     if (e.target.checked && !fresh.backupSettings?.customPath) {
@@ -1219,6 +1268,22 @@ async function setupBackupTab(container) {
   };
 
   // 4. Tab Switching inside History
+  const attachHistoryPagerListeners = (contentEl, isExports) => {
+    contentEl.querySelectorAll('.history-page-btn').forEach(pageBtn => {
+      pageBtn.onclick = async () => {
+        if (isExports) {
+          exportHistoryPage += pageBtn.dataset.dir === 'next' ? 1 : -1;
+          contentEl.innerHTML = await renderStandaloneExportHistory();
+        } else {
+          importHistoryPage += pageBtn.dataset.dir === 'next' ? 1 : -1;
+          contentEl.innerHTML = await renderStandaloneImportHistory();
+        }
+        attachHistoryPagerListeners(contentEl, isExports);
+      };
+    });
+  };
+  attachHistoryPagerListeners(backupTabElement.querySelector('#pHistoryContent'), true);
+
   backupTabElement.querySelectorAll('.backup-tab-btn').forEach(btn => {
     btn.onclick = async () => {
       backupTabElement.querySelectorAll('.backup-tab-btn').forEach(b => {
@@ -1229,22 +1294,44 @@ async function setupBackupTab(container) {
       btn.classList.add('active');
       btn.style.opacity = '1';
       btn.style.borderBottom = '2px solid var(--primary)';
-      
+
       const content = backupTabElement.querySelector('#pHistoryContent');
-      if (btn.dataset.tab === 'exports') {
+      const isExports = btn.dataset.tab === 'exports';
+      if (isExports) {
         content.innerHTML = await renderStandaloneExportHistory();
       } else {
         content.innerHTML = await renderStandaloneImportHistory();
       }
+      attachHistoryPagerListeners(content, isExports);
     };
   });
 }
 
+function renderHistoryPager(currentPage, totalPages, pagerId) {
+  if (totalPages <= 1) return '';
+  return `
+    <div id="${pagerId}" style="display:flex; align-items:center; justify-content:center; gap:12px; margin-top:16px;">
+      <button type="button" class="btn btn-ghost btn-sm history-page-btn" data-dir="prev" ${currentPage <= 1 ? 'disabled' : ''} style="padding:6px 12px; border:1px solid var(--border); border-radius:8px;">
+        <i class="fa-solid fa-chevron-left"></i>
+      </button>
+      <span style="font-size:12px; color:var(--text-muted); font-weight:600">Page ${currentPage} of ${totalPages}</span>
+      <button type="button" class="btn btn-ghost btn-sm history-page-btn" data-dir="next" ${currentPage >= totalPages ? 'disabled' : ''} style="padding:6px 12px; border:1px solid var(--border); border-radius:8px;">
+        <i class="fa-solid fa-chevron-right"></i>
+      </button>
+    </div>
+  `;
+}
+
 async function renderStandaloneExportHistory() {
-  const history = await read(KEYS.BACKUP_HISTORY) || [];
+  const history = (await read(KEYS.BACKUP_HISTORY) || []).slice().reverse();
   if (history.length === 0) return `<div class="text-muted" style="text-align:center; padding:20px">No local exports found.</div>`;
 
-  return history.reverse().map(h => {
+  const totalPages = Math.max(1, Math.ceil(history.length / BACKUP_HISTORY_PAGE_SIZE));
+  exportHistoryPage = Math.min(Math.max(1, exportHistoryPage), totalPages);
+  const start = (exportHistoryPage - 1) * BACKUP_HISTORY_PAGE_SIZE;
+  const pageItems = history.slice(start, start + BACKUP_HISTORY_PAGE_SIZE);
+
+  const rows = pageItems.map(h => {
     const date = new Date(h.date).toLocaleString();
     const size = (h.size / 1024).toFixed(2) + ' KB';
     return `
@@ -1261,13 +1348,20 @@ async function renderStandaloneExportHistory() {
       </div>
     `;
   }).join('');
+
+  return rows + renderHistoryPager(exportHistoryPage, totalPages, 'exportHistoryPager');
 }
 
 async function renderStandaloneImportHistory() {
-  const history = await read(KEYS.IMPORT_HISTORY) || [];
+  const history = (await read(KEYS.IMPORT_HISTORY) || []).slice().reverse();
   if (history.length === 0) return `<div class="text-muted" style="text-align:center; padding:20px">No restoration history found.</div>`;
 
-  return history.reverse().map(h => {
+  const totalPages = Math.max(1, Math.ceil(history.length / BACKUP_HISTORY_PAGE_SIZE));
+  importHistoryPage = Math.min(Math.max(1, importHistoryPage), totalPages);
+  const start = (importHistoryPage - 1) * BACKUP_HISTORY_PAGE_SIZE;
+  const pageItems = history.slice(start, start + BACKUP_HISTORY_PAGE_SIZE);
+
+  const rows = pageItems.map(h => {
     const date = new Date(h.date).toLocaleString();
     return `
       <div class="history-item">
@@ -1279,6 +1373,8 @@ async function renderStandaloneImportHistory() {
       </div>
     `;
   }).join('');
+
+  return rows + renderHistoryPager(importHistoryPage, totalPages, 'importHistoryPager');
 }
 
 async function showSyncDetails(store, label) {

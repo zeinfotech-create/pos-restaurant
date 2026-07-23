@@ -3,6 +3,7 @@
 // ============================================================
 const { app, BrowserWindow, dialog, Tray, Menu, nativeImage, ipcMain, shell } = require('electron');
 const path = require('path');
+const os = require('os');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const http = require('http');
@@ -309,8 +310,11 @@ ipcMain.handle('select-directory', async (event) => {
 });
 
 ipcMain.handle('save-file-from-buffer', async (event, { filePath, buffer }) => {
-  try { fs.writeFileSync(filePath, Buffer.from(buffer)); return { success: true }; }
-  catch (err) { return { success: false, error: err.message }; }
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, Buffer.from(buffer));
+    return { success: true };
+  } catch (err) { return { success: false, error: err.message }; }
 });
 
 ipcMain.handle('list-backups', async (event, dirPath) => {
@@ -320,6 +324,54 @@ ipcMain.handle('list-backups', async (event, dirPath) => {
     return files.filter(f => f.startsWith('Auto_Backup_') && f.endsWith('.json'))
       .map(f => ({ name: f, path: path.join(dirPath, f), mtime: fs.statSync(path.join(dirPath, f)).mtimeMs }));
   } catch (err) { return []; }
+});
+
+// Best-effort detection of installed cloud-sync clients (OneDrive/Dropbox/
+// Google Drive), so backups can be pointed at one automatically instead of
+// requiring the user to browse for it manually. Purely local filesystem/env
+// checks — no network calls, no accounts, no API keys.
+ipcMain.handle('detect-cloud-folders', async () => {
+  const results = [];
+
+  try {
+    // Windows sets one of these env vars once OneDrive is installed & signed in.
+    const oneDrivePath = process.env.OneDrive || process.env.OneDriveConsumer || process.env.OneDriveCommercial
+      || path.join(os.homedir(), 'OneDrive');
+    if (oneDrivePath && fs.existsSync(oneDrivePath)) {
+      results.push({ provider: 'OneDrive', path: oneDrivePath });
+    }
+  } catch (e) { /* ignore */ }
+
+  try {
+    // Dropbox's own info.json records the real configured sync path(s).
+    const infoPath = path.join(process.env.APPDATA || '', 'Dropbox', 'info.json');
+    if (fs.existsSync(infoPath)) {
+      const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+      const dbxPath = info.personal?.path || info.business?.path;
+      if (dbxPath && fs.existsSync(dbxPath)) results.push({ provider: 'Dropbox', path: dbxPath });
+    } else {
+      const fallback = path.join(os.homedir(), 'Dropbox');
+      if (fs.existsSync(fallback)) results.push({ provider: 'Dropbox', path: fallback });
+    }
+  } catch (e) { /* ignore */ }
+
+  try {
+    // Legacy "Backup and Sync" mirrors into the home folder; current "Drive
+    // for Desktop" mounts a virtual drive letter instead (checked as fallback).
+    let found = false;
+    for (const name of ['Google Drive', 'GoogleDrive']) {
+      const p = path.join(os.homedir(), name);
+      if (fs.existsSync(p)) { results.push({ provider: 'Google Drive', path: p }); found = true; break; }
+    }
+    if (!found) {
+      for (let code = 67; code <= 90; code++) {
+        const p = String.fromCharCode(code) + ':\\My Drive';
+        if (fs.existsSync(p)) { results.push({ provider: 'Google Drive', path: p }); break; }
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  return results;
 });
 
 ipcMain.handle('delete-file', async (event, filePath) => {
