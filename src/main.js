@@ -14,7 +14,6 @@ import { openCheckout } from './services/CheckoutService.js';
 import { openCustomerForm } from './components/CustomerForm.js';
 import { lockApp, isAppLocked, getLockState } from './pages/Security.js';
 import { syncEngine } from './services/syncEngine.js';
-import { getTopbarTrialBanner } from './services/LicenseService.js';
 import { observeDomForSelects } from './utils/premiumSelect.js';
 import { BackupService } from './services/BackupService.js';
 
@@ -378,13 +377,7 @@ async function renderTopbar() {
     const titleSpan = document.getElementById('topbar-current-page');
     if (titleSpan) titleSpan.textContent = getPageTitle(getCurrentPage());
     
-    // 2. Update License Banner
-    const bannerContainer = document.getElementById('topbar-license-banner-container');
-    if (bannerContainer) {
-      bannerContainer.innerHTML = getTopbarTrialBanner(syncEngine.licenseStatus, settings);
-    }
-    
-    // 3. Update low stock badge
+    // 2. Update low stock badge
     updateGlobalLowStockBadge();
     return;
   }
@@ -393,10 +386,6 @@ async function renderTopbar() {
   topbar.innerHTML = `
     <button id="hamburger-btn" title="Menu"><i class="fa-solid fa-bars"></i></button>
 
-    <div id="topbar-license-banner-container" style="display:contents">
-      ${getTopbarTrialBanner(syncEngine.licenseStatus, settings)}
-    </div>
-    
     <!-- Quick Add Dropdown (Replaces Dashboard Title) -->
     <div class="topbar-quick-add-wrapper">
       <div class="quick-add-dropdown" id="quickAddDropdown">
@@ -563,7 +552,7 @@ async function renderShortcutsState() {
 
   const shortcuts = [
     { id: 'shortcut-customer-screen', action: () => window.open(window.location.href.split('#')[0] + '#customer-display', '_blank'), premium: false, label: 'Cust Screen' },
-    { id: 'shortcut-reports', action: () => window.navigate('reports'), premium: true, label: 'Reports' }
+    { id: 'shortcut-reports', action: () => window.navigate('reports'), premium: false, label: 'Reports' }
   ];
 
   shortcuts.forEach(s => {

@@ -84,7 +84,7 @@ export async function navigate(page) {
         // instead of bouncing straight back here.
         if (isAlreadySetUp) {
             const { syncEngine } = await import('./services/syncEngine.js');
-            const activationExemptPages = ['login', 'onboarding', 'activation'];
+            const activationExemptPages = ['login', 'onboarding', 'activation', 'customer-display'];
             const loggedInUser = await getCurrentUser();
             if (loggedInUser && !syncEngine.isLifetimeActivated && !activationExemptPages.includes(mainPage)) {
                 console.log('[Router] Electron: Not activated yet. Forcing Activation gate.');

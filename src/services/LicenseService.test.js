@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { getTopbarTrialBanner, showSuspendedOverlay } from './LicenseService';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { showSuspendedOverlay } from './LicenseService';
 
 // Mock DB
 vi.mock('../db.js', () => ({
@@ -23,26 +23,5 @@ describe('LicenseService', () => {
     expect(overlay).toBeTruthy();
     expect(overlay.innerHTML).toContain('Account Suspended');
     expect(overlay.innerHTML).toContain('Reason: Abuse');
-  });
-
-  it('should generate topbar lifetime banner only once activated for standalone deployment', () => {
-    const settings = { deploymentMode: 'standalone' };
-
-    window.syncEngine = { isLifetimeActivated: false };
-    expect(getTopbarTrialBanner({ type: 'trial' }, settings)).not.toContain('Lifetime Offline Edition');
-
-    window.syncEngine = { isLifetimeActivated: true };
-    expect(getTopbarTrialBanner({ type: 'trial' }, settings)).toContain('Lifetime Offline Edition');
-
-    delete window.syncEngine;
-  });
-
-  it('should return no banner when not lifetime activated', () => {
-    window.syncEngine = { isLifetimeActivated: false };
-    const html = getTopbarTrialBanner({ type: 'premium' }, { deploymentMode: 'standalone' });
-
-    expect(html).toBe('');
-
-    delete window.syncEngine;
   });
 });

@@ -5914,53 +5914,6 @@ input:checked + .toggle-slider:before {
   margin: 0;
 }
 
-/* Topbar Trial Banner */
-.topbar-trial-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  background: rgba(59, 130, 246, 0.08);
-  border-radius: 10px;
-  border: 1px solid rgba(59, 130, 246, 0.15);
-  color: #3b82f6;
-  font-size: 13px;
-  font-weight: 500;
-  margin-left: 12px;
-}
-
-.topbar-trial-banner i {
-  font-size: 16px;
-  color: #3b82f6;
-}
-
-.topbar-trial-banner .banner-content {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.topbar-trial-banner strong {
-  font-weight: 700;
-}
-
-.topbar-trial-banner .subscribe-link {
-  color: var(--primary);
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 4px;
-  transition: opacity 0.2s;
-}
-
-@media (max-width: 1100px) {
-  .topbar-trial-banner span { display: none; }
-  .topbar-trial-banner .banner-content::after { content: 'Trial Active'; font-weight: 700; }
-}
-
-@media (max-width: 800px) {
-  .topbar-trial-banner { display: none; }
-}
-
 /* ============================================
    License Expiry Soft Lock (Blur)
    ============================================ */

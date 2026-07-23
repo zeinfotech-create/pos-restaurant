@@ -1,21 +1,3 @@
-export function getTopbarTrialBanner(status, settings) {
-    // Only claim "Lifetime Offline Edition" once a real activation key has been
-    // verified (window.syncEngine.isLifetimeActivated) — the router already blocks
-    // all other pages until then, but this label must never lie if reached some
-    // other way (e.g. cached banner render before a redirect completes).
-    if (settings?.deploymentMode === 'standalone' && window.syncEngine?.isLifetimeActivated) {
-        return `
-          <div class="topbar-trial-banner" style="background: rgba(99, 102, 241, 0.05); border-color: rgba(99, 102, 241, 0.2);">
-            <i class="fa-solid fa-house-laptop" style="color: var(--primary);"></i>
-            <div class="banner-content" style="color: var(--primary);">
-                <strong>ZeInfoTech POS:</strong> Lifetime Offline Edition
-            </div>
-          </div>
-        `;
-    }
-    return '';
-}
-
 export function showSuspendedOverlay(reason) {
     if (document.getElementById('account-suspended-overlay')) return;
 

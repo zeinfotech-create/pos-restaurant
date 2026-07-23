@@ -277,6 +277,11 @@ export async function renderSettings(container) {
                 <input class="form-input" id="sGstNumber" value="${s.gstNumber || ''}" placeholder="e.g. 34AADCV2185M1Z0" />
               </div>
               <div class="form-group">
+                <label class="form-label">UPI ID (optional)</label>
+                <input class="form-input" id="sUpiId" value="${s.upiId || ''}" placeholder="e.g. yourshop@okhdfcbank" />
+                <p style="font-size:11px; color:var(--text-muted); margin-top:4px">Shown as a "Pay via UPI" QR on the Customer Display so customers can pay you directly — no gateway or fees.</p>
+              </div>
+              <div class="form-group">
                 <label class="form-label">Store Logo</label>
                 <div style="display:flex; align-items:center; gap:12px">
                   <div id="logoPreview" style="width:56px; height:56px; border-radius:8px; border:1px dashed var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; background:var(--bg-elevated); flex-shrink:0">
@@ -771,6 +776,7 @@ export async function renderSettings(container) {
       storeAddress: container.querySelector('#sStoreAddress').value.trim(),
       storePhone: container.querySelector('#sStorePhone').value.trim(),
       gstNumber: container.querySelector('#sGstNumber').value.trim(),
+      upiId: container.querySelector('#sUpiId').value.trim(),
       storeLogo: container.querySelector('#sStoreLogoBase64')?.value || '',
       showLogoOnReceipt: container.querySelector('#sShowLogoOnReceipt')?.checked || false,
       printBarcodeOnReceipt: container.querySelector('#sPrintBarcodeOnReceipt')?.checked || false,

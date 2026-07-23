@@ -1,5 +1,41 @@
 import { getSettings } from '../db.js';
 import { store } from '../store.js';
+import QRCode from 'qrcode';
+
+function buildBillText(settings, cur, cart) {
+  const { items, subtotal, discount, tax, total } = cart;
+  const lines = [];
+  lines.push(settings.storeName || 'Store');
+  lines.push(new Date().toLocaleString());
+  lines.push('-'.repeat(28));
+  items.forEach(item => {
+    const lineTotal = (item.qty * item.price).toFixed(2);
+    lines.push(`${item.name}${item.variantName ? ` (${item.variantName})` : ''}`);
+    lines.push(`  ${item.qty} x ${cur}${item.price.toFixed(2)} = ${cur}${lineTotal}`);
+  });
+  lines.push('-'.repeat(28));
+  lines.push(`Subtotal: ${cur}${subtotal.toFixed(2)}`);
+  if (discount > 0) lines.push(`Discount: -${cur}${discount.toFixed(2)}`);
+  lines.push(`Tax: ${cur}${tax.toFixed(2)}`);
+  lines.push(`TOTAL: ${cur}${total.toFixed(2)}`);
+  lines.push('-'.repeat(28));
+  lines.push(settings.receiptFooter || 'Thank you for your visit!');
+  return lines.join('\n');
+}
+
+// Direct merchant UPI collection — no gateway, no fees, no verification.
+// The cashier confirms payment was received the same way they would for
+// any other UPI QR sticker at a shop counter.
+function buildUpiLink(settings, total) {
+  const params = new URLSearchParams({
+    pa: settings.upiId,
+    pn: settings.storeName || 'Store',
+    am: total.toFixed(2),
+    cu: 'INR',
+    tn: `Payment to ${settings.storeName || 'Store'}`
+  });
+  return `upi://pay?${params.toString()}`;
+}
 
 let channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('pos_customer_display') : null;
 let currentCart = { items: [], subtotal: 0, tax: 0, discount: 0, total: 0 };
@@ -74,8 +110,8 @@ export async function renderCustomerDisplay(container) {
           <!-- Branding Area -->
           <div class="cd-branding">
             <div class="cd-qr-placeholder">
-              <i class="fa-solid fa-qrcode"></i>
-              <span>Scan for Digital Bill</span>
+              <canvas id="cdQrCanvas"></canvas>
+              <span>${settings.upiId ? 'Scan to Pay via UPI' : 'Scan for Digital Bill'}</span>
             </div>
           </div>
         </div>
@@ -90,6 +126,19 @@ export async function renderCustomerDisplay(container) {
       };
       updateTime();
       setInterval(updateTime, 1000);
+    }
+
+    // Render the QR — a direct merchant UPI payment link when a UPI ID is
+    // configured, otherwise falls back to a plain-text bill summary. Both
+    // work fully offline; UPI needs no gateway, no fees, no verification.
+    const qrCanvas = document.getElementById('cdQrCanvas');
+    if (qrCanvas) {
+      const qrContent = (settings.upiId && total > 0)
+        ? buildUpiLink(settings, total)
+        : buildBillText(settings, cur, currentCart);
+      QRCode.toCanvas(qrCanvas, qrContent, { width: 120, margin: 1 }, (err) => {
+        if (err) console.error('[CustomerDisplay] QR generation failed:', err);
+      });
     }
   }
 
@@ -184,10 +233,9 @@ export async function renderCustomerDisplay(container) {
       
       .cd-branding { flex: 1; display: flex; align-items: flex-end; justify-content: center; }
       .cd-qr-placeholder {
-        text-align: center; padding: 24px; background: white; border-radius: 16px; border: 1px solid #ddd;
-        display: flex; flex-direction: column; align-items: center; gap: 8px; color: #333; filter: grayscale(1); opacity: 0.5;
+        text-align: center; padding: 16px; background: white; border-radius: 16px; border: 1px solid #ddd;
+        display: flex; flex-direction: column; align-items: center; gap: 8px; color: #333;
       }
-      .cd-qr-placeholder i { font-size: 48px; }
       .cd-qr-placeholder span { font-size: 12px; font-weight: 600; }
       
       .animate-slide-in { animation: slideIn 0.3s ease-out forwards; }
