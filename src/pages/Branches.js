@@ -1,7 +1,8 @@
-import { getBranches, saveBranch, getBranchRegisters, saveBranchRegister, deleteBranchRegister, write, KEYS, read, getCurrentUser, getCurrentBranch, deleteBranch, hasPermission } from '../db.js';
+import { getBranches, saveBranch, getBranchRegisters, saveBranchRegister, deleteBranchRegister, write, KEYS, read, getCurrentUser, getCurrentBranch, deleteBranch, hasPermission, getSession, saveSession } from '../db.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { initDateRangePicker } from '../utils/dateRangeHelper.js';
+import { store } from '../store.js';
 
 export async function renderBranches(container) {
   const branches = (await getBranches()).sort((a,b) => {
@@ -356,13 +357,33 @@ async function openBranchForm(branch = null) {
     const name = document.getElementById('bName').value.trim();
     if (!name) { showToast('Name is required', 'error'); return; }
 
-    await saveBranch({
+    const savedBranch = await saveBranch({
       ...branch,
       name,
       image: base64Input.value,
       address: document.getElementById('bAddress').value,
       phone: document.getElementById('bPhone').value
     });
+
+    // getCurrentBranch()/store.branch both ultimately come from a COPY of
+    // the branch embedded in the session record at login time (see
+    // setSession() in db.js) — editing the `branches` store alone never
+    // touches that embedded copy, so the sidebar (and anywhere else reading
+    // store.branch) would keep showing the pre-edit name forever, even after
+    // a reload, unless the session's own copy is refreshed too.
+    if (store.branch?.id === savedBranch.id) {
+      const sess = await getSession();
+      if (sess) {
+        sess.branch = savedBranch;
+        await saveSession(sess);
+      }
+      store.branch = savedBranch;
+      // renderSidebar() only runs once at boot (or on a license-status
+      // change) — it does NOT re-run on ordinary navigation, so without this
+      // the sidebar's branch name would stay stale even after store.branch
+      // is updated, until the next full app reload.
+      window.renderSidebar?.();
+    }
 
     showToast('Branch saved!', 'success');
     closeModal();

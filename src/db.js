@@ -1102,7 +1102,10 @@ export async function getSettings(branchId = null) {
     // Trust the IndexedDB merged values (populated from server) directly.
     paymentMethods: merged.paymentMethods || [],
     availableTaxes: merged.availableTaxes || [],
-    storeName: globalS.storeName || merged.storeName,
+    // storeName intentionally NOT forced back to globalS here (unlike theme) —
+    // it must stay branch-specific: `merged` already resolved it correctly via
+    // DEFAULT <- GLOBAL <- BRANCH, so a branch's own settings_<id>.storeName
+    // (kept in sync with that branch's name — see saveBranch()) wins when set.
     theme: globalS.theme || merged.theme,
     masterPin: globalS.masterPin || DEFAULT_SETTINGS.masterPin,
     settingsLockEnabled: globalS.settingsLockEnabled ?? DEFAULT_SETTINGS.settingsLockEnabled,
@@ -1348,7 +1351,8 @@ export async function getBranches() {
 export async function saveBranch(branch) {
   // Enforce License Limits
   const sync = window.syncEngine;
-  if (sync && !branch.id) { // Only for new ones
+  const isNew = !branch.id;
+  if (sync && isNew) { // Only for new ones
     const limits = sync.getLimits();
     const existingCount = (await getBranches()).length;
     if (existingCount >= limits.maxBranches) {
@@ -1360,6 +1364,24 @@ export async function saveBranch(branch) {
 
   branch.id = branch.id || 'B-' + Date.now();
   await updateData('branches', branch);
+
+  // Every branch needs its OWN settings_<branchId> record from day one —
+  // without one, getSettings() has nothing branch-specific to merge in, and
+  // saveSettings() (which trusts the 'id' it's handed back) silently keeps
+  // writing to global_settings forever, even while "switched to" this branch.
+  // That made Settings page edits invisibly apply to every branch at once
+  // and gave the impression that switching branches did nothing.
+  if (isNew) {
+    const globalSettings = await getSettings();
+    await saveSettings({ ...globalSettings, id: `settings_${branch.id}`, storeName: branch.name, branchId: branch.id });
+  } else {
+    // Keep this branch's own Settings > Store Name in sync with its name —
+    // editing the branch here (Branches page) is how users expect to rename
+    // it everywhere, not just in the branches list.
+    const branchSettings = await getSettings(branch.id);
+    await saveSettings({ ...branchSettings, id: `settings_${branch.id}`, storeName: branch.name, branchId: branch.id });
+  }
+
   return branch;
 }
 
@@ -2207,8 +2229,16 @@ export async function completeInstallation({ businessName, businessAddress, busi
   };
   await updateData('branches', newBranch);
 
-  // 2. Create Default Register (24-char ObjectID)
-  const registerId = generateObjectId();
+  // 2. Create Default Register (24-char ObjectID) — but only if this branch
+  // doesn't already have one. completeInstallation() can legitimately run
+  // more than once for the same branchId (e.g. checkElectronInstallState()
+  // briefly reporting "not installed" after a Mongo hiccup and the onboarding
+  // flow being re-completed) — without this guard, each re-run created a
+  // brand-new "Main Counter" register with a fresh ObjectId while the old
+  // one was never removed, silently accumulating duplicate registers that
+  // then ate into the branch's actual register-limit quota.
+  const existingRegisters = await getBranchRegisters(branchId);
+  const registerId = existingRegisters.length > 0 ? existingRegisters[0].id : generateObjectId();
   const newRegister = {
     id: registerId,
     name: 'Main Counter',

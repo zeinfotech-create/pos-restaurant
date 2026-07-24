@@ -80,7 +80,7 @@ async function renderSidebar() {
     <div class="sidebar-header" style="position:relative; display:flex; align-items:center; justify-content:space-between; padding-bottom:16px">
       <div class="sidebar-logo" style="font-weight:800; font-size:18px; color:var(--primary-light); padding-left:8px; display:flex; align-items:center;">
         <i class="fa-solid fa-rocket mr-8"></i>
-        <span style="letter-spacing:-0.5px">${settings.storeName || 'POS'}</span>
+        <span style="letter-spacing:-0.5px">${store.branch?.name || settings.storeName || 'POS'}</span>
       </div>
       <button id="toggleCollapseBtn" title="${isSidebarCollapsed ? 'Expand' : 'Collapse'}" 
         style="width:28px; height:28px; border-radius:8px; background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-muted); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all var(--transition)">
@@ -1572,6 +1572,7 @@ window.logout = () => {
 // Expose globals
 window.showToast = showToast;
 window.navigate = appNavigate;
+window.renderSidebar = renderSidebar;
 window.closeModal = closeModal;
 window.openCartDrawer = openCartDrawer;
 window.closeCartDrawer = closeCartDrawer;
