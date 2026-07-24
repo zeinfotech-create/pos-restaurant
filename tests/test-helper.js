@@ -93,14 +93,10 @@ export async function login(window) {
     // Step 1: Business Info
     await window.fill('#oBusinessName', 'CI Test Store');
     await window.click('#nextStepBtn');
-    
-    // Step 2: Industry
-    await window.waitForSelector('.industry-item[data-type="General"]', { state: 'visible', timeout: 10000 });
-    await window.click('.industry-item[data-type="General"]');
-    await window.click('#nextStepBtn');
-    
-    // Step 3: Admin Security
+
+    // Step 2: Admin Security (business type is always "General" now — no industry-selection step)
     await window.waitForSelector('#oAdminPassword', { state: 'visible', timeout: 10000 });
+    await window.fill('#oAdminPhone', '9876543210');
     await window.fill('#oAdminPassword', '1234');
     
     // Ensure "Load Sample Data" is checked (has .active class)

@@ -36,8 +36,8 @@ test.describe('Deep Onboarding Module Testing', () => {
     if (await window.locator('text=Business Info').count() > 0) {
        await expect(window.locator('#oBusinessName')).toBeVisible();
        await nextBtn.click();
-       // Should advance to Industry step
-       await expect(window.locator('text=Select Industry')).toBeVisible();
+       // Should advance directly to Admin Security (no industry-selection step)
+       await expect(window.locator('text=Admin Security')).toBeVisible();
     }
   });
 });

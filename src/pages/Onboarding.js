@@ -1,16 +1,17 @@
-import { completeInstallation, BUSINESS_FEATURES } from '../db.js';
+import { completeInstallation } from '../db.js';
 import { showToast } from '../components/Toast.js';
 
 let currentStep = 1;
 
-const totalSteps = 3;
+const totalSteps = 2;
 
 const formData = {
   businessName: 'My Local POS',
   businessAddress: '',
-  businessType: 'Restaurant',
+  businessType: 'General', // Only business type this build offers — no industry-selection step.
   adminName: 'Admin',
   adminPhone: '',
+  adminEmail: '',
   adminPassword: '',
   adminPin: '',
   loadSampleData: true,
@@ -21,8 +22,7 @@ const formData = {
 
 const standaloneSteps = {
   1: { title: 'Local POS Setup', desc: 'Enter your business details to get started.', img: '/onboarding/branch.png', icon: 'fa-store' },
-  2: { title: 'Industry Selection', desc: 'Choose your business type for optimized settings.', img: '/onboarding/industry.png', icon: 'fa-briefcase' },
-  3: { title: 'Admin Security', desc: 'Set a password to secure your local database.', img: '/onboarding/admin.png', icon: 'fa-shield-halved' }
+  2: { title: 'Admin Security', desc: 'Set a password to secure your local database.', img: '/onboarding/admin.png', icon: 'fa-shield-halved' }
 };
 
 const stepInfo = standaloneSteps;
@@ -130,22 +130,6 @@ function getStepHTML() {
   if (currentStep === 2) {
     return `
       <div class="step-header">
-        <h1 class="step-title">Select Industry</h1>
-        <p class="step-desc">Customize your POS for your business type.</p>
-      </div>
-      <div class="industry-grid">
-        ${Object.keys(BUSINESS_FEATURES).map(type => `
-          <div class="industry-item ${formData.businessType === type ? 'active' : ''}" data-type="${type}">
-            <div class="industry-icon"><i class="fa-solid ${getIndustryIcon(type)}"></i></div>
-            <div class="industry-name">${type}</div>
-          </div>
-        `).join('')}
-      </div>
-    `;
-  }
-  if (currentStep === 3) {
-    return `
-      <div class="step-header">
         <h1 class="step-title">Admin Security</h1>
         <p class="step-desc">Create a local administrator password.</p>
       </div>
@@ -153,6 +137,10 @@ function getStepHTML() {
         <label class="form-label">Phone Number (used to log in)</label>
         <input class="form-input" type="tel" id="oAdminPhone" inputmode="numeric" pattern="[0-9]*" maxlength="10" placeholder="e.g. 9876543210" value="${formData.adminPhone}" oninput="this.value = this.value.replace(/\D/g, '').slice(0, 10)" />
         <p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Enter a valid 10-digit phone number.</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email Address (optional)</label>
+        <input class="form-input" type="email" id="oAdminEmail" placeholder="e.g. admin@yourshop.com" value="${formData.adminEmail}" />
       </div>
       <div class="form-group">
         <label class="form-label">Admin Password</label>
@@ -175,6 +163,7 @@ function attachStepEvents(container) {
     if (document.getElementById('oBusinessName')) formData.businessName = document.getElementById('oBusinessName').value;
     if (document.getElementById('oBusinessAddress')) formData.businessAddress = document.getElementById('oBusinessAddress').value;
     if (document.getElementById('oAdminPhone')) formData.adminPhone = document.getElementById('oAdminPhone').value.trim();
+    if (document.getElementById('oAdminEmail')) formData.adminEmail = document.getElementById('oAdminEmail').value.trim();
     if (document.getElementById('oAdminPassword')) formData.adminPassword = document.getElementById('oAdminPassword').value;
   };
 
@@ -193,14 +182,6 @@ function attachStepEvents(container) {
     sync();
     currentStep--;
     renderStep(container);
-  });
-
-  container.querySelectorAll('.industry-item').forEach(item => {
-    item.onclick = () => {
-      formData.businessType = item.dataset.type;
-      container.querySelectorAll('.industry-item').forEach(i => i.classList.remove('active'));
-      item.classList.add('active');
-    };
   });
 
   container.querySelector('#loadDataToggle')?.addEventListener('click', () => {
@@ -231,7 +212,7 @@ async function finishStandaloneSetup() {
         businessType: formData.businessType,
         adminName: phone,
         adminPassword: formData.adminPassword,
-        email: 'admin@local.com',
+        email: formData.adminEmail || 'admin@local.com',
         loadSampleData: false,
         branchId: 'b1',
         adminId: 'u1'
@@ -285,7 +266,3 @@ function getNextBtnLabel() {
   return 'Continue';
 }
 function shouldShowBack() { return currentStep > 1; }
-function getIndustryIcon(type) {
-  const icons = { 'Restaurant': 'fa-utensils', 'General': 'fa-shopping-cart', 'Bakery': 'fa-bread-slice', 'Saloon': 'fa-scissors', 'Others': 'fa-store' };
-  return icons[type] || 'fa-store';
-}
