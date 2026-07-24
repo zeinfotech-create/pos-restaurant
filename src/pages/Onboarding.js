@@ -21,8 +21,8 @@ const formData = {
 };
 
 const standaloneSteps = {
-  1: { title: 'Local POS Setup', desc: 'Enter your business details to get started.', img: '/onboarding/branch.png', icon: 'fa-store' },
-  2: { title: 'Admin Security', desc: 'Set a password to secure your local database.', img: '/onboarding/admin.png', icon: 'fa-shield-halved' }
+  1: { title: 'Local POS Setup', desc: 'Enter your business details to get started.', icon: 'fa-store' },
+  2: { title: 'Admin Security', desc: 'Set a password to secure your local database.', icon: 'fa-shield-halved' }
 };
 
 const stepInfo = standaloneSteps;
@@ -40,17 +40,23 @@ function renderStep(container) {
       <div id="fullPageLoader"></div>
       <div class="onboarding-wrapper">
         <div class="onboarding-hero-side">
-          ${Object.keys(stepInfo).map(step => `
-            <div class="onboarding-hero-asset ${Number(step) === currentStep ? 'active' : ''}">
-               <img src="${stepInfo[step].img}"
-                 class="onboarding-hero-image"
-                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'"
-               />
-               <div class="onboarding-hero-placeholder" style="display:none">
-                  <i class="fa-solid ${stepInfo[step].icon}"></i>
-               </div>
+          <div class="hero-illustration">
+            <div class="hero-glow"></div>
+            <div class="hero-float-icon hero-float-1"><i class="fa-solid fa-credit-card"></i></div>
+            <div class="hero-float-icon hero-float-2"><i class="fa-solid fa-receipt"></i></div>
+            <div class="hero-float-icon hero-float-3"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+            <div class="hero-terminal">
+              <div class="hero-terminal-notch"></div>
+              <div class="hero-terminal-screen">
+                <i class="fa-solid ${info.icon}"></i>
+              </div>
+              <div class="hero-terminal-keys">
+                <span></span><span></span><span></span>
+                <span></span><span></span><span></span>
+              </div>
             </div>
-          `).join('')}
+            <div class="hero-terminal-base"></div>
+          </div>
           <div class="onboarding-hero-content">
              <h2>${info.title}</h2>
              <p>${info.desc}</p>

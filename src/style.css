@@ -4908,10 +4908,13 @@ tr.selected-row td {
 }
 
 /* ============================================ ONBOARDING WIZARD */
+/* Onboarding uses its own fixed light/blue palette (Google/Zoom-style) —
+   deliberately not the app's theme variables, so it looks the same
+   regardless of which light/dark theme the rest of the app is set to. */
 .onboarding-overlay {
   position: fixed;
   inset: 0;
-  background: #0f172a;
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4929,74 +4932,136 @@ tr.selected-row td {
   flex: 1.2;
   position: relative;
   overflow: hidden;
-  background: #1e1b4b;
+  background: linear-gradient(160deg, #1a73e8 0%, #174ea6 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 48px;
+}
+
+/* ── Onboarding hero illustration (pure CSS — a stylized POS terminal) ── */
+.hero-illustration {
+  position: relative;
+  width: 260px;
+  height: 260px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.onboarding-hero-asset {
+.hero-glow {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.8s ease-in-out;
-}
-
-.onboarding-hero-asset.active {
-  opacity: 1;
-}
-
-.onboarding-hero-image {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  opacity: 0.6;
-  transition: transform 1.2s ease-out;
-  transform: scale(1.1);
-}
-
-.onboarding-hero-asset.active .onboarding-hero-image {
-  transform: scale(1);
-}
-
-.onboarding-hero-placeholder {
-  width: 200px;
-  height: 200px;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.2) 0%, transparent 70%);
+  inset: -40px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.35) 0%, transparent 70%);
   border-radius: 50%;
+  filter: blur(10px);
+  z-index: 0;
+}
+
+.hero-terminal {
+  position: relative;
+  z-index: 2;
+  width: 168px;
+  height: 200px;
+  background: linear-gradient(160deg, #ffffff 0%, #e8f0fe 100%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 22px;
+  box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 14px 14px;
+  animation: hero-terminal-float 4s ease-in-out infinite;
+}
+
+.hero-terminal-notch {
+  width: 36px;
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(26, 115, 232, 0.2);
+  margin-bottom: 14px;
+}
+
+.hero-terminal-screen {
+  flex: 1;
+  width: 100%;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #1a73e8 0%, #174ea6 100%);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.15), 0 0 30px rgba(26, 115, 232, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 80px;
+  font-size: 42px;
   color: #fff;
-  text-shadow: 0 0 30px var(--primary);
-  animation: float 4s ease-in-out infinite;
-  z-index: 5;
+  margin-bottom: 12px;
 }
 
-@keyframes float {
+.hero-terminal-keys {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
 
-  0%,
-  100% {
-    transform: translateY(0);
-  }
+.hero-terminal-keys span {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(26, 115, 232, 0.15);
+}
 
-  50% {
-    transform: translateY(-20px);
-  }
+.hero-terminal-base {
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 110px;
+  height: 14px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 50%;
+  filter: blur(6px);
+  z-index: 1;
+}
+
+.hero-float-icon {
+  position: absolute;
+  z-index: 3;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+  animation: hero-terminal-float 4s ease-in-out infinite;
+}
+
+.hero-float-1 { top: 6px; left: -18px; animation-delay: 0.3s; color: #1a73e8; }
+.hero-float-2 { bottom: 30px; right: -24px; animation-delay: 1s; color: #ea4335; }
+.hero-float-3 { top: 90px; right: -30px; animation-delay: 1.6s; color: #34a853; }
+
+@keyframes hero-terminal-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14px); }
+}
+
+.hero-float-1, .hero-float-2, .hero-float-3 {
+  animation-name: hero-float-icon;
+}
+
+@keyframes hero-float-icon {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-10px) rotate(-4deg); }
 }
 
 .onboarding-hero-content {
   position: relative;
   z-index: 10;
-  padding: 60px;
+  padding: 0 60px;
   color: #fff;
   text-align: center;
 }
@@ -5005,19 +5070,19 @@ tr.selected-row td {
   font-size: 42px;
   font-weight: 900;
   margin-bottom: 16px;
-  text-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
 }
 
 .onboarding-hero-content p {
   font-size: 18px;
-  opacity: 0.8;
+  opacity: 0.9;
   max-width: 500px;
   margin: 0 auto;
 }
 
 .onboarding-form-side {
   flex: 1;
-  background: var(--bg-main);
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5058,36 +5123,36 @@ tr.selected-row td {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: var(--bg-elevated);
-  border: 2px solid var(--border);
+  background: #f1f3f4;
+  border: 2px solid #dadce0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
   font-weight: 800;
-  color: var(--text-muted);
+  color: #5f6368;
   transition: all 0.3s;
   position: relative;
   z-index: 2;
 }
 
 .progress-dot.active {
-  background: var(--primary);
-  border-color: var(--primary);
+  background: #1a73e8;
+  border-color: #1a73e8;
   color: #fff;
-  box-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 20px rgba(26, 115, 232, 0.4);
 }
 
 .progress-dot.completed {
-  background: var(--success);
-  border-color: var(--success);
+  background: #34a853;
+  border-color: #34a853;
   color: #fff;
 }
 
 .progress-line {
   flex: 1;
   height: 2px;
-  background: var(--border);
+  background: #dadce0;
   margin: 0 -5px;
   z-index: 1;
 }
@@ -5105,8 +5170,8 @@ tr.selected-row td {
 .step-icon {
   width: 56px;
   height: 56px;
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--primary);
+  background: #e8f0fe;
+  color: #1a73e8;
   border-radius: 14px;
   display: flex;
   align-items: center;
@@ -5118,19 +5183,19 @@ tr.selected-row td {
 .step-title {
   font-size: 28px;
   font-weight: 900;
-  color: var(--text-main);
+  color: #202124;
   margin-bottom: 12px;
 }
 
 .step-desc {
   font-size: 15px;
-  color: var(--text-muted);
+  color: #5f6368;
   line-height: 1.6;
 }
 
 .load-data-box {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
+  background: #f8f9fa;
+  border: 1px solid #dadce0;
   border-radius: 12px;
   padding: 20px;
   display: flex;
@@ -5138,21 +5203,22 @@ tr.selected-row td {
   gap: 16px;
   cursor: pointer;
   transition: all 0.2s;
+  color: #202124;
 }
 
 .load-data-box:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: #f1f3f4;
 }
 
 .load-data-box.active {
-  border-color: var(--success);
-  background: rgba(16, 185, 129, 0.05);
+  border-color: #34a853;
+  background: #e6f4ea;
 }
 
 .checkbox-ui {
   width: 24px;
   height: 24px;
-  border: 2px solid var(--border);
+  border: 2px solid #dadce0;
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -5160,11 +5226,12 @@ tr.selected-row td {
   font-size: 12px;
   color: transparent;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .load-data-box.active .checkbox-ui {
-  background: var(--success);
-  border-color: var(--success);
+  background: #34a853;
+  border-color: #34a853;
   color: #fff;
 }
 
@@ -5173,6 +5240,53 @@ tr.selected-row td {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+/* Scoped overrides so onboarding's Google/Zoom-style light look doesn't
+   depend on (or change) the rest of the app's active theme — .form-input,
+   .form-label, .btn-primary, .btn-ghost are shared app-wide classes. */
+.onboarding-card .form-label {
+  color: #5f6368;
+}
+
+.onboarding-card .form-input {
+  background: #f8f9fa;
+  border: 1px solid #dadce0;
+  color: #202124;
+}
+
+.onboarding-card .form-input::placeholder {
+  color: #9aa0a6;
+}
+
+.onboarding-card .form-input:focus {
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.15);
+}
+
+.onboarding-card .search-input-wrap i {
+  color: #5f6368;
+}
+
+.onboarding-footer .btn-primary {
+  background: #1a73e8;
+  border: none;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(26, 115, 232, 0.35);
+}
+
+.onboarding-footer .btn-primary:hover {
+  background: #174ea6;
+}
+
+.onboarding-footer .btn-ghost {
+  background: #fff;
+  border: 1px solid #dadce0;
+  color: #3c4043;
+}
+
+.onboarding-footer .btn-ghost:hover {
+  background: #f1f3f4;
 }
 
 /* Mobile responsive */
