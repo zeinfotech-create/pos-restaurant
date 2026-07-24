@@ -10,7 +10,7 @@ import { getSession } from '../db.js';
 import { store } from '../store.js';
 
 // Roles that bypass session filtering (see all data)
-const ADMIN_ROLES = ['Admin', 'Owner', 'admin', 'owner'];
+const ADMIN_ROLES = ['Admin', 'Owner', 'admin', 'owner', 'Master', 'Super Admin'];
 
 /**
  * Returns true if the current user is subject to session-based filtering.

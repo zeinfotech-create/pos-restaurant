@@ -38,11 +38,18 @@ if (!gotSingleInstanceLock) {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
+      return;
     }
-    // If mainWindow doesn't exist yet, this instance is still starting up
-    // (splash/server still loading) — do nothing and let its own
-    // app.whenReady() flow create the single window when ready. Calling
-    // createMainWindow() here too would race it and open a second window.
+    // If splashWindow exists, this instance is still starting up (splash/
+    // server still loading) — do nothing and let its own app.whenReady()
+    // flow create the single window when ready. Calling createMainWindow()
+    // here too would race it and open a second window.
+    if (splashWindow) return;
+    // Neither exists: window-all-closed left this instance alive in the
+    // tray (see that handler below) with no window at all. Without this,
+    // re-launching the app while it's tray-resident silently does nothing —
+    // easy to mistake for "nothing happens" and try launching again.
+    createMainWindow();
   });
 }
 
@@ -88,6 +95,7 @@ function createSplash() {
     alwaysOnTop: true,
     resizable: false,
     center: true,
+    skipTaskbar: true, // Never show a second, confusing taskbar entry for the splash
     webPreferences: { nodeIntegration: false },
   });
   splashWindow.loadFile(path.join(__dirname, 'splash.html'));
@@ -155,17 +163,44 @@ function startServer() {
 }
 
 function waitForServer(cb, attempts = 0) {
-  if (attempts > 30) { cb(false); return; }
+  // The response callback and the request's 'error' handler can BOTH fire for
+  // the same request — Node can still emit a late socket error after a
+  // response was already delivered if its body is never drained. Without a
+  // one-shot guard, that stray error re-enters the retry loop even after
+  // cb(true) already ran, and once the retry also succeeds, cb(true) fires a
+  // SECOND time — which previously called createMainWindow() twice, opening
+  // two full windows.
+  let settled = false;
+  const settle = (result) => {
+    if (settled) return;
+    settled = true;
+    cb(result);
+  };
+
+  if (attempts > 30) { settle(false); return; }
   const req = http.get('http://127.0.0.1:3030/health', res => {
-    if (res.statusCode === 200) { cb(true); return; }
+    res.resume(); // drain the body so the socket doesn't linger and later error
+    if (res.statusCode === 200) { settle(true); return; }
     setTimeout(() => waitForServer(cb, attempts + 1), 1000);
   });
-  req.on('error', () => setTimeout(() => waitForServer(cb, attempts + 1), 1000));
+  req.on('error', () => {
+    if (settled) return;
+    setTimeout(() => waitForServer(cb, attempts + 1), 1000);
+  });
   req.end();
 }
 
 // ─── Main Window ──────────────────────────────────────────
 function createMainWindow() {
+  // Idempotency guard: no matter what calls this (waitForServer's callback,
+  // 'activate', 'second-instance', the tray menu), never end up with two
+  // live windows — if one already exists, just bring it to front.
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    return;
+  }
+
   const iconPath = path.join(__dirname, 'icon.png');
   mainWindow = new BrowserWindow({
     width: 1400,

@@ -221,7 +221,7 @@ async function openUserProfileModal() {
   const currentRegister = store.registerId ? (await getBranchRegisters(store.branch?.id)).find(r => r.id === store.registerId)?.name || 'Unknown' : 'No Register';
   const settings = await getSettings('global_settings');
   const lockEnabled = !!settings.autoLockMinutes && settings.autoLockMinutes > 0;
-  const canSwitchBranch = store.user?.role === 'Admin' && (await getBranches()).length > 1;
+  const canSwitchBranch = (store.user?.role === 'Admin' || store.user?.role === 'Super Admin' || store.user?.role === 'Master') && (await getBranches()).length > 1;
   openModal({
     title: '<i class="fa-solid fa-user-circle"></i> User Profile',
     body: `

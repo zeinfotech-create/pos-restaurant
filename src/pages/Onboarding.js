@@ -241,7 +241,7 @@ async function finishStandaloneSetup() {
             userId: 'u1',
             username: phone,
             password: formData.adminPassword,
-            role: 'Admin',
+            role: 'Super Admin',
             branchId: 'b1',
             registerId: register.id,
             businessName: formData.businessName || 'My Store',
