@@ -1706,7 +1706,7 @@ function getDefaultSettings(licenseKey, branchId = null) {
         availableTaxes: [],
         paymentMethods: [],
         receiptFooter: 'Thank you for shopping with us!',
-        theme: 'theme-dark-midnight',
+        theme: 'theme-light-zoom', // "Sapphire" — default for fresh installs
         enableRegisterRoutine: true,
         masterPin: '0000',
         autoLockMinutes: 0,
@@ -1790,14 +1790,17 @@ function send(ws, payload) {
 // Trial & License Helpers
 // ============================================================
 async function getLicenseStatus(licenseKey) {
-    // Default Trial Caps (5 Years)
+    // Local/Electron install has no license concept — this hub's own enforcement
+    // (the LIMIT_REACHED guard on 'update' below) must agree with the client's
+    // hardcoded standalone limits (syncEngine.js), or a legitimate add gets
+    // rejected here even though the UI shows room for it.
     const defaultTrial = {
         type: 'trial',
         isExpired: false,
         daysLeft: 7,
-        branchLimit: 1,
-        userLimit: 1,
-        registerLimit: 1,
+        branchLimit: 2,
+        userLimit: 5,
+        registerLimit: 2,
         productLimit: 100,
         modules: {
             inventory: 'basic',
@@ -1807,7 +1810,7 @@ async function getLicenseStatus(licenseKey) {
         }
     };
 
-    if (!licenseKey || licenseKey === 'GLOBAL' || licenseKey === 'FREE-POS-ZEI-AUTO' || licenseKey === 'LOCAL_EXE') {
+    if (!licenseKey || licenseKey === 'GLOBAL' || licenseKey === 'FREE-POS-ZEI-AUTO') {
         // Standalone / Electron mode — all modules enabled locally
         return {
             ...defaultTrial,
@@ -1887,9 +1890,9 @@ async function getLicenseStatus(licenseKey) {
             type: 'premium',
             isExpired: false,
             daysLeft: 9999,
-            branchLimit: license.branchLimit || 99,
-            userLimit: license.userLimit || 99,
-            registerLimit: license.registerLimit || 99,
+            branchLimit: license.branchLimit || 2,
+            userLimit: license.userLimit || 5,
+            registerLimit: license.registerLimit || 2,
             productLimit: 999999,
             modules: {
                 inventory: 'advanced',

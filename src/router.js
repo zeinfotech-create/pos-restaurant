@@ -13,7 +13,6 @@ import { renderRegister } from './pages/Register.js';
 import { renderLogin } from './pages/Login.js';
 import { renderStaff } from './pages/Staff.js';
 import { renderOnboarding } from './pages/Onboarding.js';
-import { renderActivation } from './pages/Activation.js';
 import { renderInventoryLog } from './pages/InventoryLog.js';
 import { hasPermission, checkElectronInstallState, getSettings, getCurrentUser } from './db.js';
 import { renderCategories } from './pages/Categories.js';
@@ -23,7 +22,6 @@ import { showToast } from './components/Toast.js';
 import { renderCustomerDisplay } from './pages/CustomerDisplay.js';
 import { renderQuickPOS } from './pages/QuickPOS.js';
 import { renderCatalog } from './pages/Catalog.js';
-import { syncEngine } from './services/syncEngine.js';
 
 const routes = {
     dashboard: renderDashboard,
@@ -42,7 +40,6 @@ const routes = {
     login: renderLogin,
     staff: renderStaff,
     onboarding: renderOnboarding,
-    activation: renderActivation,
     'customer-display': renderCustomerDisplay,
     'inventory-log': renderInventoryLog,
     categories: renderCategories,
@@ -56,7 +53,7 @@ export async function navigate(page) {
     console.log(`[Router] Navigating to: ${page}`);
     
     const [mainPage, subPage] = page.split('/');
-    const publicPages = ['customer-display', 'login', 'onboarding', 'activation'];
+    const publicPages = ['customer-display', 'login', 'onboarding'];
 
     // 0. Global Installation Check
     const { getSettings, updateSettings } = await import('./db.js');
@@ -77,25 +74,6 @@ export async function navigate(page) {
             return;
         }
 
-        // Mandatory Lifetime Activation Gate: once locally installed AND logged in,
-        // NOTHING works until a real activation key is verified — no trial grace
-        // period for the desktop build (unlike web/cloud, which keeps its own 7-day
-        // trial flow). Gated on being logged in so Logout can always reach Login
-        // instead of bouncing straight back here.
-        if (isAlreadySetUp) {
-            const { syncEngine } = await import('./services/syncEngine.js');
-            const activationExemptPages = ['login', 'onboarding', 'activation', 'customer-display'];
-            const loggedInUser = await getCurrentUser();
-            if (loggedInUser && !syncEngine.isLifetimeActivated && !activationExemptPages.includes(mainPage)) {
-                console.log('[Router] Electron: Not activated yet. Forcing Activation gate.');
-                navigate('activation');
-                return;
-            }
-            if (syncEngine.isLifetimeActivated && mainPage === 'activation') {
-                navigate('dashboard');
-                return;
-            }
-        }
     }
 
     if (isElectron && !settings.isInstalled && mainPage !== 'onboarding') {

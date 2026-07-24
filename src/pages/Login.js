@@ -43,7 +43,7 @@ export function renderLogin(container) {
           <div class="hero-stats">
             <div class="hero-stat-item">
               <span class="hero-stat-value">100%</span>
-              <span class="hero-stat-label">Cloud Sync</span>
+              <span class="hero-stat-label">Offline Ready</span>
             </div>
             <div class="hero-stat-item">
               <span class="hero-stat-value">256-bit</span>
@@ -108,17 +108,17 @@ export function renderLogin(container) {
               const bId = b.id || b.branchId || b._id;
               const restricted = idx >= limits.maxBranches;
               return `
-                        <button class="btn btn-ghost branch-option-btn" data-id="${bId}" ${restricted ? 'data-restricted="true" disabled' : ''} 
-                          style="justify-content:flex-start; height:64px; padding:0 24px; border-radius: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); ${restricted ? 'opacity:0.5; cursor:not-allowed' : ''}">
-                          <div class="hero-logo-box" style="width:36px; height:36px; border-radius:10px; font-size:16px; margin:0 16px 0 0; background:${restricted ? '#64748b' : ''}; box-shadow:none">
+                        <button class="btn btn-ghost branch-option-btn" data-id="${bId}" ${restricted ? 'data-restricted="true" disabled' : ''}
+                          style="justify-content:flex-start; height:64px; padding:0 24px; border-radius: 16px; background: #f8f9fa; border: 1px solid #dadce0; ${restricted ? 'opacity:0.5; cursor:not-allowed' : ''}">
+                          <div style="width:36px; height:36px; border-radius:10px; font-size:16px; margin:0 16px 0 0; background:${restricted ? '#dadce0' : 'linear-gradient(135deg, #1a73e8, #174ea6)'}; color:#fff; display:flex; align-items:center; justify-content:center;">
                             <i class="fa-solid fa-store"></i>
                           </div>
                           <div style="flex:1; text-align:left">
-                            <div class="font-bold" style="color:#fff">
+                            <div class="font-bold" style="color:#202124">
                               ${b.name || 'Unnamed Branch'}
                               ${restricted ? '<span style="font-size:9px; background:var(--warning); color:black; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">PREMIUM ONLY</span>' : ''}
                             </div>
-                            <div style="font-size:11px; color:#64748b">${b.address || ''}</div>
+                            <div style="font-size:11px; color:#5f6368">${b.address || ''}</div>
                           </div>
                         </button>
                       `;
@@ -145,20 +145,20 @@ export function renderLogin(container) {
                 const rId = r.id || r.registerId || r._id;
                 const restricted = idx >= limits.maxRegistersPerBranch;
                 return `
-                        <button class="btn btn-ghost register-option-btn" data-id="${rId}" ${restricted ? 'data-restricted="true" disabled' : ''} 
-                          style="justify-content:flex-start; height:60px; padding:0 24px; border-radius: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); ${restricted ? 'opacity:0.5; cursor:not-allowed' : ''}">
-                          <div class="hero-logo-box" style="width:32px; height:32px; border-radius:10px; font-size:14px; margin:0 16px 0 0; background:${restricted ? '#64748b' : 'linear-gradient(135deg, #10b981, #059669)'}; box-shadow:none">
+                        <button class="btn btn-ghost register-option-btn" data-id="${rId}" ${restricted ? 'data-restricted="true" disabled' : ''}
+                          style="justify-content:flex-start; height:60px; padding:0 24px; border-radius: 16px; background: #f8f9fa; border: 1px solid #dadce0; ${restricted ? 'opacity:0.5; cursor:not-allowed' : ''}">
+                          <div style="width:32px; height:32px; border-radius:10px; font-size:14px; margin:0 16px 0 0; background:${restricted ? '#dadce0' : 'linear-gradient(135deg, #34a853, #1e8e3e)'}; color:#fff; display:flex; align-items:center; justify-content:center;">
                             <i class="fa-solid fa-cash-register"></i>
                           </div>
                           <div style="flex:1; text-align:left">
-                            <div class="font-bold" style="color:#fff">
+                            <div class="font-bold" style="color:#202124">
                               ${r.name || 'Unnamed Register'}
                             </div>
                           </div>
                         </button>
                       `;
               }).join('')}
-                      ${branchRegs.length === 0 ? '<p style="text-align:center; padding:32px; color:#64748b; font-style:italic">No active registers found.</p>' : ''}
+                      ${branchRegs.length === 0 ? '<p style="text-align:center; padding:32px; color:#5f6368; font-style:italic">No active registers found.</p>' : ''}
                     </div>
                     <button type="button" class="btn btn-ghost w-full mt-24" id="backToBranchBtn">
                       <i class="fa-solid fa-arrow-left-long mr-8"></i> Back to Branches
@@ -170,7 +170,7 @@ export function renderLogin(container) {
             </div>
 
             <div class="login-action-area">
-              <p style="color: #334155; font-size: 11px; margin-top: 24px;">© 2026 POS Enterprise v2.4.0</p>
+              <p style="color: #9aa0a6; font-size: 11px; margin-top: 24px;">© 2026 pos-lite</p>
             </div>
           </div>
         </div>

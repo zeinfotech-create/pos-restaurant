@@ -312,7 +312,7 @@ const DEFAULT_SETTINGS = {
   availableTaxes: [],
   taxRate: 5,
   receiptFooter: 'Thank you for shopping with us!',
-  theme: 'theme-dark-midnight',
+  theme: 'theme-light-zoom', // "Sapphire" — default for fresh installs
   enableRegisterRoutine: true,
   paymentMethods: [],
   businessType: 'Restaurant', // options: 'Restaurant', 'General', 'Bakery', 'Saloon'
@@ -355,7 +355,7 @@ export async function hasPermission(action) {
   const [module, detail] = action.includes(':') ? action.split(':') : [action, null];
 
   // Public pages accessible without login
-  if (['login', 'onboarding', 'activation', 'customer-display'].includes(module)) return true;
+  if (['login', 'onboarding', 'customer-display'].includes(module)) return true;
 
   const user = await getCurrentUser();
   if (!user) return false;
@@ -2212,6 +2212,7 @@ export async function completeInstallation({ businessName, businessAddress, busi
     id: adminId,
     name: adminName || 'Administrator',
     username: adminName || 'admin', // Use provided adminName
+    email: email || '',
     password: adminPassword || '123',
     pin: adminPin || '1234',
     role: 'Admin',

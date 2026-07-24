@@ -16,31 +16,39 @@ class SyncEngine {
         this.pendingRequests = new Map(); // Map<requestId, {resolve, reject}>
         this.isNewInstall = false; // NEW: Flag for gated license creation
         this.broadcastQueue = []; // NEW: Buffer for messages during registration
-        this.isLifetimeActivated = false; // Standalone/Electron: true only once a device-locked Lifetime key is verified
+        // No license/activation concept in this build — a completed one-time
+        // install is permanently full access. Set immediately (not just after
+        // init() resolves) so there's no "Trial/Free" flash on first paint.
+        this.isLifetimeActivated = true;
         this.licenseStatus = {
-            type: 'trial',
+            type: 'premium',
             isExpired: false,
-            daysLeft: 7,
-            branchLimit: 1,
-            userLimit: 1,
-            registerLimit: 1,
-            productLimit: 100,
+            daysLeft: 9999,
+            branchLimit: 2,
+            userLimit: 5,
+            registerLimit: 2,
+            productLimit: 99999,
             modules: {
-                inventory: 'basic',
-                reports: 'daily',
-                register_shift: true,
-                cloud_sync: true,
+                inventory: 'full', reports: 'full',
+                register_shift: true, cloud_sync: true,
                 data_backup: true,
-                pro_addons: false
+                pro_addons: true, industry_setup: true
             }
         };
 
         // This build only supports the local/Electron install — always standalone.
         this.deploymentMode = 'standalone';
 
-        // Load cached license status to avoid "Trial/Free" flash on refresh
+        // Load cached license status to avoid "Trial/Free" flash on refresh.
+        // Guarded by _licenseResolvedByInit: this read races init()'s own
+        // (slower, IPC-involving) license computation, and without the guard
+        // a late-resolving stale cache read can silently clobber the fresh
+        // status init() already computed and saved, permanently downgrading
+        // limits (e.g. registerLimit stuck at an old value of 1) until the
+        // cache itself is rewritten by some other event.
+        this._licenseResolvedByInit = false;
         getCachedLicenseStatus().then(cached => {
-            if (cached) {
+            if (cached && !this._licenseResolvedByInit) {
                 this.licenseStatus = cached;
             }
         });
@@ -58,14 +66,14 @@ class SyncEngine {
         return {
             maxBranches: s.branchLimit || 1,
             maxRegistersPerBranch: s.registerLimit || 1, // Hub usually sends total limit, but we'll use it as max for selection
-            maxUsers: s.userLimit || 1,
+            maxUsers: s.userLimit || 5,
             maxProducts: s.productLimit || 100
         };
     }
 
     checkCapability(feature) {
-        // Standalone/Offline mode is Lifetime Premium ONLY once a device-locked key is verified
-        if (this.deploymentMode === 'standalone' && this.isLifetimeActivated) return true;
+        // Standalone/Offline mode has no license concept — always full access.
+        if (this.deploymentMode === 'standalone') return true;
 
         const s = this.licenseStatus || {};
         
@@ -117,45 +125,25 @@ class SyncEngine {
         if (this.deploymentMode === 'standalone') {
             console.log('SyncEngine: Running in STANDALONE mode. Local hub enabled.');
 
-            await this.checkLifetimeActivation();
-
-            if (this.isLifetimeActivated) {
-                this.licenseStatus = {
-                    type: 'premium',
-                    isExpired: false,
-                    daysLeft: 9999,
-                    branchLimit: 99,
-                    userLimit: 99,
-                    registerLimit: 99,
-                    productLimit: 99999,
-                    modules: {
-                        inventory: 'full', reports: 'full',
-                        register_shift: true, cloud_sync: true,
-                        data_backup: true,
-                        pro_addons: true, industry_setup: true
-                    }
-                };
-            } else {
-                // Not yet activated — the desktop build has no trial grace period.
-                // The router already hard-blocks every page except login/onboarding/
-                // activation until a real key is verified; this status just keeps
-                // any capability checks reached some other way consistently locked.
-                this.licenseStatus = {
-                    type: 'unactivated',
-                    isExpired: true,
-                    daysLeft: 0,
-                    branchLimit: 0,
-                    userLimit: 0,
-                    registerLimit: 0,
-                    productLimit: 0,
-                    modules: {
-                        inventory: 'none', reports: 'none',
-                        register_shift: false, cloud_sync: false,
-                        data_backup: false,
-                        pro_addons: false
-                    }
-                };
-            }
+            // No license/activation concept for the local install — completing
+            // onboarding once IS the activation. Always full access, forever.
+            this.isLifetimeActivated = true;
+            this.licenseStatus = {
+                type: 'premium',
+                isExpired: false,
+                daysLeft: 9999,
+                branchLimit: 2,
+                userLimit: 5,
+                registerLimit: 2,
+                productLimit: 99999,
+                modules: {
+                    inventory: 'full', reports: 'full',
+                    register_shift: true, cloud_sync: true,
+                    data_backup: true,
+                    pro_addons: true, industry_setup: true
+                }
+            };
+            this._licenseResolvedByInit = true;
             saveCachedLicenseStatus(this.licenseStatus);
             this.updateHealth('online');
             
@@ -265,62 +253,6 @@ class SyncEngine {
                 }
             }, 10000);
         });
-    }
-
-    // ── Lifetime Offline License (Item 2) ───────────────────────────────────
-    async checkLifetimeActivation() {
-        if (!window.electronAPI?.verifyLifetimeToken) { this.isLifetimeActivated = false; return; }
-        const settings = await getSettings();
-        if (!settings?.lifetimeToken) { this.isLifetimeActivated = false; return; }
-        try {
-            const result = await window.electronAPI.verifyLifetimeToken(settings.lifetimeToken);
-            // The token's signature+fingerprint alone aren't enough — it must also be
-            // bound to THIS install's licenseKey. Otherwise a token cached from an
-            // earlier activation on this same machine (a different local install,
-            // reinstall, or test license) would silently unlock a brand new install
-            // that never actually verified a key of its own.
-            const licenseKey = settings.licenseKey || 'LOCAL_EXE';
-            this.isLifetimeActivated = !!result?.valid && result.payload?.licenseKey === licenseKey;
-        } catch (e) {
-            this.isLifetimeActivated = false;
-        }
-    }
-
-    async activateLifetimeKey(key, contact = '') {
-        if (!window.electronAPI?.getMachineFingerprint) {
-            return { success: false, message: 'Lifetime activation is only available in the desktop app.' };
-        }
-        const deviceFingerprint = await window.electronAPI.getMachineFingerprint();
-        if (!deviceFingerprint) return { success: false, message: 'Could not read this device\'s fingerprint.' };
-
-        const settings = await getSettings();
-        const licenseKey = settings.licenseKey || 'LOCAL_EXE';
-
-        // The customer enters one field (phone or email) — send it as both, the
-        // server only matches whichever the key was actually issued against.
-        const trimmedContact = (contact || '').trim();
-        const phone = trimmedContact;
-        const email = trimmedContact;
-
-        try {
-            const res = await fetch('http://127.0.0.1:3030/api/license/activate-lifetime', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ licenseKey, key, deviceFingerprint, phone, email })
-            });
-            const data = await res.json();
-            if (!data.success) return { success: false, message: data.error || 'Activation failed' };
-
-            await updateSettings({ lifetimeToken: data.token, licenseKey });
-            await window.electronAPI.markLifetimeActivated();
-            this.isLifetimeActivated = true;
-
-            // Re-run init so licenseStatus/UI reflect the new lifetime state immediately
-            await this.init();
-            return { success: true };
-        } catch (e) {
-            return { success: false, message: 'Could not reach the local hub: ' + e.message };
-        }
     }
 
     async fetchLoginData() {
@@ -633,12 +565,25 @@ class SyncEngine {
                         this.isRegistered = true;
                         if (message.licenseKey && message.type === 'register_success') {
                             await getSettings().then(current => {
-                                if (current.licenseKey !== message.licenseKey) {
+                                // Only ever ADOPT a hub-assigned key on a device that has
+                                // none yet. message.licenseKey is just the server's echo of
+                                // whatever we sent (or its own 'GLOBAL' fallback if we sent
+                                // nothing, e.g. on a startup race before settings loaded) —
+                                // it is not authoritative. Overwriting an already-set key
+                                // here previously let a single bad reconnect permanently
+                                // downgrade an activated device's real license key to
+                                // 'GLOBAL', silently detaching it from its License record.
+                                if (!current.licenseKey) {
                                     updateSettings({ licenseKey: message.licenseKey, networkId: message.licenseKey });
                                 }
                             });
                         }
-                        if (message.licenseStatus) {
+                        // Standalone has no license concept — the hub's own idea of this
+                        // key's status is irrelevant here and must never overwrite the
+                        // fixed local status computed in init(). This mirrors the earlier
+                        // bug where a hub-echoed status silently downgraded a fully-working
+                        // install's limits back to server-side defaults on every reconnect.
+                        if (message.licenseStatus && this.deploymentMode !== 'standalone') {
                             const statusChanged = JSON.stringify(this.licenseStatus) !== JSON.stringify(message.licenseStatus);
                             this.licenseStatus = message.licenseStatus;
                             saveCachedLicenseStatus(this.licenseStatus);

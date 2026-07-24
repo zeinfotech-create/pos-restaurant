@@ -56,23 +56,17 @@ describe('SyncEngine Service', () => {
     expect(syncEngine.checkCapability('cloud_sync')).toBe(true);
   });
 
-  it('should only unlock capabilities in standalone mode once Lifetime-activated', () => {
+  it('should always unlock capabilities in standalone mode — no license/activation concept', () => {
     const originalMode = syncEngine.deploymentMode;
-    const originalActivated = syncEngine.isLifetimeActivated;
     const originalStatus = syncEngine.licenseStatus;
     syncEngine.deploymentMode = 'standalone';
 
-    // Not yet activated — no trial grace period on the desktop build, nothing unlocks
-    syncEngine.isLifetimeActivated = false;
+    // Even a deliberately locked-looking licenseStatus doesn't matter — standalone
+    // always unlocks everything, regardless of licenseStatus.modules.
     syncEngine.licenseStatus = { type: 'unactivated', modules: { cloud_sync: false } };
-    expect(syncEngine.checkCapability('cloud_sync')).toBe(false);
-
-    // Activated — everything unlocks regardless of licenseStatus modules
-    syncEngine.isLifetimeActivated = true;
     expect(syncEngine.checkCapability('cloud_sync')).toBe(true);
 
     syncEngine.deploymentMode = originalMode;
-    syncEngine.isLifetimeActivated = originalActivated;
     syncEngine.licenseStatus = originalStatus;
   });
 });

@@ -1225,6 +1225,7 @@ function applyTheme(themeName, saveToDb = true) {
   const themeClasses = [
     'theme-dark-midnight', 'theme-dark-obsidian', 'theme-dark-ocean', 'theme-dark-indigo', 'theme-dark-twilight',
     'theme-light-classic', 'theme-light-mint', 'theme-light-slate', 'theme-light-royal', 'theme-light-rose',
+    'theme-light-google', 'theme-light-zoom', 'theme-light-amazon', 'theme-light-flipkart',
     'light-theme'
   ];
   document.body.classList.remove(...themeClasses);
@@ -1487,7 +1488,7 @@ async function initApp() {
   const settings = store.settings || {};
   console.log('[App] Settings:', { storeName: settings.storeName, isInstalled: settings.isInstalled });
 
-  const theme = await getSessionTheme() || settings.theme || 'theme-dark-midnight';
+  const theme = await getSessionTheme() || settings.theme || 'theme-light-zoom';
   applyTheme(theme, false);
 
   // Initialize UI components (Async where needed)

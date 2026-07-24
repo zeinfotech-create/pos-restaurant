@@ -132,7 +132,7 @@ export async function renderUsers(container) {
                     ${restricted ? '<span style="font-size:9px; background:var(--warning); color:black; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">LOCKED</span>' : ''}
                   </div>
                 </td>
-                <td data-label="Email">${u.username || u.email}</td>
+                <td data-label="Email">${u.email || u.username || '—'}</td>
                 <td data-label="PIN" class="font-mono">${u.pin || '----'}</td>
                 <td data-label="Role"><span class="badge ${u.role === 'Admin' ? 'badge-primary' : 'badge-ghost'}">${u.role}</span></td>
                 <td data-label="Branch">${branchString}</td>
@@ -349,6 +349,15 @@ async function openUserForm(user = null) {
             <input class="form-input" id="uPin" maxlength="4" placeholder="4 digits" value="${user?.pin || ''}" style="padding-left:36px; font-variant-numeric: tabular-nums" />
           </div>
           <p class="form-help-text">For fast terminal switching</p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Contact Email (optional)</label>
+          <div class="search-input-wrap">
+            <i class="fa-solid fa-at"></i>
+            <input class="form-input" type="email" id="uContactEmail" placeholder="e.g. name@example.com" value="${user?.email || ''}" style="padding-left:36px" />
+          </div>
+          <p class="form-help-text">For reference only — does not change how this user logs in.</p>
         </div>
 
         <div class="form-group">
@@ -569,12 +578,16 @@ async function openUserForm(user = null) {
     if (!name || !username || !password) { 
       const missing = [];
       if (!name) missing.push('Full Name');
-      if (!username) missing.push('Email');
+      if (!username) missing.push('Email/Phone');
       if (!password) missing.push('Password');
       showToast(`Missing required fields: ${missing.join(', ')}`, 'error'); 
       return; 
     }
-    if (!username.includes('@')) { showToast('Please enter a valid email', 'error'); return; }
+    // This field doubles as a phone-based login (matches onboarding's admin,
+    // which logs in with a 10-digit phone number, not an email) or a real
+    // email for staff added here — accept either shape.
+    const looksLikePhone = /^\d{10,}$/.test(username.replace(/\D/g, ''));
+    if (!username.includes('@') && !looksLikePhone) { showToast('Please enter a valid email or 10-digit phone number', 'error'); return; }
 
     if (user?.role !== 'Master' && selectedPerms.length === 0) {
       showToast('User must have at least one permission', 'warning');
@@ -604,7 +617,7 @@ async function openUserForm(user = null) {
       ...user,
       name,
       username,
-      email: username,
+      email: document.getElementById('uContactEmail').value.trim(),
       password,
       image: document.getElementById('uImageBase64').value,
       pin: document.getElementById('uPin').value.trim(),

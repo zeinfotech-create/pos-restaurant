@@ -335,7 +335,11 @@ export async function renderSettings(container) {
         { id: 'theme-light-mint', label: 'Mint Breeze', color: '#0d9488', icon: '🍃' },
         { id: 'theme-light-slate', label: 'Slate Blue', color: '#334155', icon: '🏙️' },
         { id: 'theme-light-royal', label: 'Royal', color: '#7c3aed', icon: '👑' },
-        { id: 'theme-light-rose', label: 'Rose', color: '#e11d48', icon: '🌸' }
+        { id: 'theme-light-rose', label: 'Rose', color: '#e11d48', icon: '🌸' },
+        { id: 'theme-light-google', label: 'Azure', color: '#1a73e8', icon: '🔍' },
+        { id: 'theme-light-zoom', label: 'Sapphire', color: '#2d8cff', icon: '📹' },
+        { id: 'theme-light-amazon', label: 'Sunset', color: '#ff9900', icon: '📦' },
+        { id: 'theme-light-flipkart', label: 'Cobalt', color: '#2874f0', icon: '🛒' }
       ].map(t => `
                 <div class="theme-swatch ${activeTheme === t.id ? 'active' : ''}" data-theme="${t.id}" title="${t.label} Theme">
                   <div class="swatch-color" style="background:${t.color}">${t.icon}</div>
@@ -1417,31 +1421,8 @@ async function showSyncDetails(store, label) {
 async function renderLicenseTab() {
   const settings = await getSettings();
   const isStandalone = settings?.deploymentMode === 'standalone';
-  
-  const ls = syncEngine.licenseStatus || { type: 'trial', isExpired: false, daysLeft: 1825, branchLimit: 1, userLimit: 1, registerLimit: 1, modules: {} };
 
   if (isStandalone) {
-    if (!syncEngine.isLifetimeActivated) {
-      return `
-        <div class="card" style="padding:32px; max-width:520px; margin:0 auto;">
-          <div style="text-align:center; margin-bottom:24px;">
-            <div style="font-size:36px; margin-bottom:12px;">🔑</div>
-            <div style="font-size:20px; font-weight:900; color:var(--text-main); margin-bottom:6px;">Activate Lifetime License</div>
-            <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
-              Enter your Lifetime Key to unlock this desktop install permanently — one activation, works offline forever, locked to this device only.
-              ${ls.type === 'trial' ? `<br><br>Free trial: <b>${ls.daysLeft}</b> day(s) left.` : ''}
-            </p>
-          </div>
-          <input type="text" id="lifetimeKeyInput" placeholder="ZEI-XXXX-XXXX-XXXX" style="width:100%; padding:14px; border-radius:12px; border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-main); font-weight:700; text-align:center; letter-spacing:1px; margin-bottom:12px; box-sizing:border-box;" />
-          <input type="text" id="lifetimeContactInput" placeholder="Phone or Email this key was issued to" style="width:100%; padding:14px; border-radius:12px; border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-main); text-align:center; margin-bottom:16px; box-sizing:border-box;" />
-          <button class="btn btn-primary w-full" id="activateLifetimeBtn" style="height:52px; border-radius:12px; font-weight:800;">
-            <i class="fa-solid fa-unlock mr-8"></i> Activate
-          </button>
-          <div id="lifetimeActivationError" style="display:none; margin-top:14px; padding:12px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:10px; color:var(--danger); font-size:12px; text-align:center;"></div>
-        </div>
-      `;
-    }
-
     // Force Lifetime Premium View for Electron
     const statusBanner = `
         <div style="padding:22px; background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(79,70,229,0.1)); border-radius:16px; border:1px solid rgba(99,102,241,0.3); margin-bottom:24px; text-align:center; position:relative; overflow:hidden;">
@@ -1506,37 +1487,6 @@ async function renderLicenseTab() {
 }
 
 function setupLicenseListeners(container) {
-  // --- Lifetime Offline activation (Electron standalone, not yet activated) ---
-  const activateLifetimeBtn = container.querySelector('#activateLifetimeBtn');
-  if (activateLifetimeBtn) {
-    activateLifetimeBtn.addEventListener('click', async () => {
-      const keyInput = container.querySelector('#lifetimeKeyInput');
-      const contactInput = container.querySelector('#lifetimeContactInput');
-      const errorBox = container.querySelector('#lifetimeActivationError');
-      const key = keyInput?.value.trim();
-      const contact = contactInput?.value.trim();
-      if (errorBox) errorBox.style.display = 'none';
-      if (!key) return window.showToast('Please enter your Lifetime Key', 'error');
-
-      activateLifetimeBtn.disabled = true;
-      activateLifetimeBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-8"></i> Activating...';
-
-      const result = await window.syncEngine.activateLifetimeKey(key, contact);
-
-      if (result.success) {
-        window.showToast('Lifetime License activated! This install now works offline forever.', 'success');
-        renderSettings(container.closest('.page-card') || document.getElementById('page-container'));
-      } else {
-        activateLifetimeBtn.disabled = false;
-        activateLifetimeBtn.innerHTML = '<i class="fa-solid fa-unlock mr-8"></i> Activate';
-        if (errorBox) {
-          errorBox.textContent = result.message || 'Activation failed';
-          errorBox.style.display = 'block';
-        }
-      }
-    });
-  }
-
   // --- Fix Connection Helper ---
   const fixBtn = container.querySelector('#fixConnectionBtn');
   if (fixBtn) {
