@@ -1,4 +1,4 @@
-import { setSession, clearStore, updateData, updateSettings } from '../db.js';
+import { setSession, clearStore, updateData, updateSettings, getSettings } from '../db.js';
 import { showToast } from '../components/Toast.js';
 
 export function renderLogin(container) {
@@ -206,8 +206,16 @@ export function renderLogin(container) {
               cloudRegisters = res.registers || [];
               for (const b of cloudBranches) updateData('branches', b, true);
               for (const r of cloudRegisters) updateData('registers', r, true);
+              // This device's licenseKey is fixed once at install time
+              // (completeInstallation) so every store partitions under one
+              // key for the life of this install — only adopt a login
+              // response's key when this device genuinely has none yet.
+              // Unconditionally trusting it here previously let a stale/
+              // mismatched value on the login response silently fragment
+              // this same install's data across multiple MongoDB "tenants".
+              const currentSettings = await getSettings();
               const userLicenseKey = res.licenseKey || res.user?.licenseKey;
-              if (userLicenseKey) {
+              if (userLicenseKey && !currentSettings.licenseKey) {
                 updateSettings({
                   licenseKey: userLicenseKey,
                   networkId: res.networkId || userLicenseKey

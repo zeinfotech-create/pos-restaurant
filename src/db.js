@@ -2177,6 +2177,17 @@ export async function completeInstallation({ businessName, businessAddress, busi
   settings.isInstalled = true;
   settings.installationDate = settings.installationDate || new Date().toISOString();
 
+  // Fix this device's local-hub identity ONCE, right here, so every store
+  // (branches/users/registers/etc.) partitions under exactly one key for the
+  // lifetime of this install. Historically this drifted — login responses,
+  // the hub's WS echo, and a couple of self-heal paths could each assign a
+  // DIFFERENT licenseKey after install, silently fragmenting this same
+  // device's data into multiple "tenants" in MongoDB (same branch showing up
+  // twice under two keys). Generating and locking it in at install time,
+  // before anything else can race to assign one, removes that entire bug class.
+  settings.licenseKey = settings.licenseKey || await getDeviceId();
+  settings.networkId = settings.licenseKey;
+
   // 1. Create Default Branch
   const branchId = providedBranchId || 'b1';
   settings.branchId = branchId; // Persist branchId for sync engine
@@ -2191,6 +2202,7 @@ export async function completeInstallation({ businessName, businessAddress, busi
     id: branchId,
     name: (businessName || 'My Store') + ' (Main)',
     address: businessAddress || 'Main Branch',
+    isMainBranch: true, // The install-time branch — protected from edit/delete in Branches.js
     createdAt: new Date().toISOString()
   };
   await updateData('branches', newBranch);
@@ -2215,7 +2227,7 @@ export async function completeInstallation({ businessName, businessAddress, busi
     email: email || '',
     password: adminPassword || '123',
     pin: adminPin || '1234',
-    role: 'Admin',
+    role: 'Super Admin',
     branchId: branchId, // Linked to the branch ObjectID
     maxDevices: 5, // Default device limit
     createdAt: new Date().toISOString()

@@ -29,7 +29,10 @@ export async function renderUsers(container) {
       </div>
       ${await (async () => {
       const limits = window.syncEngine?.getLimits() || { maxUsers: 1 };
-      const canAdd = users.length < limits.maxUsers;
+      // Master/Super Admin is the system owner account, not a staff seat — it
+      // must never eat into the plan's staff quota.
+      const billableUsers = users.filter(u => u.role !== 'Master' && u.role !== 'Super Admin').length;
+      const canAdd = billableUsers < limits.maxUsers;
       if (await hasPermission('staff:manage')) {
         return `<button class="btn btn-primary" id="addUserBtn" ${!canAdd ? 'disabled style="opacity:0.5; cursor:not-allowed"' : ''}>
                 <i class="fa-solid fa-user-plus"></i> Add User
@@ -51,6 +54,7 @@ export async function renderUsers(container) {
           <select class="form-select" id="roleFilter">
             <option value="All">All Roles</option>
             <option value="Master">Master</option>
+            <option value="Super Admin">Super Admin</option>
             <option value="Admin">Admin</option>
             <option value="Manager">Manager</option>
             <option value="Staff">Staff</option>
@@ -112,11 +116,22 @@ export async function renderUsers(container) {
   async function renderUserRows(items) {
     const limits = window.syncEngine?.getLimits() || { maxUsers: 1 };
     const canManageStaff = await hasPermission('staff:manage');
-    
+
+    // Rank restriction against the plan's STAFF quota only — Master/Super Admin
+    // is the system owner, not a billable seat, and must never occupy a slot
+    // that pushes a real staff member into "LOCKED" (see billableUsers above).
+    let billableRank = 0;
+    const billableRankById = new Map();
+    for (const u of users) {
+      if (u.role === 'Master' || u.role === 'Super Admin') continue;
+      billableRankById.set(u.id, billableRank);
+      billableRank++;
+    }
+
     const rows = [];
     for (const u of items) {
-      const uIdx = users.indexOf(u);
-      const restricted = u.role !== 'Master' && uIdx >= limits.maxUsers;
+      const uRank = billableRankById.get(u.id) ?? 0;
+      const restricted = u.role !== 'Master' && u.role !== 'Super Admin' && uRank >= limits.maxUsers;
       const branchString = (u.branchIds && u.branchIds.length > 0)
         ? u.branchIds.map(bid => branches.find(b => b.id === bid)?.name || 'Unknown').join(', ')
         : 'All';
@@ -134,10 +149,10 @@ export async function renderUsers(container) {
                 </td>
                 <td data-label="Email">${u.email || u.username || '—'}</td>
                 <td data-label="PIN" class="font-mono">${u.pin || '----'}</td>
-                <td data-label="Role"><span class="badge ${u.role === 'Admin' ? 'badge-primary' : 'badge-ghost'}">${u.role}</span></td>
+                <td data-label="Role"><span class="badge ${(u.role === 'Admin' || u.role === 'Super Admin') ? 'badge-primary' : 'badge-ghost'}">${u.role}</span></td>
                 <td data-label="Branch">${branchString}</td>
                 <td data-label="Status">
-                  ${(u.role !== 'Master' && u.role !== 'Admin') ? `
+                  ${(u.role !== 'Master' && u.role !== 'Super Admin' && u.role !== 'Admin') ? `
                     <div class="toggle-switch">
                       <input type="checkbox" id="toggle-${u.id}" class="status-toggle" data-id="${u.id}" ${u.isActive !== false ? 'checked' : ''} ${restricted ? 'disabled' : ''}>
                       <label for="toggle-${u.id}" class="toggle-slider"></label>
@@ -148,7 +163,7 @@ export async function renderUsers(container) {
                   `}
                 </td>
                 <td>
-                  ${canManageStaff && u.role !== 'Master' ? `
+                  ${canManageStaff && u.role !== 'Master' && u.role !== 'Super Admin' ? `
                     <div style="display:flex;gap:4px">
                       <button class="btn btn-ghost btn-xs edit-btn" data-id="${u.id}" ${restricted ? 'disabled style="opacity:0.5; cursor:not-allowed"' : ''}><i class="fa-solid fa-pen"></i></button>
                       <button class="btn btn-ghost btn-xs delete-btn" data-id="${u.id}" ${restricted ? 'disabled style="opacity:0.5; cursor:not-allowed"' : ''} style="color:var(--danger)"><i class="fa-solid fa-trash-can"></i></button>
@@ -258,7 +273,7 @@ export async function renderUsers(container) {
       showToast('You cannot delete your own account!', 'error');
       return;
     }
-    if (u.role === 'Master') {
+    if (u.role === 'Master' || u.role === 'Super Admin') {
       showToast('Super Admin records cannot be deleted!', 'error');
       return;
     }
@@ -364,8 +379,9 @@ async function openUserForm(user = null) {
           <label class="form-label">Security Role</label>
           <div class="search-input-wrap">
             <i class="fa-solid fa-shield-halved"></i>
-            <select class="form-select" id="uRole" ${user?.role === 'Master' ? 'disabled' : ''} style="padding-left:36px">
+            <select class="form-select" id="uRole" ${(user?.role === 'Master' || user?.role === 'Super Admin') ? 'disabled' : ''} style="padding-left:36px">
               ${user?.role === 'Master' ? `<option value="Master" selected>Master (System Owner)</option>` : ''}
+              ${user?.role === 'Super Admin' ? `<option value="Super Admin" selected>Super Admin (System Owner)</option>` : ''}
               <option value="Staff" ${user?.role === 'Staff' ? 'selected' : ''}>Staff (Standard)</option>
               <option value="Manager" ${user?.role === 'Manager' ? 'selected' : ''}>Manager (Intermediate)</option>
               <option value="Admin" ${user?.role === 'Admin' ? 'selected' : ''}>Administrator (Full Access)</option>
@@ -375,7 +391,7 @@ async function openUserForm(user = null) {
         </div>
       </div>
 
-      <div class="form-group mt-16" id="uIsActiveGroup" style="${(user?.role === 'Master' || user?.role === 'Admin') ? 'display:none' : ''}">
+      <div class="form-group mt-16" id="uIsActiveGroup" style="${(user?.role === 'Master' || user?.role === 'Super Admin' || user?.role === 'Admin') ? 'display:none' : ''}">
         <div style="display:flex; align-items:center; gap:12px; background:var(--bg-app); padding:12px; border-radius:12px; border:1px solid var(--border)">
           <div class="toggle-switch">
              <input type="checkbox" id="uIsActive" ${user?.isActive !== false ? 'checked' : ''}>
@@ -386,7 +402,7 @@ async function openUserForm(user = null) {
         </div>
       </div>
 
-      <div class="form-group mt-16" id="sessionFilterGroup" style="${(user?.role === 'Master' || user?.role === 'Admin') ? 'display:none' : ''}">
+      <div class="form-group mt-16" id="sessionFilterGroup" style="${(user?.role === 'Master' || user?.role === 'Super Admin' || user?.role === 'Admin') ? 'display:none' : ''}">
         <div style="display:flex; align-items:center; gap:12px; background:var(--bg-app); padding:12px; border-radius:12px; border:1px solid var(--border)">
           <div class="toggle-switch">
              <input type="checkbox" id="uSessionFilterEnabled" ${user?.sessionFilterEnabled ? 'checked' : ''}>
@@ -398,7 +414,7 @@ async function openUserForm(user = null) {
       </div>
 
       <!-- Access Control -->
-      <div id="permissionsGroup" class="mt-24" ${user?.role === 'Master' ? 'style="display:none"' : ''}>
+      <div id="permissionsGroup" class="mt-24" ${(user?.role === 'Master' || user?.role === 'Super Admin') ? 'style="display:none"' : ''}>
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
           <label class="form-label" style="margin:0; font-weight:800; color:var(--primary)"><i class="fa-solid fa-lock-open mr-4"></i> PERMISSIONS</label>
           <div style="display:flex; gap:16px; font-size:11px;">
@@ -474,7 +490,7 @@ async function openUserForm(user = null) {
   if (roleSelect) {
     roleSelect.onchange = (e) => {
       const role = e.target.value;
-      const isMasterAdmin = role === 'Master' || role === 'Admin';
+      const isMasterAdmin = role === 'Master' || role === 'Super Admin' || role === 'Admin';
       
       const activeGroup = document.getElementById('uIsActiveGroup');
       if (activeGroup) activeGroup.style.display = isMasterAdmin ? 'none' : 'block';
@@ -485,7 +501,7 @@ async function openUserForm(user = null) {
       if (role === 'Custom') return; // Don't reset if picking Custom manually
 
       const cbs = document.querySelectorAll('.perm-cb');
-      document.getElementById('permissionsGroup').style.display = role === 'Master' ? 'none' : 'block';
+      document.getElementById('permissionsGroup').style.display = (role === 'Master' || role === 'Super Admin') ? 'none' : 'block';
       
       const adminPerms = [
         'pos:access','pos:discount','pos:custom_price',
@@ -589,7 +605,7 @@ async function openUserForm(user = null) {
     const looksLikePhone = /^\d{10,}$/.test(username.replace(/\D/g, ''));
     if (!username.includes('@') && !looksLikePhone) { showToast('Please enter a valid email or 10-digit phone number', 'error'); return; }
 
-    if (user?.role !== 'Master' && selectedPerms.length === 0) {
+    if (user?.role !== 'Master' && user?.role !== 'Super Admin' && selectedPerms.length === 0) {
       showToast('User must have at least one permission', 'warning');
       return;
     }
@@ -621,9 +637,9 @@ async function openUserForm(user = null) {
       password,
       image: document.getElementById('uImageBase64').value,
       pin: document.getElementById('uPin').value.trim(),
-      role: user?.role === 'Master' ? 'Master' : document.getElementById('uRole').value,
-      isActive: (user?.role === 'Master' || user?.role === 'Admin' || document.getElementById('uRole').value === 'Admin') ? true : document.getElementById('uIsActive').checked,
-      sessionFilterEnabled: (user?.role === 'Master' || user?.role === 'Admin' || document.getElementById('uRole').value === 'Admin') ? false : (document.getElementById('uSessionFilterEnabled')?.checked || false),
+      role: (user?.role === 'Master' || user?.role === 'Super Admin') ? user.role : document.getElementById('uRole').value,
+      isActive: (user?.role === 'Master' || user?.role === 'Super Admin' || user?.role === 'Admin' || document.getElementById('uRole').value === 'Admin') ? true : document.getElementById('uIsActive').checked,
+      sessionFilterEnabled: (user?.role === 'Master' || user?.role === 'Super Admin' || user?.role === 'Admin' || document.getElementById('uRole').value === 'Admin') ? false : (document.getElementById('uSessionFilterEnabled')?.checked || false),
       permissions: selectedPerms,
       branchIds: selectedBranches,
       branchId: selectedBranches[0] || 'default' // Backward compatibility

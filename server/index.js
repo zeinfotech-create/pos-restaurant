@@ -118,33 +118,11 @@ const MONGODB_REMOTE_URI = process.env.MONGODB_URI;
 const MONGODB_LOCAL_URI = process.env.MONGODB_LOCAL_URI || 'mongodb://127.0.0.1:27017/pos_db';
 const MONGODB_URI = MONGODB_MODE === 'local' ? MONGODB_LOCAL_URI : MONGODB_REMOTE_URI;
 
-// ── Cloud licensing connection ──────────────────────────────────────────
-// Upgrade Keys / Lifetime Keys are issued centrally by Zeinfotech admins in
-// the cloud (Atlas) database. A local-Mongo Electron install (MONGODB_MODE=
-// local) must still validate/redeem keys against that SAME central database
-// — otherwise a key generated in the admin panel would never be found by a
-// customer's local install, since local Mongo has no knowledge of it at all.
-// This opens a second, separate connection to Atlas purely for that lookup;
-// everything else (the actual License record this device uses afterward)
-// stays on the local connection so the install still works fully offline.
-let cloudLicenseConnection = null;
-let CloudUpgradeKey = null;
-let CloudLicense = null;
+// pos-lite is local-only: no second Atlas connection. Upgrade Key / Lifetime
+// activation redemption was removed from the client entirely, so there's no
+// remaining reason for this server to ever reach outside localhost MongoDB.
 function getCloudLicenseModels() {
-    if (MONGODB_MODE !== 'local') {
-        // Already talking to Atlas directly — no second connection needed.
-        return { UpgradeKeyModel: UpgradeKey, LicenseModel: License };
-    }
-    if (!cloudLicenseConnection) {
-        cloudLicenseConnection = mongoose.createConnection(MONGODB_REMOTE_URI, {
-            dbName: 'pos_db',
-            serverSelectionTimeoutMS: 10000,
-        });
-        cloudLicenseConnection.on('error', (err) => console.error('[CloudLicense] Connection error:', err.message));
-        CloudUpgradeKey = cloudLicenseConnection.model('UpgradeKey', UpgradeKey.schema);
-        CloudLicense = cloudLicenseConnection.model('License', License.schema);
-    }
-    return { UpgradeKeyModel: CloudUpgradeKey, LicenseModel: CloudLicense };
+    return { UpgradeKeyModel: UpgradeKey, LicenseModel: License };
 }
 
 // If the admin assigned a key to a specific phone/email at creation time, the

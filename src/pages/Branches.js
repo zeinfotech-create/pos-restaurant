@@ -102,6 +102,7 @@ export async function renderBranches(container) {
               <div>
                 ${b.name}
                 ${restricted ? '<span style="font-size:9px; background:var(--warning); color:black; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">LOCKED</span>' : ''}
+                ${b.isMainBranch ? '<span style="font-size:9px; background:var(--primary-light); color:var(--primary); padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">MAIN</span>' : ''}
               </div>
             </div>
           </td>
@@ -109,7 +110,7 @@ export async function renderBranches(container) {
           <td data-label="Phone">${b.phone || ''}</td>
           <td>
             <div class="flex gap-4">
-              ${canEditBranch ? `
+              ${canEditBranch && !b.isMainBranch ? `
                 <button class="btn btn-ghost btn-sm edit-btn" data-id="${b.id}" ${restricted ? 'disabled style="opacity:0.5; cursor:not-allowed"' : ''} title="Edit Branch"><i class="fa-solid fa-pen"></i></button>
               ` : ''}
               ${canManageRegs ? `
@@ -118,10 +119,10 @@ export async function renderBranches(container) {
                   ${branchRegs > 0 ? `<span style="background:var(--primary); color:white; padding:1px 6px; border-radius:10px; font-size:10px; font-weight:700; margin-left:6px">${branchRegs}</span>` : ''}
                 </button>
               ` : ''}
-              ${canDeleteBranch ? `
+              ${canDeleteBranch && !b.isMainBranch ? `
                 <button class="btn btn-ghost btn-sm delete-btn" data-id="${b.id}" ${restricted ? 'disabled style="opacity:0.5; cursor:not-allowed"' : ''} style="color:var(--danger)" title="Delete Branch"><i class="fa-solid fa-trash-can"></i></button>
               ` : ''}
-              ${!canEditBranch && !canManageRegs && !canDeleteBranch ? `
+              ${!(canEditBranch && !b.isMainBranch) && !canManageRegs && !(canDeleteBranch && !b.isMainBranch) ? `
                 <span class="text-muted" style="font-size:11px">No Action</span>
               ` : ''}
             </div>
@@ -206,6 +207,11 @@ export async function renderBranches(container) {
   });
 
   function confirmDelete(b) {
+    if (b.isMainBranch) {
+      showToast('The main branch created at install cannot be deleted!', 'error');
+      return;
+    }
+
     openModal({
       title: 'Delete Branch',
       body: `
@@ -251,6 +257,10 @@ export async function renderBranches(container) {
 }
 
 async function openBranchForm(branch = null) {
+  if (branch?.isMainBranch) {
+    showToast('The main branch created at install cannot be edited!', 'error');
+    return;
+  }
   const isEdit = !!branch;
   openModal({
     title: isEdit ? `<i class="fa-solid fa-pen-to-square mr-8"></i> Edit Branch` : `<i class="fa-solid fa-building-circle-plus mr-8"></i> Add New Branch`,
