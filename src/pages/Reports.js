@@ -1080,13 +1080,15 @@ async function renderRegisterReport(container, cur) {
 
   // Attach modal events
   container.querySelectorAll('.view-shift-report-btn').forEach(btn => {
-    btn.onclick = () => openShiftSummaryModal(btn.dataset.id, cur, shifts);
+    btn.onclick = () => openShiftSummaryModal(btn.dataset.id, cur, shifts, registers);
   });
 }
 
-function openShiftSummaryModal(shiftId, cur, allShifts) {
+function openShiftSummaryModal(shiftId, cur, allShifts, registers = []) {
   const shift = allShifts.find(s => s.id === shiftId);
   if (!shift) return;
+
+  const regName = registers.find(r => r.id === shift.registerId)?.name || 'Main Terminal';
 
   const cashSales = Object.entries(shift.collections || {}).reduce((sum, [m, a]) => {
     return m.toLowerCase() === 'cash' ? sum + a : sum;
@@ -1104,7 +1106,7 @@ function openShiftSummaryModal(shiftId, cur, allShifts) {
           <div class="grid-2">
             <div class="stat-info">
               <div style="font-size:11px;opacity:0.6">Cashier / Register</div>
-              <div class="font-bold">${shift.openedBy || '—'} / ${shift.registerId || 'Main'}</div>
+              <div class="font-bold">${shift.openedBy || '—'} / ${regName}</div>
             </div>
             <div class="stat-info">
               <div style="font-size:11px;opacity:0.6">Total Sales</div>

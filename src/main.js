@@ -6,7 +6,7 @@ import './style.css';
 import './dashboard-animations.css';
 import './settings-redesign.css';
 import { navigate, initRouter, getCurrentPage } from './router.js';
-import { getSettings, getBranchRegisters, getSession, getSessionTheme, setSessionTheme, getSidebarCollapsed, setSidebarCollapsed, getBranches, getCurrentShift, closeRegister, openRegister, getCustomers, getBusinessFeatures, deleteData, updateData, saveSession, getDataById, hasPermission, getLowStockProducts, getCurrentBranch, getCurrentUser, getCurrentRegisterId } from './db.js';
+import { getSettings, getBranchRegisters, getSession, getSessionTheme, setSessionTheme, getSidebarCollapsed, setSidebarCollapsed, getBranches, getCurrentShift, closeRegister, openRegister, getCustomers, getBusinessFeatures, deleteData, updateData, saveSession, getDataById, getUsers, hasPermission, getLowStockProducts, getCurrentBranch, getCurrentUser, getCurrentRegisterId } from './db.js';
 import { showToast } from './components/Toast.js';
 import { store, initStore, onCartUpdate, getCartTotals, updateQty, clearCart, setDiscount, removeFromCart, updateCartItem } from './store.js';
 import { openModal, closeModal, showConfirm, showAlert } from './components/Modal.js';
@@ -273,23 +273,53 @@ function openChangePasswordModal() {
   openModal({
     title: '<i class="fa-solid fa-key"></i> Change Password',
     body: `
-      <div style="padding:16px 0">
+      <div style="padding:8px 0 4px">
+        <div style="width:56px; height:56px; border-radius:16px; background:rgba(var(--primary-rgb),0.1); display:flex; align-items:center; justify-content:center; margin:0 auto 20px">
+          <i class="fa-solid fa-shield-halved" style="font-size:24px; color:var(--primary)"></i>
+        </div>
+
         <div class="form-group mb-16">
           <label class="form-label">Current Password</label>
-          <input type="password" id="currentPassInput" class="form-input" placeholder="Enter current password" />
+          <div class="pw-input-wrap">
+            <i class="fa-solid fa-lock"></i>
+            <input type="password" id="currentPassInput" class="form-input" placeholder="Enter current password" />
+            <button type="button" class="pw-toggle-visibility" data-target="currentPassInput" tabindex="-1"><i class="fa-solid fa-eye"></i></button>
+          </div>
         </div>
         <div class="form-group mb-16">
           <label class="form-label">New Password</label>
-          <input type="password" id="newPassInput" class="form-input" placeholder="Enter new password" />
+          <div class="pw-input-wrap">
+            <i class="fa-solid fa-key"></i>
+            <input type="password" id="newPassInput" class="form-input" placeholder="Enter new password" />
+            <button type="button" class="pw-toggle-visibility" data-target="newPassInput" tabindex="-1"><i class="fa-solid fa-eye"></i></button>
+          </div>
+          <p style="font-size:11px; color:var(--text-muted); margin-top:6px; padding-left:2px">Minimum 3 characters.</p>
         </div>
         <div class="form-group mb-20">
           <label class="form-label">Confirm New Password</label>
-          <input type="password" id="confirmPassInput" class="form-input" placeholder="Repeat new password" />
+          <div class="pw-input-wrap">
+            <i class="fa-solid fa-check-double"></i>
+            <input type="password" id="confirmPassInput" class="form-input" placeholder="Repeat new password" />
+            <button type="button" class="pw-toggle-visibility" data-target="confirmPassInput" tabindex="-1"><i class="fa-solid fa-eye"></i></button>
+          </div>
         </div>
-        <button class="btn btn-primary w-full" id="updatePassBtn" style="height:44px; border-radius:12px">Update Password</button>
+        <button class="btn btn-primary w-full" id="updatePassBtn" style="height:46px; border-radius:12px; font-weight:700">
+          <i class="fa-solid fa-rotate-right mr-8"></i> Update Password
+        </button>
       </div>
     `,
     footer: `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`
+  });
+
+  document.querySelectorAll('.pw-toggle-visibility').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById(btn.dataset.target);
+      if (!input) return;
+      const icon = btn.querySelector('i');
+      const showing = input.type === 'text';
+      input.type = showing ? 'password' : 'text';
+      icon.className = showing ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+    });
   });
 
   document.getElementById('updatePassBtn')?.addEventListener('click', async () => {
@@ -302,7 +332,31 @@ function openChangePasswordModal() {
       return;
     }
 
-    if (current !== store.user.password) {
+    // store.user can come from a login path that returns a trimmed-down user
+    // object with no password field (e.g. the HTTP hub-login fallback strips
+    // it before sending it back over the wire) — always re-fetch the actual
+    // local record so the check (and the update below) use real, complete data.
+    // Match by id first, but different login paths hand back different id
+    // shapes (local record id vs. the hub's Mongo _id vs. userId) that don't
+    // necessarily match the local IndexedDB record — username/email/name are
+    // stable across every path (verifyLocalUser matches on them too), so fall
+    // back to those before giving up and using the possibly-incomplete session object.
+    const allLocalUsers = await getUsers();
+    const freshUser = (await getDataById('users', store.user.id))
+      || allLocalUsers.find(u => u.username && u.username === store.user.username)
+      || allLocalUsers.find(u => u.email && u.email === store.user.email)
+      || allLocalUsers.find(u => u.name && u.name === store.user.name)
+      || store.user;
+
+    // Some users log in with the 4-digit Quick Login PIN instead of a
+    // password (see Users.js's separate `pin` field) — the server's own
+    // login check already accepts pin/password/passwordHash interchangeably,
+    // so this verification must too, or a PIN-only login can never change
+    // its own credential here.
+    const matchedViaPin = !!freshUser.pin && current === freshUser.pin;
+    const matchedViaPassword = current === freshUser.password || current === freshUser.passwordHash;
+
+    if (!matchedViaPin && !matchedViaPassword) {
       showToast('Current password is incorrect', 'error');
       return;
     }
@@ -324,8 +378,15 @@ function openChangePasswordModal() {
         btn.textContent = 'Updating...';
       }
 
-      // Update User Record
-      const updatedUser = { ...store.user, password: next, updatedAt: new Date().toISOString() };
+      // Update User Record — based on the fresh full record, not store.user,
+      // so a trimmed-down session object can't clobber other fields on save.
+      // Replace whichever credential the user actually proved they know.
+      const updatedUser = { ...freshUser, updatedAt: new Date().toISOString() };
+      if (matchedViaPin) {
+        updatedUser.pin = next;
+      } else {
+        updatedUser.password = next;
+      }
       await updateData('users', updatedUser);
 
       // Update Store & Session
@@ -335,8 +396,44 @@ function openChangePasswordModal() {
         await saveSession({ ...currentSession, user: updatedUser });
       }
 
-      showToast('Password updated successfully', 'success');
-      closeModal();
+      showToast('Password updated successfully! 🔒', 'success');
+
+      // For security, force a fresh login with the new password instead of
+      // silently continuing the old session — show a short countdown rather
+      // than an abrupt logout so the user understands what's happening.
+      const modalBody = document.querySelector('.modal-body');
+      const modalFooter = document.getElementById('modalFooter');
+      if (modalBody) {
+        modalBody.innerHTML = `
+          <div style="text-align:center; padding:24px 0">
+            <div style="width:64px; height:64px; border-radius:50%; background:rgba(16,185,129,0.1); display:flex; align-items:center; justify-content:center; margin:0 auto 16px">
+              <i class="fa-solid fa-circle-check" style="font-size:32px; color:var(--success)"></i>
+            </div>
+            <div style="font-size:18px; font-weight:700; margin-bottom:8px">Password Updated!</div>
+            <p style="font-size:13px; color:var(--text-muted); line-height:1.6">For security, you'll be logged out to sign in again with your new password.</p>
+            <div style="font-size:14px; font-weight:600; color:var(--primary); margin-top:16px">Redirecting in <span id="pwRedirectCountdown">5</span>s...</div>
+          </div>
+        `;
+      }
+      if (modalFooter) {
+        modalFooter.innerHTML = `<button class="btn btn-primary w-full" id="pwLogoutNowBtn">Logout Now</button>`;
+      }
+
+      let secondsLeft = 5;
+      const countdownEl = document.getElementById('pwRedirectCountdown');
+      const countdownTimer = setInterval(() => {
+        secondsLeft--;
+        if (countdownEl) countdownEl.textContent = secondsLeft;
+        if (secondsLeft <= 0) {
+          clearInterval(countdownTimer);
+          window.logout();
+        }
+      }, 1000);
+
+      document.getElementById('pwLogoutNowBtn')?.addEventListener('click', () => {
+        clearInterval(countdownTimer);
+        window.logout();
+      });
     } catch (err) {
       console.error(err);
       showToast('Failed to update password', 'error');
@@ -1310,7 +1407,7 @@ async function openRegisterPickerForBranch(branch, branches) {
 
           document.getElementById('confirmSwitchOpenBtn').onclick = async () => {
             const bal = document.getElementById('switchOpenBal').value;
-            await db.openRegister(branch.id, sess.user.id, bal, registerId);
+            await db.openRegister(branch.id, sess.user.name || sess.user.username || 'Admin', bal, registerId);
             closeModal();
             showToast(`Switched to ${branch.name} · Register opened!`, 'success');
             setTimeout(() => window.location.reload(), 400);

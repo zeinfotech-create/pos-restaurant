@@ -850,7 +850,8 @@ export async function renderSettings(container) {
   // 4. Add-ons Settings
   document.getElementById('saveAddonsBtn')?.addEventListener('click', async () => {
     await handleSave('Add-ons', {
-      autoPrintReceipt: document.getElementById('sAutoPrintReceipt')?.checked || false
+      autoPrintReceipt: document.getElementById('sAutoPrintReceipt')?.checked || false,
+      enableRegisterRoutine: document.getElementById('sEnableRegister')?.checked !== false
     });
   });
   setupSyncStatusListeners();

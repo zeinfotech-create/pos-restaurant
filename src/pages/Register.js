@@ -7,6 +7,7 @@ import {
   getCurrentBranch,
   getOrders,
   getCurrentRegisterId,
+  getBranchRegisters,
   addShiftTransaction,
   getSettings
 } from '../db.js';
@@ -40,6 +41,9 @@ export async function renderRegister(container) {
     return;
   }
 
+  const branchRegisters = await getBranchRegisters(branch.id);
+  const registerName = branchRegisters.find(r => r.id === registerId)?.name || 'Global Terminal';
+
   const cur = (settings && settings.currency) ? settings.currency : '\u20B9';
   const shift = await getCurrentShift(branch.id, registerId);
   const allShifts = await getShifts();
@@ -66,7 +70,7 @@ export async function renderRegister(container) {
     <div class="page-header">
       <div>
         <h1 class="page-title">Register &amp; Shifts</h1>
-        <p class="page-subtitle">Managing <b>${registerId || 'Global Terminal'}</b> at ${branch.name}</p>
+        <p class="page-subtitle">Managing <b>${registerName}</b> at ${branch.name}</p>
       </div>
       <div class="flex gap-12">
         <span class="badge ${shift ? 'badge-success' : 'badge-danger'}" style="padding: 8px 16px; font-size: 13px">
@@ -269,7 +273,7 @@ export async function renderRegister(container) {
 
   // ── Button Handlers ──────────────────────────────────────────────
   const openBtn = document.getElementById('openShiftBtn');
-  if (openBtn) openBtn.onclick = () => openOpeningModal(branch.id, user?.id || 'admin', registerId);
+  if (openBtn) openBtn.onclick = () => openOpeningModal(branch.id, user?.name || user?.username || 'Admin', registerId);
 
   const closeBtn = document.getElementById('closeShiftBtn');
   if (closeBtn) closeBtn.onclick = () => openClosingModal(shift, cur, branch.id);
@@ -289,7 +293,7 @@ export async function renderRegister(container) {
 // ────────────────────────────────────────────────────────────────────
 // Open Register Modal
 // ────────────────────────────────────────────────────────────────────
-function openOpeningModal(branchId, userId, registerId = null) {
+function openOpeningModal(branchId, openedByName, registerId = null) {
   openModal({
     title: '<i class="fa-solid fa-key"></i> Open Register',
     body: `
@@ -318,7 +322,7 @@ function openOpeningModal(branchId, userId, registerId = null) {
   document.getElementById('confirmOpenBtn').onclick = async () => {
     const bal = parseFloat(document.getElementById('openingBal').value) || 0;
     try {
-      await openRegister(branchId, userId, bal, registerId);
+      await openRegister(branchId, openedByName, bal, registerId);
       showToast('Register opened successfully!', 'success');
       closeModal();
       window.navigate('register');

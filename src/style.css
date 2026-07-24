@@ -1722,6 +1722,44 @@ body.standalone-view .pos-layout {
   padding-left: 36px;
 }
 
+.pw-input-wrap {
+  position: relative;
+}
+
+.pw-input-wrap > i {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.pw-input-wrap .form-input {
+  padding-left: 40px;
+  padding-right: 40px;
+}
+
+.pw-toggle-visibility {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+
+.pw-toggle-visibility:hover {
+  color: var(--primary);
+}
+
 .date-picker-group {
   position: relative;
   display: flex;
@@ -2607,6 +2645,10 @@ table {
 
 .mb-16 {
   margin-bottom: 16px;
+}
+
+.mb-20 {
+  margin-bottom: 20px;
 }
 
 .w-full {
