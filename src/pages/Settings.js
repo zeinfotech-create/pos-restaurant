@@ -241,7 +241,7 @@ export async function renderSettings(container) {
             <i class="fa-solid fa-puzzle-piece"></i>
             ${!syncEngine.checkCapability('pro_addons') ? '<i class="fa-solid fa-lock" style="position:absolute; bottom:-2px; right:-2px; font-size:9px; color:var(--text-muted)"></i>' : ''}
           </span>
-          <span>Add-ons</span>
+          <span>Operations</span>
         </button>
         <button class="settings-nav-item ${activeSettingsTab === 'backup' ? 'active' : ''}" data-tab="backup">
           <span class="settings-nav-icon" style="background:rgba(245,158,11,0.12);color:#f59e0b">
@@ -506,7 +506,7 @@ export async function renderSettings(container) {
         <!-- Backup Tab Content -->
         <div class="settings-tab-content ${activeSettingsTab === 'backup' ? 'active' : ''}" id="tab-backup"></div>
 
-        <!-- Add-ons Tab Content -->
+        <!-- Operations Tab Content -->
         <div class="settings-tab-content ${activeSettingsTab === 'addons' ? 'active' : ''}" id="tab-addons">
           <div class="card" style="padding:0; overflow:hidden;">
             <button type="button" id="toggleAdvancedConnectionBtn" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px; background:none; border:none; cursor:pointer; font-weight:700; font-size:13px; color:var(--text-main);">
@@ -551,7 +551,7 @@ export async function renderSettings(container) {
               </div>
             </div>
           </div>
-          ${renderTabSaveContainer('saveAddonsBtn', 'Add-ons')}
+          ${renderTabSaveContainer('saveAddonsBtn', 'Operations')}
         </div>
 
         <!-- License Tab Content -->
@@ -858,9 +858,9 @@ export async function renderSettings(container) {
     if (container) container.style.display = e.target.checked ? 'block' : 'none';
   });
 
-  // 4. Add-ons Settings
+  // 4. Operations Settings
   document.getElementById('saveAddonsBtn')?.addEventListener('click', async () => {
-    await handleSave('Add-ons', {
+    await handleSave('Operations', {
       autoPrintReceipt: document.getElementById('sAutoPrintReceipt')?.checked || false,
       enableRegisterRoutine: document.getElementById('sEnableRegister')?.checked !== false
     });
