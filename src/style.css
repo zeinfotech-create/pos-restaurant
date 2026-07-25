@@ -6068,6 +6068,79 @@ input:checked + .toggle-slider:before {
   margin: 0;
 }
 
+/* Item discount amount + type — one visually joined control instead of a
+   separate icon-prefixed input next to a floating dropdown. */
+.discount-amount-group {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* NOT overflow:hidden — the type dropdown (.premium-select-dropdown) is a
+     position:absolute popup anchored to .premium-select-wrapper inside this
+     row; clipping this container also clips/breaks that popup. The children
+     already have border-radius:0 (see below) so nothing visually pokes past
+     this container's own rounded corners without needing to clip. */
+  background: var(--bg-app);
+}
+
+.discount-amount-prefix {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  padding: 0 12px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+  /* Container has no overflow:hidden anymore (see above), so these need
+     their own rounding to match its corners instead of relying on clipping. */
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.discount-amount-group .form-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.discount-amount-group .form-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* .form-select is transformed into a `.premium-select-wrapper` sibling by
+   utils/premiumSelect.js (the native <select> is hidden) for EVERY select in
+   the app — so it's that wrapper, not `.form-select` itself, that needs
+   sizing here, or it defaults to width:100% and swallows the row's space. */
+.discount-amount-group .premium-select-wrapper {
+  width: 150px;
+  flex-shrink: 0;
+}
+
+.discount-amount-group .premium-select-trigger {
+  height: 100%;
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--bg-elevated);
+}
+
+.discount-amount-group input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.discount-amount-group input::-webkit-outer-spin-button,
+.discount-amount-group input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
 /* ============================================
    License Expiry Soft Lock (Blur)
    ============================================ */

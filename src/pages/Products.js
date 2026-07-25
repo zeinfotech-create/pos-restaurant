@@ -26,6 +26,17 @@ const EMOJIS = [
   '🛒', '💡', '🔑', '📚', '✏️', '🎨', '🎭', '🎫', '🏆', '⚽', '🏀', '🎸', '🎻', '🎁', '🎈', '🎍', '🧸'
 ];
 
+// Local GST HSN code list for the Add/Edit Product form's autocomplete —
+// 231KB, so it's dynamically imported on first use (code-split by Vite)
+// rather than bundled into the main chunk that loads on every page.
+let hsnCodesPromise = null;
+function loadHsnCodes() {
+  if (!hsnCodesPromise) {
+    hsnCodesPromise = import('../data/hsnCodes.json').then(m => m.default || m);
+  }
+  return hsnCodesPromise;
+}
+
 let searchQ = '';
 let filterCategory = 'All';
 let filterStock = 'All';
@@ -759,11 +770,23 @@ async function openProductForm(product, container, cur) {
     };
   }
 
+  // Consistent "card" wrapper + section header for every group below — same
+  // visual language, just applied uniformly instead of the previous mix of
+  // <hr> dividers, one-off boxed sections, and plain ungrouped rows.
+  const section = (icon, title, innerHtml, extraStyle = '') => `
+    <div style="margin-bottom:16px; padding:18px 20px; background:var(--bg-elevated); border-radius:var(--radius); border:1px solid var(--border); ${extraStyle}">
+      <div style="font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:14px; display:flex; align-items:center; gap:8px">
+        <i class="fa-solid ${icon}" style="color:var(--primary); font-size:12px"></i> ${title}
+      </div>
+      ${innerHtml}
+    </div>
+  `;
+
   openModal({
     title: isEdit ? `<i class="fa-solid fa-pen-to-square mr-8"></i> Edit Product` : `<i class="fa-solid fa-cart-plus mr-8"></i> Add New Product`,
     body: `
-      <!-- Product Essentials -->
-       <div style="margin-bottom: 24px; padding: 20px; background: var(--bg-elevated); border-radius: var(--radius); border: 1px solid var(--border)">
+      <!-- Product Identity -->
+      <div style="margin-bottom: 16px; padding: 20px; background: var(--bg-elevated); border-radius: var(--radius); border: 1px solid var(--border)">
          <div style="display:flex; gap:24px; align-items:flex-start">
             <div style="width:100px; display:flex; flex-direction:column; gap:12px">
               <div id="imagePreview" style="width:100px; height:100px; border-radius:12px; background:var(--bg-app); border:2px solid var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; box-shadow: var(--shadow-sm)">
@@ -781,7 +804,7 @@ async function openProductForm(product, container, cur) {
                     <input class="form-input" id="pName" placeholder="Enter product name" value="${product?.name || ''}" style="font-weight:700; font-size:16px" />
                   </div>
                </div>
-               <div class="form-group">
+               <div class="form-group mb-0">
                 <label class="form-label">Emoji Shortcut</label>
                 <div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px;background:var(--bg-app);border-radius:10px;max-height:80px;overflow-y:auto; border:1px solid var(--border)" id="emojiPicker">
                   ${EMOJIS.map(e => '<span class="emoji-option" data-emoji="' + e + '" style="font-size:20px;cursor:pointer;padding:4px;border-radius:6px;transition:all 0.15s;' + (product?.emoji === e ? 'background:var(--primary); color:white' : '') + '"> ' + e + '</span>').join('')}
@@ -793,149 +816,164 @@ async function openProductForm(product, container, cur) {
          <input type="hidden" id="pImageBase64" value="${product?.image || ''}" />
       </div>
 
-      <div class="form-grid">
-        <div class="form-group">
-          <label class="form-label">SKU / Item Code</label>
-          <div class="search-input-wrap">
-            <i class="fa-solid fa-barcode"></i>
-            <input class="form-input" id="pSKU" placeholder="SKU-1001" value="${product?.sku || ''}" />
+      ${section('fa-fingerprint', 'Identification', `
+        <div class="form-grid">
+          <div class="form-group mb-0">
+            <label class="form-label">SKU / Item Code</label>
+            <div class="search-input-wrap">
+              <i class="fa-solid fa-barcode"></i>
+              <input class="form-input" id="pSKU" placeholder="SKU-1001" value="${product?.sku || ''}" />
+            </div>
+          </div>
+          <div class="form-group mb-0">
+            <label class="form-label">Barcode Number</label>
+            <div class="search-input-wrap">
+              <i class="fa-solid fa-upc-scan"></i>
+              <input class="form-input" id="pBarcode" placeholder="Scanning allowed" value="${product?.barcode || ''}" />
+            </div>
+          </div>
+          <div class="form-group mb-0">
+            <label class="form-label required">Category</label>
+            <div class="search-input-wrap">
+              <i class="fa-solid fa-layer-group"></i>
+              <select class="form-select" id="pCategory" style="padding-left:36px">
+                <option value="">Select Category</option>
+                ${(await getCategories()).map(c => '<option value="' + c.name + '" data-id="' + c.id + '" ' + (product?.category === c.name ? 'selected' : '') + '>' + c.name + '</option>').join('')}
+              </select>
+            </div>
+          </div>
+          <div class="form-group mb-0">
+            <label class="form-label">Sub-category</label>
+            <div class="search-input-wrap">
+              <i class="fa-solid fa-list-ul"></i>
+              <select class="form-select" id="pSubCategory" style="padding-left:36px">
+                <option value="">None</option>
+              </select>
+            </div>
           </div>
         </div>
-
-        <div class="form-group">
-          <label class="form-label">Barcode Number</label>
-          <div class="search-input-wrap">
-            <i class="fa-solid fa-upc-scan"></i>
-            <input class="form-input" id="pBarcode" placeholder="Scanning allowed" value="${product?.barcode || ''}" />
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label required">Category</label>
-          <div class="search-input-wrap">
-            <i class="fa-solid fa-layer-group"></i>
-            <select class="form-select" id="pCategory" style="padding-left:36px">
-              <option value="">Select Category</option>
-              ${(await getCategories()).map(c => '<option value="' + c.name + '" data-id="' + c.id + '" ' + (product?.category === c.name ? 'selected' : '') + '>' + c.name + '</option>').join('')}
-            </select>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Sub-category</label>
-          <div class="search-input-wrap">
-            <i class="fa-solid fa-list-ul"></i>
-            <select class="form-select" id="pSubCategory" style="padding-left:36px">
-              <option value="">None</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <hr style="margin: 20px 0; border: none; border-top: 1px dashed var(--border)" />
+      `)}
 
       <!-- Pricing & Stock -->
       <div id="singleProductPriceArea" style="${hasVariants ? 'display:none' : ''}">
+        ${section('fa-coins', 'Pricing & Stock', `
+          <div class="form-grid">
+            <div class="form-group mb-0">
+              <label class="form-label">Purchase / Cost Price</label>
+              <div class="search-input-wrap">
+                <i class="fa-solid fa-money-bill-transfer"></i>
+                <input class="form-input" id="pCostPrice" type="number" placeholder="0.00" value="${product?.costPrice || ''}" min="0" style="padding-left:36px" />
+              </div>
+            </div>
+            <div class="form-group mb-0">
+              <label class="form-label required" style="color:var(--primary)">Selling Price</label>
+              <div class="search-input-wrap">
+                <i class="fa-solid fa-indian-rupee-sign" style="color:var(--primary)"></i>
+                <input class="form-input" id="pPrice" type="number" placeholder="0.00" value="${product?.price || ''}" min="0" style="padding-left:36px; border-color:var(--primary); font-weight:700" />
+              </div>
+            </div>
+            <div class="form-group mb-0">
+              <label class="form-label required">Opening Stock</label>
+              <div class="search-input-wrap">
+                <i class="fa-solid fa-boxes-stacked"></i>
+                <input class="form-input" id="pStock" type="number" placeholder="0" value="${product?.stock ?? ''}" min="0" style="padding-left:36px" />
+              </div>
+            </div>
+            <div class="form-group mb-0">
+              <label class="form-label">Low Stock Warning</label>
+              <div class="search-input-wrap">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <input class="form-input" id="pMinStock" type="number" placeholder="5" value="${product?.minStock ?? 5}" min="0" style="padding-left:36px" />
+              </div>
+            </div>
+          </div>
+        `)}
+      </div>
+
+      ${section('fa-calendar-days', 'Tracking Info (optional)', `
         <div class="form-grid">
-          <div class="form-group">
-            <label class="form-label">Purchase / Cost Price</label>
-            <div class="search-input-wrap">
-              <i class="fa-solid fa-money-bill-transfer"></i>
-              <input class="form-input" id="pCostPrice" type="number" placeholder="0.00" value="${product?.costPrice || ''}" min="0" style="padding-left:36px" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label required" style="color:var(--primary)">Selling Price</label>
-            <div class="search-input-wrap">
-              <i class="fa-solid fa-indian-rupee-sign" style="color:var(--primary)"></i>
-              <input class="form-input" id="pPrice" type="number" placeholder="0.00" value="${product?.price || ''}" min="0" style="padding-left:36px; border-color:var(--primary); font-weight:700" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label required">Opening Stock</label>
-            <div class="search-input-wrap">
-              <i class="fa-solid fa-boxes-stacked"></i>
-              <input class="form-input" id="pStock" type="number" placeholder="0" value="${product?.stock ?? ''}" min="0" style="padding-left:36px" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Low Stock Warning</label>
-            <div class="search-input-wrap">
-              <i class="fa-solid fa-triangle-exclamation"></i>
-              <input class="form-input" id="pMinStock" type="number" placeholder="5" value="${product?.minStock ?? 5}" min="0" style="padding-left:36px" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">MRP (optional)</label>
+          <div class="form-group mb-0">
+            <label class="form-label">MRP</label>
             <div class="search-input-wrap">
               <i class="fa-solid fa-tag"></i>
               <input class="form-input" id="pMRP" type="number" placeholder="0.00" value="${product?.mrp || ''}" min="0" style="padding-left:36px" />
             </div>
             <p class="form-help-text">Printed on the label alongside the selling price, if set.</p>
           </div>
-          <div class="form-group">
-            <label class="form-label">Expiry Date (optional)</label>
+          <div class="form-group mb-0">
+            <label class="form-label">Expiry Date</label>
             <div class="search-input-wrap">
               <i class="fa-solid fa-calendar-xmark"></i>
               <input class="form-input" id="pExpiryDate" type="date" value="${product?.expiryDate || ''}" style="padding-left:36px" />
             </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Manufacturing Date (optional)</label>
+          <div class="form-group mb-0">
+            <label class="form-label">Manufacturing Date</label>
             <div class="search-input-wrap">
               <i class="fa-solid fa-calendar-check"></i>
               <input class="form-input" id="pManufacturingDate" type="date" value="${product?.manufacturingDate || ''}" style="padding-left:36px" />
             </div>
           </div>
         </div>
-      </div>
+      `)}
 
-      <div class="form-grid mt-16">
-        <div class="form-group">
-          <label class="form-label">Tax Configuration</label>
-          <div style="display:flex; gap:8px">
-            <select class="form-select" id="pTaxType" style="flex:1">
-              <option value="exclusive" ${product?.taxType === 'exclusive' ? 'selected' : ''}>Exclusive (+)</option>
-              <option value="inclusive" ${product?.taxType === 'inclusive' ? 'selected' : ''}>Inclusive</option>
-            </select>
-            <select class="form-select" id="pTaxRate" style="width:100px">
-              ${(settings.availableTaxes || [0, 5, 12, 18, 28]).map(t => '<option value="' + t + '" ' + ((product?.taxRate ?? 0) == t ? 'selected' : '') + '>' + t + '%</option>').join('')}
-            </select>
-          </div>
-        </div>
-        <div class="form-group">
-            <label class="form-label">HSN / SAC Code</label>
-            <div class="search-input-wrap">
-              <i class="fa-solid fa-hashtag"></i>
-              <input class="form-input" id="pHSN" placeholder="Optional" value="${product?.hsnCode || ''}" style="padding-left:36px" />
-            </div>
-        </div>
-      </div>
-
-      <hr style="margin: 20px 0; border: none; border-top: 1px dashed var(--border)" />
-
-      <!-- Advanced Settings Wrapper -->
-      <div style="background:var(--bg-app); border-radius:12px; padding:16px; border:1px solid var(--border)">
-          <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:12px">
-             <label style="display:flex; align-items:center; gap:8px; padding:10px; background:var(--bg-elevated); border-radius:8px; border:1px solid var(--border); cursor:pointer">
-                <input type="checkbox" id="hasVariantsToggle" ${hasVariants ? 'checked' : ''} style="width:18px;height:18px" />
-                <span style="font-size:12px; font-weight:600"><i class="fa-solid fa-tags mr-4"></i> Variants</span>
-             </label>
-             <label style="display:flex; align-items:center; gap:8px; padding:10px; background:var(--bg-elevated); border-radius:8px; border:1px solid var(--border); cursor:pointer">
-                <input type="checkbox" id="isReturnableToggle" ${product?.isReturnable !== false ? 'checked' : ''} style="width:18px;height:18px" />
-                <span style="font-size:12px; font-weight:600"><i class="fa-solid fa-rotate-left mr-4"></i> Returnable</span>
-             </label>
-          </div>
-      </div>
-
-      <!-- Variants List Container -->
-      <div id="variantList" class="mt-16"></div>
-
-      <!-- Location Section -->
-      <div style="margin-top:20px; padding:16px; background:var(--bg-elevated)20; border:1px solid var(--border); border-radius:12px">
-        <label class="form-label" style="margin-bottom:12px; font-weight:800; color:var(--text-muted)"><i class="fa-solid fa-warehouse mr-4"></i> STORAGE LOCATION</label>
+      ${section('fa-receipt', 'Tax & Compliance', `
         <div class="form-grid">
-          <div class="form-group">
+          <div class="form-group mb-0">
+            <label class="form-label">Tax Configuration</label>
+            <div style="display:flex; gap:8px">
+              <select class="form-select" id="pTaxType" style="flex:1">
+                <option value="exclusive" ${product?.taxType === 'exclusive' ? 'selected' : ''}>Exclusive (+)</option>
+                <option value="inclusive" ${product?.taxType === 'inclusive' ? 'selected' : ''}>Inclusive</option>
+              </select>
+              <select class="form-select" id="pTaxRate" style="width:100px">
+                ${(settings.availableTaxes || [0, 5, 12, 18, 28]).map(t => '<option value="' + t + '" ' + ((product?.taxRate ?? 0) == t ? 'selected' : '') + '>' + t + '%</option>').join('')}
+              </select>
+            </div>
+          </div>
+          <div class="form-group mb-0">
+              <label class="form-label">HSN / SAC Code</label>
+              <div class="search-input-wrap">
+                <i class="fa-solid fa-hashtag"></i>
+                <input class="form-input" id="pHSN" placeholder="Type a code or product description to search" value="${product?.hsnCode || ''}" style="padding-left:36px" autocomplete="off" />
+                <div id="hsnSuggestions" class="search-suggestions custom-scrollbar"></div>
+              </div>
+              <p class="form-help-text">Searches the local GST HSN code list — pick a match or type your own. Data: <a href="https://hsnlookup.in" target="_blank" rel="noopener">hsnlookup.in</a> (CC-BY-4.0).</p>
+          </div>
+        </div>
+      `)}
+
+      ${section('fa-percent', 'Item Discount (optional)', `
+        <div class="form-group mb-0">
+          <div class="discount-amount-group">
+            <span class="discount-amount-prefix" id="pItemDiscountPrefix">${(product?.itemDiscountType || 'flat') === 'pct' ? '%' : cur}</span>
+            <input class="form-input" id="pItemDiscount" type="number" placeholder="0" value="${product?.itemDiscount ?? 0}" min="0" />
+            <select class="form-select" id="pItemDiscountType">
+              <option value="flat" ${(product?.itemDiscountType || 'flat') === 'flat' ? 'selected' : ''}>Fixed Amount</option>
+              <option value="pct" ${product?.itemDiscountType === 'pct' ? 'selected' : ''}>Percentage</option>
+            </select>
+          </div>
+          <p class="form-help-text">Applied automatically whenever this product is added to the cart.</p>
+        </div>
+      `)}
+
+      ${section('fa-sliders', 'Options', `
+        <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:12px">
+           <label style="display:flex; align-items:center; gap:8px; padding:10px; background:var(--bg-app); border-radius:8px; border:1px solid var(--border); cursor:pointer">
+              <input type="checkbox" id="hasVariantsToggle" ${hasVariants ? 'checked' : ''} style="width:18px;height:18px" />
+              <span style="font-size:12px; font-weight:600"><i class="fa-solid fa-tags mr-4"></i> Variants</span>
+           </label>
+           <label style="display:flex; align-items:center; gap:8px; padding:10px; background:var(--bg-app); border-radius:8px; border:1px solid var(--border); cursor:pointer">
+              <input type="checkbox" id="isReturnableToggle" ${product?.isReturnable !== false ? 'checked' : ''} style="width:18px;height:18px" />
+              <span style="font-size:12px; font-weight:600"><i class="fa-solid fa-rotate-left mr-4"></i> Returnable</span>
+           </label>
+        </div>
+        <div id="variantList"></div>
+      `)}
+
+      ${section('fa-warehouse', 'Storage Location', `
+        <div class="form-grid">
+          <div class="form-group mb-0">
             <input type="text" class="form-input" id="pFloor" placeholder="Floor (e.g. Ground)" value="${product?.location?.floor || ''}" />
           </div>
           <div style="display:flex; gap:8px">
@@ -943,15 +981,7 @@ async function openProductForm(product, container, cur) {
             <input type="text" class="form-input" id="pRack" placeholder="Rack (e.g. Shelf 4)" value="${product?.location?.rack || ''}" />
           </div>
         </div>
-      </div>
-
-      <div class="form-group mt-16">
-        <label class="form-label">Item Fixed Discount (${cur})</label>
-        <div class="search-input-wrap">
-          <i class="fa-solid fa-tag"></i>
-          <input class="form-input" id="pItemDiscount" type="number" placeholder="0" value="${product?.itemDiscount ?? 0}" min="0" style="padding-left:36px" />
-        </div>
-      </div>
+      `, 'margin-bottom:0')}
     `,
     footer: `
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -990,6 +1020,104 @@ async function openProductForm(product, container, cur) {
     if (hasVariants && variants.length === 0) variants.push({ name: '', price: 0, stock: 0, itemDiscount: 0 });
     renderVariantList();
   };
+
+  // Swap the discount input's prefix between currency symbol and % as the type changes
+  document.getElementById('pItemDiscountType').onchange = (e) => {
+    document.getElementById('pItemDiscountPrefix').textContent = e.target.value === 'pct' ? '%' : cur;
+  };
+
+  // HSN/SAC autocomplete — searches the local hsnCodes.json by code prefix or description substring
+  {
+    const hsnInput = document.getElementById('pHSN');
+    const hsnBox = document.getElementById('hsnSuggestions');
+    let hsnMatches = [];
+    let hsnActiveIndex = -1;
+
+    const closeHsnSuggestions = () => {
+      hsnBox.classList.remove('open');
+      hsnBox.innerHTML = '';
+      hsnMatches = [];
+      hsnActiveIndex = -1;
+    };
+
+    const selectHsnCode = (entry) => {
+      hsnInput.value = entry.code;
+      closeHsnSuggestions();
+    };
+
+    const renderHsnList = () => {
+      hsnBox.classList.add('open');
+      hsnBox.innerHTML = hsnMatches.map((entry, idx) => `
+        <div class="suggestion-item ${idx === hsnActiveIndex ? 'active' : ''}" data-index="${idx}">
+          <div class="suggestion-content">
+            <div class="suggestion-name">${entry.code} <span style="font-weight:400; color:var(--text-muted)">— ${entry.description}</span></div>
+          </div>
+          <div class="suggestion-price">${entry.gstRate != null ? String(entry.gstRate).replace('%', '') + '%' : ''}</div>
+        </div>
+      `).join('');
+
+      hsnBox.querySelectorAll('.suggestion-item').forEach(item => {
+        // preventDefault on mousedown stops the input from blurring at all when a suggestion is
+        // clicked, so selection never races against the blur-close handler below.
+        item.addEventListener('mousedown', (e) => e.preventDefault());
+        item.addEventListener('click', () => selectHsnCode(hsnMatches[parseInt(item.dataset.index)]));
+      });
+
+      const activeEl = hsnBox.querySelector('.suggestion-item.active');
+      if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+    };
+
+    hsnInput.addEventListener('input', async () => {
+      const query = hsnInput.value.trim().toLowerCase();
+      if (!query) { closeHsnSuggestions(); return; }
+
+      const hsnCodes = await loadHsnCodes();
+      const wordBoundary = new RegExp('\\b' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const scored = [];
+      for (const entry of hsnCodes) {
+        const desc = entry.description.toLowerCase();
+        let score;
+        if (entry.code.startsWith(query)) score = 0;
+        else if (wordBoundary.test(desc)) score = 1;
+        else if (desc.includes(query)) score = 2;
+        else continue;
+        scored.push({ entry, score, matchIndex: desc.indexOf(query) });
+      }
+      // Rank exact/code matches first, then whole-word description matches, then loose substring
+      // matches — otherwise "paper" surfaces bakery items mentioning "rice paper" ahead of actual
+      // paper products, since the raw dataset has no relevance ranking of its own.
+      scored.sort((a, b) => a.score - b.score || a.matchIndex - b.matchIndex);
+      hsnMatches = scored.slice(0, 8).map(s => s.entry);
+      hsnActiveIndex = -1;
+
+      if (hsnMatches.length === 0) { closeHsnSuggestions(); return; }
+      renderHsnList();
+    });
+
+    hsnInput.addEventListener('keydown', (e) => {
+      if (!hsnBox.classList.contains('open') || hsnMatches.length === 0) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        hsnActiveIndex = Math.min(hsnActiveIndex + 1, hsnMatches.length - 1);
+        renderHsnList();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        hsnActiveIndex = Math.max(hsnActiveIndex - 1, -1);
+        renderHsnList();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const pick = hsnActiveIndex >= 0 ? hsnMatches[hsnActiveIndex] : (hsnMatches.length === 1 ? hsnMatches[0] : null);
+        if (pick) selectHsnCode(pick);
+      } else if (e.key === 'Escape') {
+        closeHsnSuggestions();
+      }
+    });
+
+    hsnInput.addEventListener('blur', () => {
+      setTimeout(closeHsnSuggestions, 150);
+    });
+  }
 
   // Emoji picker
   document.querySelectorAll('.emoji-option').forEach(el => {
@@ -1054,6 +1182,7 @@ async function openProductForm(product, container, cur) {
         const taxType = document.getElementById('pTaxType').value;
         const taxRate = parseFloat(document.getElementById('pTaxRate').value) || 0;
         const itemDiscount = parseFloat(document.getElementById('pItemDiscount').value) || 0;
+        const itemDiscountType = document.getElementById('pItemDiscountType').value;
         const isReturnable = document.getElementById('isReturnableToggle').checked;
 
         let finalPrice = 0;
@@ -1110,7 +1239,7 @@ async function openProductForm(product, container, cur) {
 
         const payload = {
           ...product, name: name_val, sku, barcode, price: finalPrice, costPrice: finalCost, stock: finalStock, minStock: finalMinStock, category, subCategory, emoji,
-          image, variants: finalVariants, hsnCode, taxType, taxRate, itemDiscount, isReturnable, mrp, expiryDate, manufacturingDate,
+          image, variants: finalVariants, hsnCode, taxType, taxRate, itemDiscount, itemDiscountType, isReturnable, mrp, expiryDate, manufacturingDate,
           location: { floor, row, rack }
         };
 

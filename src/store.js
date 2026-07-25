@@ -90,7 +90,10 @@ export function addToCart(product, variant = null, qty = 1) {
             taxRate: product.taxRate ?? store.settings.taxRate, // Fallback
             taxType: product.taxType || 'exclusive',
             itemDiscount: (variant && typeof variant.itemDiscount !== 'undefined') ? Number(variant.itemDiscount) : (Number(product.itemDiscount) || 0),
-            itemDiscountType: 'flat',
+            // Variants don't carry their own discount type yet — only the
+            // product-level default does, so a variant's discount is always
+            // read as flat ₹ unless the product itself (no variant) has one.
+            itemDiscountType: (!variant && product.itemDiscountType === 'pct') ? 'pct' : 'flat',
             price: variant ? variant.price : product.price,
             qty: roundedQty,
             unit: product.unit || 'pcs',

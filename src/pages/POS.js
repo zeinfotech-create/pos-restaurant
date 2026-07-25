@@ -479,7 +479,9 @@ async function renderProductGrid(append = false) {
                       Object.values(popularMap).sort((a,b) => b-a).slice(0, 5).includes(popularMap[p.id]);
 
     const taxRate = parseFloat(p.taxRate ?? (settings.taxRate || 0));
-    const basePrice = p.price - (Number(p.itemDiscount) || 0);
+    const isPctDiscount = p.itemDiscountType === 'pct';
+    const discountAmt = isPctDiscount ? (p.price * (Number(p.itemDiscount) || 0) / 100) : (Number(p.itemDiscount) || 0);
+    const basePrice = p.price - discountAmt;
     const finalPrice = basePrice * (1 + taxRate/100);
 
     return `
@@ -493,7 +495,7 @@ async function renderProductGrid(append = false) {
           ${p.itemDiscount > 0 ? `<span style="text-decoration:line-through; font-size:0.85em; opacity:0.5; margin-right:4px;">\u20B9${p.price.toFixed(2)}</span>` : ''}
           \u20B9${finalPrice.toFixed(2)}
         </div>
-        ${p.itemDiscount > 0 ? `<div style="position:absolute; top:6px; right:6px; background:var(--danger); color:white; font-size:9px; padding:2px 5px; border-radius:4px; font-weight:900; z-index:10; box-shadow:0 2px 4px rgba(239,68,68,0.2); animation: pulse 2.5s infinite">\u20B9${p.itemDiscount} OFF</div>` : ''}
+        ${p.itemDiscount > 0 ? `<div style="position:absolute; top:6px; right:6px; background:var(--danger); color:white; font-size:9px; padding:2px 5px; border-radius:4px; font-weight:900; z-index:10; box-shadow:0 2px 4px rgba(239,68,68,0.2); animation: pulse 2.5s infinite">${isPctDiscount ? p.itemDiscount + '%' : '\u20B9' + p.itemDiscount} OFF</div>` : ''}
         
         <div class="product-stock ${available <= 5 && !hasVariants ? 'text-danger' : ''}">
           ${hasVariants ? 
@@ -618,7 +620,10 @@ export async function renderCart(cur) {
             <div class="cart-item-total" style="font-weight:700; font-size:13px; color:var(--accent); min-width:60px; text-align:right">
               ${cur}${(
                 (() => {
-                  const base = Math.max(0, (item.price - (item.itemDiscount || 0)) * item.qty);
+                  const perUnitDiscount = item.itemDiscountType === 'pct'
+                    ? (item.price * (Number(item.itemDiscount) || 0) / 100)
+                    : (Number(item.itemDiscount) || 0);
+                  const base = Math.max(0, (item.price - perUnitDiscount) * item.qty);
                   return item.taxType === 'exclusive'
                     ? base * (1 + (parseFloat(item.taxRate) || 0) / 100)
                     : base;
