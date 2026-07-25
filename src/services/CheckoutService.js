@@ -588,8 +588,11 @@ export async function openCheckout() {
           redeemedPoints = 0;
           usePoints = false;
         } else {
-          // Reset to default paid state
-          payments = [{ method: ALL_METHODS[0], amount: total }];
+          // Reset to default paid state — ALL_METHODS[0] is undefined when no
+          // payment methods are configured in Settings; fall back to '' like
+          // the initial payments state above does, so resolveMethodConfig()
+          // never receives undefined.
+          payments = [{ method: ALL_METHODS[0] || '', amount: total }];
         }
         updateUI();
       };

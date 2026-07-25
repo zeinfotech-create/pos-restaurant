@@ -251,6 +251,14 @@ export async function renderSettings(container) {
           <span>Backup</span>
         </button>
 
+        ${['Master', 'Super Admin'].includes((await getCurrentUser())?.role) ? `
+          <div class="settings-nav-section-label" style="margin-top:16px">Advanced</div>
+          <button class="settings-nav-item ${activeSettingsTab === 'danger' ? 'active' : ''}" data-tab="danger">
+            <span class="settings-nav-icon" style="background:rgba(239,68,68,0.12);color:#ef4444"><i class="fa-solid fa-triangle-exclamation"></i></span>
+            <span>Danger Zone</span>
+          </button>
+        ` : ''}
+
       </aside>
 
       <!-- Content Panel -->
@@ -550,34 +558,33 @@ export async function renderSettings(container) {
         <div class="settings-tab-content ${activeSettingsTab === 'license' ? 'active' : ''}" id="tab-license">
           ${await renderLicenseTab()}
         </div>
+
+        <!-- Danger Zone Tab Content - Master/Super Admin Only -->
+        ${['Master', 'Super Admin'].includes((await getCurrentUser())?.role) ? `
+        <div class="settings-tab-content ${activeSettingsTab === 'danger' ? 'active' : ''}" id="tab-danger">
+          <div class="card" style="border:2px solid rgba(245,158,11,0.25); background:rgba(245,158,11,0.05)">
+            <div class="font-bold mb-16" style="font-size:16px; display:flex; align-items:center; gap:8px; color:#f59e0b">
+              <i class="fa-solid fa-broom"></i> Data Maintenance
+            </div>
+            <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px">Merges products with the same name in your current branch into a single record (stock summed together) and removes the extras. Use this if a catalog import ran more than once.</p>
+            <button class="btn btn-secondary btn-sm" id="mergeDuplicateProductsBtn" style="border-radius:8px">
+              <i class="fa-solid fa-code-merge mr-8"></i> Merge Duplicate Products
+            </button>
+          </div>
+
+          <div class="card mt-16" style="border:2px solid rgba(239,68,68,0.2); background:rgba(239,68,68,0.05)">
+            <div class="font-bold mb-16 text-danger" style="font-size:16px; display:flex; align-items:center; gap:8px">
+              <i class="fa-solid fa-triangle-exclamation"></i> Danger Zone
+            </div>
+            <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px">This action will permanently delete all local data, including users, branches, orders, and products. This cannot be undone.</p>
+            <button class="btn" id="accountDeletionBtn" style="background:var(--danger); color:#fff; border:none; padding:12px 20px; font-weight:700; border-radius:10px; cursor:pointer">
+              <i class="fa-solid fa-trash-can"></i> Delete All Data & Reset System
+            </button>
+          </div>
+        </div>
+        ` : ''}
       </div>
     </div>
-
-    <!-- Data Maintenance - Master Only -->
-    ${['Master', 'Super Admin'].includes((await getCurrentUser())?.role) ? `
-      <div class="card" style="margin-top:40px; border:2px solid rgba(245,158,11,0.25); background:rgba(245,158,11,0.05)">
-        <div class="font-bold mb-16" style="font-size:16px; display:flex; align-items:center; gap:8px; color:#f59e0b">
-          <i class="fa-solid fa-broom"></i> Data Maintenance
-        </div>
-        <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px">Merges products with the same name in your current branch into a single record (stock summed together) and removes the extras. Use this if a catalog import ran more than once.</p>
-        <button class="btn btn-secondary btn-sm" id="mergeDuplicateProductsBtn" style="border-radius:8px">
-          <i class="fa-solid fa-code-merge mr-8"></i> Merge Duplicate Products
-        </button>
-      </div>
-    ` : ''}
-
-    <!-- Danger Zone - Master Only -->
-    ${['Master', 'Super Admin'].includes((await getCurrentUser())?.role) ? `
-      <div class="card" style="margin-top:20px; border:2px solid rgba(239,68,68,0.2); background:rgba(239,68,68,0.05)">
-        <div class="font-bold mb-16 text-danger" style="font-size:16px; display:flex; align-items:center; gap:8px">
-          <i class="fa-solid fa-triangle-exclamation"></i> Danger Zone
-        </div>
-        <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px">This action will permanently delete all local data, including users, branches, orders, and products. This cannot be undone.</p>
-        <button class="btn" id="accountDeletionBtn" style="background:var(--danger); color:#fff; border:none; padding:12px 20px; font-weight:700; border-radius:10px; cursor:pointer">
-          <i class="fa-solid fa-trash-can"></i> Delete All Data & Reset System
-        </button>
-      </div>
-    ` : ''}
   `;
 
   // Tab switching

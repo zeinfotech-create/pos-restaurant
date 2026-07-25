@@ -35,6 +35,7 @@ const baseMethodConfigs = {
 
 // Smart icon/color guesser for completely custom payment types
 export function resolveMethodConfig(methodName) {
+    if (!methodName) return { icon: 'fa-receipt', color: '#64748b' };
     const lower = methodName.toLowerCase().trim();
     // Keyword mapping for smart fallback
     const keywords = [
