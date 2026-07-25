@@ -865,6 +865,28 @@ async function openProductForm(product, container, cur) {
               <input class="form-input" id="pMinStock" type="number" placeholder="5" value="${product?.minStock ?? 5}" min="0" style="padding-left:36px" />
             </div>
           </div>
+          <div class="form-group">
+            <label class="form-label">MRP (optional)</label>
+            <div class="search-input-wrap">
+              <i class="fa-solid fa-tag"></i>
+              <input class="form-input" id="pMRP" type="number" placeholder="0.00" value="${product?.mrp || ''}" min="0" style="padding-left:36px" />
+            </div>
+            <p class="form-help-text">Printed on the label alongside the selling price, if set.</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Expiry Date (optional)</label>
+            <div class="search-input-wrap">
+              <i class="fa-solid fa-calendar-xmark"></i>
+              <input class="form-input" id="pExpiryDate" type="date" value="${product?.expiryDate || ''}" style="padding-left:36px" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Manufacturing Date (optional)</label>
+            <div class="search-input-wrap">
+              <i class="fa-solid fa-calendar-check"></i>
+              <input class="form-input" id="pManufacturingDate" type="date" value="${product?.manufacturingDate || ''}" style="padding-left:36px" />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1082,10 +1104,13 @@ async function openProductForm(product, container, cur) {
         const floor = document.getElementById('pFloor').value.trim();
         const row = document.getElementById('pRow').value.trim();
         const rack = document.getElementById('pRack').value.trim();
+        const mrp = parseFloat(document.getElementById('pMRP')?.value) || 0;
+        const expiryDate = document.getElementById('pExpiryDate')?.value || '';
+        const manufacturingDate = document.getElementById('pManufacturingDate')?.value || '';
 
         const payload = {
           ...product, name: name_val, sku, barcode, price: finalPrice, costPrice: finalCost, stock: finalStock, minStock: finalMinStock, category, subCategory, emoji,
-          image, variants: finalVariants, hsnCode, taxType, taxRate, itemDiscount, isReturnable,
+          image, variants: finalVariants, hsnCode, taxType, taxRate, itemDiscount, isReturnable, mrp, expiryDate, manufacturingDate,
           location: { floor, row, rack }
         };
 
@@ -1178,13 +1203,24 @@ async function openLabelModal(product, type) {
     prodNamePos: savedConfig.prodNamePos ?? 'bottom',
     showMrp: savedConfig.showMrp ?? true,
     strikeMrp: savedConfig.strikeMrp ?? false,
-    mrpVal: priceWithTax,
+    // Prefer the product's own MRP field — falls back to the tax-inclusive
+    // selling price only when no MRP was ever set on the product itself.
+    mrpVal: product.mrp ? product.mrp.toFixed(2) : priceWithTax,
     showPrice: savedConfig.showPrice ?? true,
     priceVal: priceWithTax,
-    showMfd: savedConfig.showMfd ?? false,
-    mfdVal: savedConfig.mfdVal ?? '',
-    showExp: savedConfig.showExp ?? false,
-    expVal: savedConfig.expVal ?? '',
+    // Same pattern as MRP/Exp — pull from the product's own manufacturing
+    // date and default the toggle on when it's set, instead of reusing
+    // savedConfig's single shared value across every product.
+    showMfd: savedConfig.showMfd ?? !!product.manufacturingDate,
+    mfdVal: product.manufacturingDate || '',
+    // Default ON when this product actually has an expiry date set, so it
+    // shows up on the label automatically instead of needing a manual
+    // toggle every time — still overridable per-print via the checkbox.
+    showExp: savedConfig.showExp ?? !!product.expiryDate,
+    // Same as mrpVal — pull from the product's own expiry date instead of
+    // reusing whatever was typed into the label config for a PREVIOUS
+    // product (savedConfig is a single shared, global label style).
+    expVal: product.expiryDate || '',
     barcodeTextSize: savedConfig.barcodeTextSize ?? 12,
     showBarcodeText: savedConfig.showBarcodeText ?? true,
     barHeight: savedConfig.barHeight ?? 35,
