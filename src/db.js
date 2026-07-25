@@ -1102,15 +1102,15 @@ export async function getSettings(branchId = null) {
     // Trust the IndexedDB merged values (populated from server) directly.
     paymentMethods: merged.paymentMethods || [],
     availableTaxes: merged.availableTaxes || [],
-    // storeName intentionally NOT forced back to globalS here (unlike theme) —
-    // it must stay branch-specific: `merged` already resolved it correctly via
-    // DEFAULT <- GLOBAL <- BRANCH, so a branch's own settings_<id>.storeName
-    // (kept in sync with that branch's name — see saveBranch()) wins when set.
-    theme: globalS.theme || merged.theme,
-    masterPin: globalS.masterPin || DEFAULT_SETTINGS.masterPin,
-    settingsLockEnabled: globalS.settingsLockEnabled ?? DEFAULT_SETTINGS.settingsLockEnabled,
-    id: (branchS ? branchS.id : globalS.id) || 'global_settings', 
-    branchId: (branchS ? branchS.branchId : globalS.branchId) || null 
+    // storeName/theme/masterPin/settingsLockEnabled are intentionally NOT
+    // forced back to globalS here — they must stay branch-specific per
+    // branch, same as tax/appearance/security in general: `merged` already
+    // resolved each correctly via DEFAULT <- GLOBAL <- BRANCH, so a branch's
+    // own settings_<id> record wins whenever it has its own value saved.
+    // Only Backup-related fields stay global-only (see saveSettings()) since
+    // a backup captures this WHOLE device's data, not a single branch's.
+    id: (branchS ? branchS.id : globalS.id) || 'global_settings',
+    branchId: (branchS ? branchS.branchId : globalS.branchId) || null
   };
 
   // Recover licenseKey from session if missing or still using the GLOBAL placeholder
@@ -1125,6 +1125,17 @@ export async function getSettings(branchId = null) {
   finalSettings.deploymentMode = 'standalone';
 
   return finalSettings;
+}
+
+// A backup captures this WHOLE device's IndexedDB, not one branch's slice of
+// it — so its config (folder path, auto-backup toggle, interval, retention)
+// must stay a single global value, unaffected by which branch happens to be
+// active. getSettings() always resolves against the current branch, so
+// backup UI/save code must go through this instead.
+export async function getGlobalSettings() {
+  let data = await db.getAll(KEYS.SETTINGS) || [];
+  if (!Array.isArray(data)) data = [data];
+  return data.find(x => x && x.id === 'global_settings') || { ...DEFAULT_SETTINGS, id: 'global_settings' };
 }
 
 export async function saveSettings(settings) {

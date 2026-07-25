@@ -64,12 +64,18 @@ export async function renderPOS(container) {
               <div style="display:flex;flex-direction:column;gap:10px;padding:4px">
                 ${registers.length === 0
                 ? '<p style="text-align:center;padding:24px;opacity:0.6">No registers found for this branch.</p>'
-                : registers.map(r => `
-                    <button class="btn btn-ghost reg-pick-btn" data-id="${r.id}" style="justify-content:flex-start;height:54px;padding:0 20px;border:1px solid var(--border)">
+                : registers.map(r => {
+                    const isCurrent = r.id === registerId;
+                    return `
+                    <button class="btn btn-ghost reg-pick-btn" data-id="${r.id}" style="justify-content:flex-start;height:54px;padding:0 20px;border:1px solid ${isCurrent ? 'var(--primary)' : 'var(--border)'}">
                       <i class="fa-solid fa-cash-register mr-12" style="color:var(--success)"></i>
-                      <div class="font-bold">${r.name}</div>
+                      <div class="font-bold">
+                        ${r.name}
+                        ${isCurrent ? '<span style="font-size:9px; background:var(--primary-light); color:var(--primary); padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">CURRENT</span>' : ''}
+                      </div>
                     </button>
-                  `).join('')}
+                  `;
+                  }).join('')}
               </div>
             `,
             footer: `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`

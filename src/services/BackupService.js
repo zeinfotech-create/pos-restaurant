@@ -1,4 +1,4 @@
-import { read, write, updateData, KEYS, getSettings, saveSettings } from '../db.js';
+import { read, write, updateData, KEYS, getSettings, getGlobalSettings, saveSettings } from '../db.js';
 
 // Helper for data integrity
 async function generateChecksum(data) {
@@ -223,9 +223,9 @@ export const BackupService = {
     },
 
     async rememberChecksum(checksum) {
-        const fresh = await getSettings();
+        const fresh = await getGlobalSettings();
         fresh.backupSettings = { ...fresh.backupSettings, lastChecksum: checksum };
-        await saveSettings(fresh);
+        await saveSettings({ ...fresh, id: 'global_settings', branchId: null });
     },
 
     async recordHistory(date, expiry, size, path, filename) {
@@ -247,7 +247,7 @@ export const BackupService = {
      * Automated Backup Trigger for Electron (Scheduling + Retention)
      */
     async runAutoBackup(isExiting = false) {
-        const settings = await getSettings();
+        const settings = await getGlobalSettings();
         const config = settings.backupSettings || {};
         
         if (!config.enabled) return;

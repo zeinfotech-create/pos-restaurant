@@ -2,7 +2,7 @@
 // Settings.js
 // ============================================================
 
-import { getSettings, saveSettings, isIndustryImported, importIndustryProducts, mergeDuplicateProducts, getSessionTheme, updateSettings, getOrders, updateOrder, getCurrentUser, getCurrentBranch, getBusinessFeatures, hasPermission, verifyLocalUser, read, KEYS, getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory } from '../db.js';
+import { getSettings, getGlobalSettings, saveSettings, isIndustryImported, importIndustryProducts, mergeDuplicateProducts, getSessionTheme, updateSettings, getOrders, updateOrder, getCurrentUser, getCurrentBranch, getBusinessFeatures, hasPermission, verifyLocalUser, read, KEYS, getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { reloadSettings, store } from '../store.js';
 import { openModal, closeModal, showConfirm, showAlert } from '../components/Modal.js';
@@ -554,7 +554,7 @@ export async function renderSettings(container) {
     </div>
 
     <!-- Data Maintenance - Master Only -->
-    ${(await getCurrentUser())?.role === 'Master' ? `
+    ${['Master', 'Super Admin'].includes((await getCurrentUser())?.role) ? `
       <div class="card" style="margin-top:40px; border:2px solid rgba(245,158,11,0.25); background:rgba(245,158,11,0.05)">
         <div class="font-bold mb-16" style="font-size:16px; display:flex; align-items:center; gap:8px; color:#f59e0b">
           <i class="fa-solid fa-broom"></i> Data Maintenance
@@ -567,7 +567,7 @@ export async function renderSettings(container) {
     ` : ''}
 
     <!-- Danger Zone - Master Only -->
-    ${(await getCurrentUser())?.role === 'Master' ? `
+    ${['Master', 'Super Admin'].includes((await getCurrentUser())?.role) ? `
       <div class="card" style="margin-top:20px; border:2px solid rgba(239,68,68,0.2); background:rgba(239,68,68,0.05)">
         <div class="font-bold mb-16 text-danger" style="font-size:16px; display:flex; align-items:center; gap:8px">
           <i class="fa-solid fa-triangle-exclamation"></i> Danger Zone
@@ -1023,7 +1023,7 @@ async function setupBackupTab(container) {
     return;
   }
 
-  const settings = await getSettings();
+  const settings = await getGlobalSettings();
   const b = settings.backupSettings || {};
 
   // Suggest an already-installed cloud-sync folder (OneDrive/Dropbox/Google
@@ -1218,9 +1218,9 @@ async function setupBackupTab(container) {
       if (res.canceled || !res.filePaths?.length) return;
 
       const path = res.filePaths[0];
-      const fresh = await getSettings();
+      const fresh = await getGlobalSettings();
       fresh.backupSettings = { ...fresh.backupSettings, customPath: path, enabled: true };
-      await saveSettings(fresh);
+      await saveSettings({ ...fresh, id: 'global_settings', branchId: null });
       showToast('Backup directory updated! 📂', 'success');
       await setupBackupTab(container);
     } catch (err) {
@@ -1238,9 +1238,9 @@ async function setupBackupTab(container) {
         const basePath = btn.dataset.path;
         const provider = btn.dataset.provider;
         const targetPath = `${basePath}\\POS-Backups`;
-        const fresh = await getSettings();
+        const fresh = await getGlobalSettings();
         fresh.backupSettings = { ...fresh.backupSettings, customPath: targetPath, enabled: true };
-        await saveSettings(fresh);
+        await saveSettings({ ...fresh, id: 'global_settings', branchId: null });
         showToast(`Backups will now sync via ${provider}! ☁️`, 'success');
         await setupBackupTab(container);
       } catch (err) {
@@ -1253,28 +1253,28 @@ async function setupBackupTab(container) {
   });
 
   backupTabElement.querySelector('#pAutoBackupToggle').onchange = async (e) => {
-    const fresh = await getSettings();
+    const fresh = await getGlobalSettings();
     if (e.target.checked && !fresh.backupSettings?.customPath) {
       e.target.checked = false;
       showToast('Select a backup folder first.', 'error');
       return;
     }
     fresh.backupSettings = { ...fresh.backupSettings, enabled: e.target.checked };
-    await saveSettings(fresh);
+    await saveSettings({ ...fresh, id: 'global_settings', branchId: null });
     showToast(e.target.checked ? 'Auto-backup enabled! 🛡️' : 'Auto-backup disabled.', 'info');
   };
 
   backupTabElement.querySelector('#pBackupInterval').onchange = async (e) => {
-    const fresh = await getSettings();
+    const fresh = await getGlobalSettings();
     fresh.backupSettings = { ...fresh.backupSettings, interval: e.target.value };
-    await saveSettings(fresh);
+    await saveSettings({ ...fresh, id: 'global_settings', branchId: null });
     showToast(`Interval set to: ${e.target.value}`, 'info');
   };
 
   backupTabElement.querySelector('#pBackupRetention').onchange = async (e) => {
-    const fresh = await getSettings();
+    const fresh = await getGlobalSettings();
     fresh.backupSettings = { ...fresh.backupSettings, retentionDays: parseInt(e.target.value) || 7 };
-    await saveSettings(fresh);
+    await saveSettings({ ...fresh, id: 'global_settings', branchId: null });
     showToast(`Retention set to: ${e.target.value} days`, 'info');
   };
 

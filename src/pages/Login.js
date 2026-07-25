@@ -1,4 +1,4 @@
-import { setSession, clearStore, updateData, updateSettings, getSettings } from '../db.js';
+import { setSession, clearStore, updateData, updateSettings, getSettings, getLoginActivity, getCurrentShift } from '../db.js';
 import { showToast } from '../components/Toast.js';
 
 export function renderLogin(container) {
@@ -10,6 +10,8 @@ export function renderLogin(container) {
   // Cloud-fetched data — ONLY populated from verified user's license
   let cloudBranches = [];
   let cloudRegisters = [];
+  let lastUsedBranchId = null; // This user's most recent branch, from login history
+  let registerShiftStatus = {}; // { [registerId]: boolean } — open/closed, for the branch step
 
   // Wipe stale session data — but NOT in standalone/Electron mode (local stores are the source of truth)
   const isElectron = /Electron/i.test(navigator.userAgent);
@@ -107,15 +109,17 @@ export function renderLogin(container) {
             return allowedB.map((b, idx) => {
               const bId = b.id || b.branchId || b._id;
               const restricted = idx >= limits.maxBranches;
+              const isLastUsed = lastUsedBranchId && bId === lastUsedBranchId;
               return `
                         <button class="btn btn-ghost branch-option-btn" data-id="${bId}" ${restricted ? 'data-restricted="true" disabled' : ''}
-                          style="justify-content:flex-start; height:64px; padding:0 24px; border-radius: 16px; background: #f8f9fa; border: 1px solid #dadce0; ${restricted ? 'opacity:0.5; cursor:not-allowed' : ''}">
+                          style="justify-content:flex-start; height:64px; padding:0 24px; border-radius: 16px; background: #f8f9fa; border: 1px solid ${isLastUsed ? '#1a73e8' : '#dadce0'}; ${restricted ? 'opacity:0.5; cursor:not-allowed' : ''}">
                           <div style="width:36px; height:36px; border-radius:10px; font-size:16px; margin:0 16px 0 0; background:${restricted ? '#dadce0' : 'linear-gradient(135deg, #1a73e8, #174ea6)'}; color:#fff; display:flex; align-items:center; justify-content:center;">
                             <i class="fa-solid fa-store"></i>
                           </div>
                           <div style="flex:1; text-align:left">
                             <div class="font-bold" style="color:#202124">
                               ${b.name || 'Unnamed Branch'}
+                              ${isLastUsed ? '<span style="font-size:9px; background:rgba(26,115,232,0.12); color:#1a73e8; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">LAST USED</span>' : ''}
                               ${restricted ? '<span style="font-size:9px; background:var(--warning); color:black; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">PREMIUM ONLY</span>' : ''}
                             </div>
                             <div style="font-size:11px; color:#5f6368">${b.address || ''}</div>
@@ -144,6 +148,7 @@ export function renderLogin(container) {
                       ${branchRegs.map((r, idx) => {
                 const rId = r.id || r.registerId || r._id;
                 const restricted = idx >= limits.maxRegistersPerBranch;
+                const isOpen = !!registerShiftStatus[rId];
                 return `
                         <button class="btn btn-ghost register-option-btn" data-id="${rId}" ${restricted ? 'data-restricted="true" disabled' : ''}
                           style="justify-content:flex-start; height:60px; padding:0 24px; border-radius: 16px; background: #f8f9fa; border: 1px solid #dadce0; ${restricted ? 'opacity:0.5; cursor:not-allowed' : ''}">
@@ -153,6 +158,9 @@ export function renderLogin(container) {
                           <div style="flex:1; text-align:left">
                             <div class="font-bold" style="color:#202124">
                               ${r.name || 'Unnamed Register'}
+                            </div>
+                            <div style="font-size:11px; color:${isOpen ? '#1e8e3e' : '#9aa0a6'}; font-weight:600">
+                              ${isOpen ? '● Shift Open' : 'Shift Closed'}
                             </div>
                           </div>
                         </button>
@@ -221,6 +229,17 @@ export function renderLogin(container) {
                   networkId: res.networkId || userLicenseKey
                 });
               }
+
+              // Find this user's most recent branch from login history, to
+              // badge it as "Last Used" on the branch-picker step.
+              try {
+                const activity = await getLoginActivity();
+                const lastEntry = activity.find(a => a.userId === authenticatedUser.id && a.branchId);
+                lastUsedBranchId = lastEntry?.branchId || null;
+              } catch (e) {
+                console.warn('[Login] Could not load last-used branch:', e);
+              }
+
               currentStep = 'branch';
               hideLoginLoading();
               updateUI();
@@ -240,7 +259,7 @@ export function renderLogin(container) {
 
     if (currentStep === 'branch') {
       container.querySelectorAll('.branch-option-btn').forEach(btn => {
-        btn.onclick = () => {
+        btn.onclick = async () => {
           const bId = btn.dataset.id;
           console.log('[Login] Selecting Branch:', bId);
           selectedBranch = cloudBranches.find(b => (b.id || b.branchId || b._id?.toString()) === bId);
@@ -260,6 +279,19 @@ export function renderLogin(container) {
             selectedRegisterId = null;
             finalizeLogin();
             return;
+          }
+
+          // Look up each register's current shift status so the picker can
+          // show "Shift Open"/"Shift Closed" instead of just a bare name.
+          registerShiftStatus = {};
+          try {
+            await Promise.all(branchRegs.map(async (r) => {
+              const rId = r.id || r.registerId || r._id;
+              const shift = await getCurrentShift(bIdStr, rId);
+              registerShiftStatus[rId] = !!shift;
+            }));
+          } catch (e) {
+            console.warn('[Login] Could not load register shift status:', e);
           }
 
           currentStep = 'register';
