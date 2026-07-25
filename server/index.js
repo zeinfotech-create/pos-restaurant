@@ -2088,6 +2088,11 @@ wss.on('connection', (ws, req) => {
                     const recordCount = await DBManager.count(Model, store, { licenseKey: finalLicense });
                     const GlobalStores = ['users', 'branches', 'settings', 'staff', 'licenses'];
                     const isGlobalStore = GlobalStores.includes(store);
+                    // Computed early (also reused below for DB-write partitioning) —
+                    // registerLimit is PER BRANCH, so its count must be scoped by
+                    // branchId too, unlike the other limits here which are genuinely
+                    // license-wide totals.
+                    const finalBranchId = data.branchId || msg.branchId;
 
                     let limitExceeded = false;
                     let limitMsg = '';
@@ -2106,9 +2111,12 @@ wss.on('connection', (ws, req) => {
                         }
                     } else if (store === 'registers') {
                         const existing = await DBManager.findOne(Model, store, { licenseKey: finalLicense, registerId: data.id });
-                        if (!existing && recordCount >= status.registerLimit) {
+                        const registerCountForBranch = finalBranchId
+                            ? await DBManager.count(Model, store, { licenseKey: finalLicense, branchId: finalBranchId })
+                            : recordCount;
+                        if (!existing && registerCountForBranch >= status.registerLimit) {
                             limitExceeded = true;
-                            limitMsg = `License limit reached: Your current plan allows max ${status.registerLimit} registers.`;
+                            limitMsg = `License limit reached: Your current plan allows max ${status.registerLimit} registers per branch.`;
                         }
                     } else if (store === 'products') {
                         const existing = await DBManager.findOne(Model, store, { licenseKey: finalLicense, productId: data.id });
@@ -2124,7 +2132,6 @@ wss.on('connection', (ws, req) => {
                         break;
                     }
 
-                    const finalBranchId = data.branchId || msg.branchId;
                     let query = { licenseKey: finalLicense };
                     // Deduplication: Only partition by branchId for non-global stores
                     if (finalBranchId && !isGlobalStore) query.branchId = finalBranchId;

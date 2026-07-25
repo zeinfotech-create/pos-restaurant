@@ -1371,15 +1371,23 @@ export async function saveBranch(branch) {
   // writing to global_settings forever, even while "switched to" this branch.
   // That made Settings page edits invisibly apply to every branch at once
   // and gave the impression that switching branches did nothing.
+  // Fields on the branch record that have a same-meaning counterpart in
+  // Settings > General — keep them in sync both ways: editing a branch here
+  // is how users expect its Store Name/Address/Phone/Logo to update too, not
+  // just the entry in the branches list.
+  const branchToSettings = {
+    storeName: branch.name,
+    storeAddress: branch.address || '',
+    storePhone: branch.phone || '',
+    ...(branch.image ? { storeLogo: branch.image } : {})
+  };
+
   if (isNew) {
     const globalSettings = await getSettings();
-    await saveSettings({ ...globalSettings, id: `settings_${branch.id}`, storeName: branch.name, branchId: branch.id });
+    await saveSettings({ ...globalSettings, ...branchToSettings, id: `settings_${branch.id}`, branchId: branch.id });
   } else {
-    // Keep this branch's own Settings > Store Name in sync with its name —
-    // editing the branch here (Branches page) is how users expect to rename
-    // it everywhere, not just in the branches list.
     const branchSettings = await getSettings(branch.id);
-    await saveSettings({ ...branchSettings, id: `settings_${branch.id}`, storeName: branch.name, branchId: branch.id });
+    await saveSettings({ ...branchSettings, ...branchToSettings, id: `settings_${branch.id}`, branchId: branch.id });
   }
 
   return branch;
