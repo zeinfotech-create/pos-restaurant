@@ -596,6 +596,19 @@ export async function importIndustryProducts(type, branchId = 'b1') {
     }
   }
 
+  // Sample products carry a bare `category` string, but POS's category
+  // filter chips only show categories that exist as real records in the
+  // categories store (Settings > Categories) — without this, an imported
+  // product can display "Personal Care" on the Products page while that
+  // chip never appears on the POS screen at all, since nothing ever created
+  // a matching Category record for it.
+  const existingCategoryNames = new Set((await getCategories()).map(c => c.name.trim().toLowerCase()));
+  const newCategoryNames = [...new Set(newItems.map(p => (p.category || '').trim()).filter(Boolean))]
+    .filter(name => !existingCategoryNames.has(name.toLowerCase()));
+  for (let i = 0; i < newCategoryNames.length; i++) {
+    await saveCategory({ id: `cat-${Date.now()}-${i}`, name: newCategoryNames[i] });
+  }
+
   await setIndustryImported(type, true);
   return newItems;
 }

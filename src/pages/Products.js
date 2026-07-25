@@ -371,7 +371,6 @@ async function renderTable(container, cur) {
               <div class="flex gap-8">
                 <button class="btn btn-ghost btn-sm history-btn" data-id="${p.id}" title="Stock History"><i class="fa-solid fa-clock-rotate-left"></i></button>
                 <button class="btn btn-ghost btn-sm print-barcode-btn" data-id="${p.id}" title="Print Barcode" ${!p.barcode ? 'disabled style="opacity:0.4"' : ''}><i class="fa-solid fa-barcode"></i></button>
-                <button class="btn btn-ghost btn-sm print-qr-btn" data-id="${p.id}" title="Print QR Code" ${!p.barcode ? 'disabled style="opacity:0.4"' : ''}><i class="fa-solid fa-qrcode"></i></button>
                 ${hasPermission('products:manage') ? `<button class="btn btn-ghost btn-sm edit-btn" data-id="${p.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>` : ''}
                 ${hasPermission('products:delete') ? `<button class="btn btn-sm delete-btn" style="background:rgba(239,68,68,0.1);color:var(--danger)" data-id="${p.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>` : ''}
               </div>
@@ -437,14 +436,6 @@ async function renderTable(container, cur) {
   });
 
   wrap.querySelectorAll('.print-barcode-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const allP = await getProducts(store.branch?.id);
-      const p = allP.find(item => item.id == btn.dataset.id);
-      await openLabelModal(p, 'barcode');
-    };
-  });
-
-  wrap.querySelectorAll('.print-qr-btn').forEach(btn => {
     btn.onclick = async () => {
       const allP = await getProducts(store.branch?.id);
       const p = allP.find(item => item.id == btn.dataset.id);
