@@ -923,8 +923,8 @@ async function openProductForm(product, container, cur) {
             <label class="form-label">Tax Configuration</label>
             <div style="display:flex; gap:8px">
               <select class="form-select" id="pTaxType" style="flex:1">
-                <option value="exclusive" ${product?.taxType === 'exclusive' ? 'selected' : ''}>Exclusive (+)</option>
-                <option value="inclusive" ${product?.taxType === 'inclusive' ? 'selected' : ''}>Inclusive</option>
+                <option value="exclusive" ${(product?.taxType || 'inclusive') === 'exclusive' ? 'selected' : ''}>Exclusive (+)</option>
+                <option value="inclusive" ${(product?.taxType || 'inclusive') === 'inclusive' ? 'selected' : ''}>Inclusive</option>
               </select>
               <select class="form-select" id="pTaxRate" style="width:100px">
                 ${(settings.availableTaxes || [0, 5, 12, 18, 28]).map(t => '<option value="' + t + '" ' + ((product?.taxRate ?? 0) == t ? 'selected' : '') + '>' + t + '%</option>').join('')}
@@ -1040,8 +1040,31 @@ async function openProductForm(product, container, cur) {
       hsnActiveIndex = -1;
     };
 
+    // Sets the Tax Rate dropdown to the HSN entry's GST rate, adding a matching <option> first
+    // if the rate isn't one of the preset slabs (e.g. 0.25%/1.5% cess-heavy items) — dispatches
+    // 'change' so premiumSelect.js's custom widget (which wraps every <select>) re-syncs its
+    // visible label/checkmark instead of only updating the hidden native element.
+    const applyHsnTaxRate = (rateStr) => {
+      if (rateStr == null) return;
+      const rateNum = parseFloat(String(rateStr).replace('%', ''));
+      if (isNaN(rateNum)) return;
+
+      const taxRateSelect = document.getElementById('pTaxRate');
+      let option = [...taxRateSelect.options].find(o => parseFloat(o.value) === rateNum);
+      if (!option) {
+        option = document.createElement('option');
+        option.value = String(rateNum);
+        option.textContent = rateNum + '%';
+        const insertBefore = [...taxRateSelect.options].find(o => parseFloat(o.value) > rateNum);
+        taxRateSelect.insertBefore(option, insertBefore || null);
+      }
+      taxRateSelect.value = String(rateNum);
+      taxRateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
     const selectHsnCode = (entry) => {
       hsnInput.value = entry.code;
+      applyHsnTaxRate(entry.gstRate);
       closeHsnSuggestions();
     };
 
