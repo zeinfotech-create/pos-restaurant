@@ -6,7 +6,7 @@ import './style.css';
 import './dashboard-animations.css';
 import './settings-redesign.css';
 import { navigate, initRouter, getCurrentPage } from './router.js';
-import { getSettings, getBranchRegisters, getSession, getSessionTheme, setSessionTheme, getSidebarCollapsed, setSidebarCollapsed, getBranches, getCurrentShift, closeRegister, openRegister, getCustomers, getBusinessFeatures, deleteData, updateData, saveSession, getDataById, getUsers, hasPermission, getLowStockProducts, getCurrentBranch, getCurrentUser, getCurrentRegisterId } from './db.js';
+import { getSettings, getBranchRegisters, getSession, getSessionTheme, setSessionTheme, getSidebarCollapsed, setSidebarCollapsed, getBranches, getCurrentShift, closeRegister, openRegister, getCustomers, getBusinessFeatures, deleteData, updateData, saveSession, getDataById, getUsers, hasPermission, getLowStockProducts, getExpiringProducts, getCurrentBranch, getCurrentUser, getCurrentRegisterId } from './db.js';
 import { showToast } from './components/Toast.js';
 import { store, initStore, onCartUpdate, getCartTotals, updateQty, clearCart, setDiscount, removeFromCart, updateCartItem } from './store.js';
 import { openModal, closeModal, showConfirm, showAlert } from './components/Modal.js';
@@ -475,8 +475,9 @@ async function renderTopbar() {
     const titleSpan = document.getElementById('topbar-current-page');
     if (titleSpan) titleSpan.textContent = getPageTitle(getCurrentPage());
     
-    // 2. Update low stock badge
+    // 2. Update low stock / expiry badges
     updateGlobalLowStockBadge();
+    updateGlobalExpiryBadge();
     return;
   }
 
@@ -517,6 +518,7 @@ async function renderTopbar() {
     <div style="flex:1"></div>
     
     <div id="globalLowStockContainer" style="position:relative; margin-right:8px;"></div>
+    <div id="globalExpiryContainer" style="position:relative; margin-right:8px;"></div>
     
     <!-- Shortcuts Menu -->
     <div class="topbar-notif-wrapper" style="position:relative;">
@@ -583,6 +585,7 @@ async function renderTopbar() {
   });
 
   updateGlobalLowStockBadge();
+  updateGlobalExpiryBadge();
 }
 
 async function updateGlobalLowStockBadge() {
@@ -627,11 +630,49 @@ async function updateGlobalLowStockBadge() {
   });
 }
 
-// Low Stock Event Listeners
+async function updateGlobalExpiryBadge() {
+  const container = document.getElementById('globalExpiryContainer');
+  if (!container) return;
+
+  const expiring = await getExpiringProducts(store.branch?.id);
+
+  if (expiring.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  // If button already exists, just update the count — avoids DOM flash/blink
+  const existingBtn = document.getElementById('globalExpiryBtn');
+  if (existingBtn) {
+    const badge = existingBtn.querySelector('.notif-badge');
+    if (badge) badge.textContent = expiring.length;
+    return;
+  }
+
+  container.innerHTML = `
+    <button class="btn btn-ghost btn-sm" id="globalExpiryBtn" style="border:1px solid var(--warning); color:var(--warning); position:relative; background:rgba(245,158,11,0.05)">
+      <i class="fa-solid fa-hourglass-end"></i>
+      <span class="notif-badge" style="position:absolute; top:-6px; right:-6px; font-size:10px; border-radius:10px; padding:2px 6px; background:var(--warning); color:#fff; border:1px solid var(--bg-surface)">${expiring.length}</span>
+    </button>
+  `;
+
+  document.getElementById('globalExpiryBtn')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const pos = await import('./pages/POS.js');
+    const settings = store.settings || await getSettings();
+    pos.openExpiryModal(settings.currency);
+  });
+}
+
+// Low Stock / Expiry Event Listeners
 window.addEventListener('storage-change', (e) => {
-  if (e?.detail?.store === 'products') updateGlobalLowStockBadge();
+  if (e?.detail?.store === 'products') {
+    updateGlobalLowStockBadge();
+    updateGlobalExpiryBadge();
+  }
 });
 window.addEventListener('data-synced', updateGlobalLowStockBadge);
+window.addEventListener('data-synced', updateGlobalExpiryBadge);
 window.addEventListener('license-status-changed', () => { 
   renderTopbar(); 
   renderSidebar(); 

@@ -1,4 +1,4 @@
-import { getProducts, getSettings, getCustomers, isRegisterOpen, getBusinessFeatures, getAppointments, getStaff, saveAppointment, deleteAppointment, updateAppointmentStatus, hasPermission, getCategories, getSubCategories, getLowStockProducts, getCurrentRegisterId } from '../db.js';
+import { getProducts, getSettings, getCustomers, isRegisterOpen, getBusinessFeatures, getAppointments, getStaff, saveAppointment, deleteAppointment, updateAppointmentStatus, hasPermission, getCategories, getSubCategories, getLowStockProducts, getExpiringProducts, getCurrentRegisterId } from '../db.js';
 import { store, addToCart, onCartUpdate, getCartTotals, updateQty, removeFromCart, clearCart, setDiscount, loadAppointmentIntoCart, updateCartItem } from '../store.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { openCustomerForm } from '../components/CustomerForm.js';
@@ -1612,6 +1612,49 @@ export async function openLowStockModal(cur) {
     footer: `
       <button class="btn btn-ghost" onclick="closeModal()">Dismiss</button>
       <button class="btn btn-primary" onclick="closeModal(); window.posFilterStock = 'Low Stock'; window.navigate('products')">
+        <i class="fa-solid fa-box-open mr-8"></i> Manage Inventory
+      </button>
+    `
+  });
+}
+
+export async function openExpiryModal(cur) {
+  const items = await getExpiringProducts(store.branch?.id);
+
+  openModal({
+    title: '<i class="fa-solid fa-hourglass-end text-warning"></i> Expiry Alert',
+    body: `
+      <div style="padding:10px 0">
+        <p style="margin-bottom:20px; font-size:14px; opacity:0.8">The following items have expired or are expiring soon.</p>
+        <div style="display:flex; flex-direction:column; gap:12px; max-height:400px; overflow-y:auto" class="custom-scrollbar">
+          ${items.map(p => {
+            const isExpired = p.daysLeft < 0;
+            const statusText = isExpired
+              ? `Expired ${Math.abs(p.daysLeft)}d ago`
+              : p.daysLeft === 0 ? 'Expires today' : `Expires in ${p.daysLeft}d`;
+            const statusColor = isExpired ? 'var(--danger)' : 'var(--warning)';
+            return `
+              <div style="background:var(--bg-elevated); border:1px solid var(--border); border-left:4px solid ${statusColor}; padding:12px 16px; border-radius:12px; display:flex; align-items:center; justify-content:space-between">
+                <div style="display:flex; align-items:center; gap:12px">
+                  <span style="font-size:24px">${p.emoji || '📦'}</span>
+                  <div>
+                    <div style="font-weight:700; font-size:14px">${p.name}</div>
+                    <div style="font-size:11px; opacity:0.6">${p.category || ''} &middot; Exp: ${p.expiryDate}</div>
+                  </div>
+                </div>
+                <div style="text-align:right">
+                  <div style="font-size:13px; font-weight:900; color:${statusColor}">${statusText}</div>
+                  <div style="font-size:10px; opacity:0.5; font-weight:600">STOCK: ${parseFloat(Number(p.stock || 0).toFixed(3))}</div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `,
+    footer: `
+      <button class="btn btn-ghost" onclick="closeModal()">Dismiss</button>
+      <button class="btn btn-primary" onclick="closeModal(); window.navigate('products')">
         <i class="fa-solid fa-box-open mr-8"></i> Manage Inventory
       </button>
     `

@@ -1822,6 +1822,35 @@ export async function getLowStockProducts(branchId = null) {
   });
 }
 
+// Parses a "YYYY-MM-DD" date-only string as LOCAL midnight — the native Date
+// constructor treats bare date strings as UTC midnight, which silently shifts
+// the result by a whole day in any timezone ahead of UTC (e.g. IST) when
+// compared against a locally-computed "today".
+function parseLocalDate(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// Flags products already past their expiryDate, or expiring within `warningDays` —
+// mirrors getLowStockProducts()'s "at or below threshold" warning-zone shape.
+export async function getExpiringProducts(branchId = null, warningDays = 7) {
+  const products = await getProducts(branchId);
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const warningCutoff = new Date(todayStart);
+  warningCutoff.setDate(warningCutoff.getDate() + warningDays);
+
+  return products
+    .filter(p => p.expiryDate)
+    .map(p => {
+      const expiry = parseLocalDate(p.expiryDate);
+      const daysLeft = Math.round((expiry - todayStart) / (1000 * 60 * 60 * 24));
+      return { ...p, daysLeft };
+    })
+    .filter(p => parseLocalDate(p.expiryDate) <= warningCutoff)
+    .sort((a, b) => a.daysLeft - b.daysLeft);
+}
+
 export async function getCategorySales(branchId = null, startDate = null, endDate = null) {
   const allOrders = await getOrders(branchId, startDate, endDate);
   const orders = allOrders.filter(o => o.status !== 'cancelled');
