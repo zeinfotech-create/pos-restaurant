@@ -905,17 +905,17 @@ async function openProductForm(product, container, cur) {
             <p class="form-help-text">Printed on the label alongside the selling price, if set.</p>
           </div>
           <div class="form-group mb-0">
-            <label class="form-label">Expiry Date</label>
-            <div class="search-input-wrap">
-              <i class="fa-solid fa-calendar-xmark"></i>
-              <input class="form-input" id="pExpiryDate" type="date" value="${product?.expiryDate || ''}" style="padding-left:36px" />
-            </div>
-          </div>
-          <div class="form-group mb-0">
             <label class="form-label">Manufacturing Date</label>
             <div class="search-input-wrap">
               <i class="fa-solid fa-calendar-check"></i>
               <input class="form-input" id="pManufacturingDate" type="date" value="${product?.manufacturingDate || ''}" style="padding-left:36px" />
+            </div>
+          </div>
+          <div class="form-group mb-0">
+            <label class="form-label">Expiry Date</label>
+            <div class="search-input-wrap">
+              <i class="fa-solid fa-calendar-xmark"></i>
+              <input class="form-input" id="pExpiryDate" type="date" value="${product?.expiryDate || ''}" style="padding-left:36px" />
             </div>
           </div>
         </div>
@@ -1219,9 +1219,9 @@ async function openProductForm(product, container, cur) {
         let finalVariants = [];
 
         if (hasVariants) {
-          if (variants.length === 0) { showToast('Add at least one variant', 'error'); btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-8"></i> Create Product'; return; }
+          if (variants.length === 0) { showToast('Add at least one variant', 'error'); isProcessing = false; saveBtn.disabled = false; saveBtn.innerHTML = `<i class="fa-solid fa-floppy-disk mr-8"></i> ${isEdit ? 'Update Product' : 'Create Product'}`; return; }
           const invalidV = variants.find(v => !v.name || v.price === '' || v.stock === '' || isNaN(parseFloat(v.price)) || isNaN(parseFloat(v.stock)));
-          if (invalidV) { showToast('Fill all variant fields correctly (Name, Price, Stock)', 'error'); btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-8"></i> Create Product'; return; }
+          if (invalidV) { showToast('Fill all variant fields correctly (Name, Price, Stock)', 'error'); isProcessing = false; saveBtn.disabled = false; saveBtn.innerHTML = `<i class="fa-solid fa-floppy-disk mr-8"></i> ${isEdit ? 'Update Product' : 'Create Product'}`; return; }
           finalVariants = variants.map(v => ({
             ...v,
             price: parseFloat(v.price) || 0,
@@ -1239,11 +1239,12 @@ async function openProductForm(product, container, cur) {
           
           if (priceVal === '' || stockVal === '') {
             showToast('Please enter both selling price and opening stock', 'error');
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-8"></i> Create Product';
+            isProcessing = false;
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = `<i class="fa-solid fa-floppy-disk mr-8"></i> ${isEdit ? 'Update Product' : 'Create Product'}`;
             return;
           }
-          
+
           finalPrice = parseFloat(priceVal);
           finalStock = parseFloat(stockVal);
           finalCost = parseFloat(document.getElementById('pCostPrice').value) || 0;
@@ -1251,8 +1252,9 @@ async function openProductForm(product, container, cur) {
 
           if (isNaN(finalPrice) || isNaN(finalStock)) {
             showToast('Invalid price or stock values', 'error');
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-8"></i> Create Product';
+            isProcessing = false;
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = `<i class="fa-solid fa-floppy-disk mr-8"></i> ${isEdit ? 'Update Product' : 'Create Product'}`;
             return;
           }
         }
@@ -1263,6 +1265,17 @@ async function openProductForm(product, container, cur) {
         const mrp = parseFloat(document.getElementById('pMRP')?.value) || 0;
         const expiryDate = document.getElementById('pExpiryDate')?.value || '';
         const manufacturingDate = document.getElementById('pManufacturingDate')?.value || '';
+
+        // Manufacturing Date is optional even when Expiry Date is set (many products only ever
+        // show an expiry date on the pack) — but if BOTH are given, expiry must be strictly
+        // after manufacturing, or the dates are almost certainly a typo.
+        if (expiryDate && manufacturingDate && expiryDate <= manufacturingDate) {
+          showToast('Expiry Date must be after Manufacturing Date', 'error');
+          isProcessing = false;
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = `<i class="fa-solid fa-floppy-disk mr-8"></i> ${isEdit ? 'Update Product' : 'Create Product'}`;
+          return;
+        }
 
         const payload = {
           ...product, name: name_val, sku, barcode, price: finalPrice, costPrice: finalCost, stock: finalStock, minStock: finalMinStock, category, subCategory, emoji,
