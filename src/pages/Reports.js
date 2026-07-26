@@ -1632,8 +1632,11 @@ async function exportGSTR1Json(orders) {
       }
 
       const itemTax = item.finalTax || 0;
-      const discountTotal = (item.itemDiscount || 0) * item.qty;
-      const discountedTotal = Math.max(0, (item.price * item.qty) - discountTotal);
+      const lineTotal = item.price * item.qty;
+      const discountTotal = item.itemDiscountType === 'pct'
+        ? (lineTotal * (item.itemDiscount || 0) / 100)
+        : ((item.itemDiscount || 0) * item.qty);
+      const discountedTotal = Math.max(0, lineTotal - discountTotal);
       let taxValueNet = discountedTotal;
       if (item.taxType === 'inclusive') {
         taxValueNet = discountedTotal - itemTax;

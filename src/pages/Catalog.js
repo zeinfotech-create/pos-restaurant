@@ -359,10 +359,11 @@ async function renderGrid(cur) {
           stockColor = totalStock > 10 ? 'var(--success)' : (totalStock > 0 ? 'var(--warning)' : 'var(--danger)');
           stockText = totalStock > 10 ? 'In Stock' : (totalStock > 0 ? `Low Stock (${parseFloat(Number(totalStock).toFixed(3))})` : 'Out of Stock');
         } else {
-          const pDisc = Number(p.itemDiscount) || 0;
           const pPrice = Number(p.price) || 0;
+          const pDiscRaw = Number(p.itemDiscount) || 0;
+          const pDiscAmt = p.itemDiscountType === 'pct' ? (pPrice * pDiscRaw / 100) : pDiscRaw;
           origPriceDisplay = `${cur}${pPrice}`;
-          finalPriceDisplay = pDisc > 0 ? `${cur}${Math.max(0, pPrice - pDisc)}` : origPriceDisplay;
+          finalPriceDisplay = pDiscAmt > 0 ? `${cur}${Math.max(0, pPrice - pDiscAmt).toFixed(2)}` : origPriceDisplay;
         }
 
         let offerHtml = '';
@@ -381,11 +382,17 @@ async function renderGrid(cur) {
             }
           });
         } else {
-          if (p.itemDiscount && Number(p.itemDiscount) > 0) {
+          const pDiscRaw = Number(p.itemDiscount) || 0;
+          if (pDiscRaw > 0) {
             hasAnyDiscount = true;
-            maxFlatDisc = Number(p.itemDiscount);
-            if (Number(p.price) > 0) {
-              maxPct = Math.round((Number(p.itemDiscount) / Number(p.price)) * 100);
+            if (p.itemDiscountType === 'pct') {
+              maxPct = pDiscRaw;
+              maxFlatDisc = (Number(p.price) || 0) * pDiscRaw / 100;
+            } else {
+              maxFlatDisc = pDiscRaw;
+              if (Number(p.price) > 0) {
+                maxPct = Math.round((pDiscRaw / Number(p.price)) * 100);
+              }
             }
           }
         }

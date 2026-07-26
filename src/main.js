@@ -846,7 +846,7 @@ async function renderMobileCart() {
               ${cur}${item.price}
               ${item.unit ? `<span style="font-size:10px;opacity:0.55;margin-left:2px">/${item.unit}</span>` : ''}
               × ${Number.isInteger(item.qty) ? item.qty : item.qty.toFixed(3)}
-              ${item.itemDiscount > 0 ? `<span style="font-size:10px;color:var(--danger);margin-left:4px" title="Discount applied">- ${cur}${(item.itemDiscount * item.qty).toFixed(2)} ${item._discountType === 'pct' ? `[${item._discountRaw}%]` : ''}</span>` : ''}
+              ${item.itemDiscount > 0 ? `<span style="font-size:10px;color:var(--danger);margin-left:4px" title="Discount applied">- ${cur}${(item.itemDiscountType === 'pct' ? (item.price * item.qty * item.itemDiscount / 100) : (item.itemDiscount * item.qty)).toFixed(2)} ${item.itemDiscountType === 'pct' ? `[${item.itemDiscount}%]` : ''}</span>` : ''}
               ${item.taxRate > 0 ? `<span style="font-size:10px;color:var(--info);margin-left:4px" title="Tax applied">(${item.taxType === 'inclusive' ? 'Inc.' : 'Exc.'} ${item.taxRate}%)</span>` : '<span style="font-size:10px;color:var(--text-muted);margin-left:4px">(No Tax)</span>'}
             </div>
           </div>
@@ -858,7 +858,10 @@ async function renderMobileCart() {
           <div class="cart-item-total" id="m-ie-total-${item.cartId}" style="font-weight:700">${cur}${(
           (() => {
             const qty = parseFloat(parseFloat(item.qty).toFixed(3)) || 0;
-            const base = Math.max(0, (item.price - (item.itemDiscount || 0)) * qty);
+            const discAmt = item.itemDiscountType === 'pct'
+              ? (item.price * qty * (item.itemDiscount || 0) / 100)
+              : ((item.itemDiscount || 0) * qty);
+            const base = Math.max(0, (item.price * qty) - discAmt);
             return item.taxType === 'exclusive'
               ? base * (1 + (parseFloat(item.taxRate) || 0) / 100)
               : base;
@@ -1059,7 +1062,11 @@ async function renderMobileCart() {
       const itemDiscount = discType === 'pct' ? parseFloat(((price * discRaw) / 100).toFixed(2)) : discRaw;
 
       updateCartItem(cartId, {
-        price, unit, itemDiscount, taxRate, taxType,
+        // itemDiscount is now always a flat ₹ amount (converted above) — itemDiscountType must
+        // be reset to 'flat' too, or it stays stuck at the product's original default (e.g.
+        // 'pct'), making this already-converted number get re-interpreted as a percentage
+        // wherever itemDiscountType is read (getCartTotals, receipts, refunds, reports).
+        price, unit, itemDiscount, itemDiscountType: 'flat', taxRate, taxType,
         _discountRaw: discRaw, _discountType: discType
       });
       showToast('Item updated', 'success');

@@ -670,9 +670,12 @@ export async function openCheckout() {
 
 export async function confirmOrder(payments, totals, settings, cur, creditData = { isCredit: false, creditInfo: '' }) {
   const orderItems = store.cart.map(i => {
-    // Calculate precise finalTax for this line item based on its type
+    // Calculate precise finalTax for this line item based on its type — mirrors store.js's
+    // getCartTotals() discountTotal formula so saved orders match what was actually charged.
     const baseLineTotal = i.price * i.qty;
-    const discountTotal = (i.itemDiscount || 0) * i.qty;
+    const discountTotal = i.itemDiscountType === 'pct'
+      ? (baseLineTotal * (i.itemDiscount || 0) / 100)
+      : ((i.itemDiscount || 0) * i.qty);
     const discountedTotal = Math.max(0, baseLineTotal - discountTotal);
     const rate = parseFloat(i.taxRate) || 0;
     const finalTax = i.taxType === 'inclusive'
@@ -688,6 +691,7 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
       price: i.price,
       qty: i.qty,
       itemDiscount: i.itemDiscount || 0,
+      itemDiscountType: i.itemDiscountType || 'flat', // the product's own default \u20B9/% discount type
       discountType: i._discountType, // from inline edit \u20B9/%
       discountRaw: i._discountRaw,
       costPrice: i.costPrice || 0,
@@ -933,16 +937,27 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
     const itemQty = parseFloat(parseFloat(i.qty || 0).toFixed(3));
     const itemPrice = i.price || 0;
     const itemTaxRate = i.taxRate || 0;
-    const itemDiscountAmt = (i.itemDiscount || 0) * itemQty;
+    const baseLineTotal = itemPrice * itemQty;
+    // Item discount can be a flat per-unit ₹ amount or a % of the line — matches how
+    // store.js's getCartTotals() computes discountTotal for the same cart item.
+    const itemDiscountAmt = i.itemDiscountType === 'pct'
+      ? (baseLineTotal * (i.itemDiscount || 0) / 100)
+      : ((i.itemDiscount || 0) * itemQty);
 
-    const exclusiveSubtotal = (itemPrice * itemQty) - itemDiscountAmt;
+    const exclusiveSubtotal = baseLineTotal - itemDiscountAmt;
     const taxAmount = isInclusive ? 0 : (exclusiveSubtotal * itemTaxRate / 100);
     const itemLineTotal = exclusiveSubtotal + taxAmount;
+
+    // The RATE column must show the taxable (tax-exclusive) unit price, matching how
+    // store.js's getCartTotals() derives the Subtotal line — for inclusive-tax items the
+    // stored price already has tax baked in, so divide it back out for display only; AMOUNT
+    // stays as itemLineTotal (the final tax-inclusive line total) unchanged either way.
+    const displayRate = isInclusive ? itemPrice / (1 + itemTaxRate / 100) : itemPrice;
 
     const subLines = [
       i.variantName ? `(${i.variantName})` : '',
       i.hsnCode ? `HSN: ${i.hsnCode}` : '',
-      itemDiscountAmt > 0 ? `Disc: -${cur}${itemDiscountAmt.toFixed(2)}${i.discountType === 'pct' ? ` (${i.discountRaw}%)` : ''}` : '',
+      itemDiscountAmt > 0 ? `Disc: -${cur}${itemDiscountAmt.toFixed(2)}${i.itemDiscountType === 'pct' ? ` (${i.itemDiscount}%)` : ''}` : '',
       itemTaxRate > 0 ? `Tax ${itemTaxRate}%${isInclusive ? ' Incl.' : ''}` : ''
     ].filter(Boolean).join(' | ');
 
@@ -953,7 +968,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
             ${subLines ? `<div style="font-size:9px; opacity:0.65">${subLines}</div>` : ''}
           </td>
           <td style="text-align:center; vertical-align:top; padding:4px 0">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}</td>
-          <td style="text-align:right; vertical-align:top; padding:4px 0">${cur}${itemPrice.toFixed(2)}</td>
+          <td style="text-align:right; vertical-align:top; padding:4px 0">${cur}${displayRate.toFixed(2)}</td>
           <td style="text-align:right; vertical-align:top; padding:4px 0; font-weight:bold">${cur}${itemLineTotal.toFixed(2)}</td>
         </tr>
       `}).join('')}

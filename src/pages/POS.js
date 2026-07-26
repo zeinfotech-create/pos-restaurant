@@ -821,7 +821,11 @@ export async function renderCart(cur) {
         ? parseFloat(((price * discRaw) / 100).toFixed(2))
         : discRaw;
       updateCartItem(cartId, {
-        price, unit, itemDiscount, taxRate, taxType,
+        // itemDiscount is now always a flat \u20B9 amount (converted above), so itemDiscountType
+        // must be reset to 'flat' here too \u2014 otherwise it stays stuck at whatever the product's
+        // original default was (e.g. 'pct'), causing this already-converted number to be
+        // mistakenly re-interpreted as a percentage everywhere else that reads itemDiscountType.
+        price, unit, itemDiscount, itemDiscountType: 'flat', taxRate, taxType,
         _discountRaw: discRaw, _discountType: discType
       });
       showToast('Item updated', 'success');

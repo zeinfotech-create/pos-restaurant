@@ -451,16 +451,25 @@ async function openReturnModal(order, cur) {
     }
 
     function updateModal() {
+      // Item discount can be a flat per-unit ₹ amount or a % of the line — matches
+      // store.js's getCartTotals() discountTotal formula.
+      const itemDiscountTotal = (i) => {
+        const lineTotal = (parseFloat(i.price) || 0) * (parseFloat(i.qty) || 0);
+        return i.itemDiscountType === 'pct'
+          ? (lineTotal * (parseFloat(i.itemDiscount) || 0) / 100)
+          : ((parseFloat(i.itemDiscount) || 0) * (parseFloat(i.qty) || 0));
+      };
+
       // Calculate refund including its share of the discount and exact tax
-      const totalItemDiscounts = order.items.reduce((s, i) => s + (parseFloat(i.itemDiscount || 0) * i.qty), 0);
+      const totalItemDiscounts = order.items.reduce((s, i) => s + itemDiscountTotal(i), 0);
       const globalOnlyDiscount = Math.max(0, (order.discount || 0) - totalItemDiscounts);
       const netOrderSubtotal = Math.max(1, (order.subtotal || 1) - totalItemDiscounts);
 
       const getRefundPerItem = (item) => {
         const baseQty = parseFloat(item.qty) || 1;
         const perUnitBasePrice = parseFloat(item.price) || 0;
-        const perUnitItemDiscount = parseFloat(item.itemDiscount || 0);
-        
+        const perUnitItemDiscount = itemDiscountTotal(item) / baseQty;
+
         // Use net price after item discount as the basis for global discount allocation
         const itemNetBase = Math.max(0, perUnitBasePrice - perUnitItemDiscount);
         
