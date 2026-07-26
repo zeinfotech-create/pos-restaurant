@@ -320,6 +320,7 @@ export async function openPurchaseForm(container) {
   if (products.length === 0) { showToast('Please add products first', 'warning'); return; }
 
   let selectedItems = [];
+  let billAttachment = '';
 
   function renderItems() {
     const list = document.getElementById('purchaseItemsList');
@@ -383,8 +384,19 @@ export async function openPurchaseForm(container) {
             </select>
           </div>
        </div>
+
+       <div class="form-group mt-16 mb-0">
+          <label class="form-label">Attach Bill / Invoice (optional)</label>
+          <div style="display:flex; align-items:center; gap:12px">
+            <button type="button" class="btn btn-ghost btn-sm" id="purBillUploadBtn"><i class="fa-solid fa-paperclip mr-4"></i> Choose File</button>
+            <input type="file" id="purBillFile" accept="image/*,application/pdf" style="display:none" />
+            <span id="purBillFileName" style="font-size:12px; opacity:0.7"></span>
+            <button type="button" class="btn btn-ghost btn-xs" id="purBillRemoveBtn" style="color:var(--danger); display:none"><i class="fa-solid fa-trash mr-4"></i> Remove</button>
+          </div>
+          <p class="form-help-text">Photo or PDF of the supplier's bill, kept with this purchase record.</p>
+       </div>
     </div>
-    
+
     <!-- Product Selection Area -->
     <div style="border:1px solid var(--border); padding:16px; border-radius:12px; background:var(--bg-app); margin-bottom:16px">
       <label class="form-label" style="font-weight:800; font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em"><i class="fa-solid fa-cart-plus mr-4"></i> Add Products to Purchase</label>
@@ -428,6 +440,32 @@ export async function openPurchaseForm(container) {
   });
 
   renderItems();
+
+  const billUploadBtn = document.getElementById('purBillUploadBtn');
+  const billFileInput = document.getElementById('purBillFile');
+  const billFileName = document.getElementById('purBillFileName');
+  const billRemoveBtn = document.getElementById('purBillRemoveBtn');
+
+  billUploadBtn.onclick = () => billFileInput.click();
+  billFileInput.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const { MediaService } = await import('../services/MediaService.js');
+      billAttachment = await MediaService.handleBillUpload(e);
+      billFileName.textContent = file.name;
+      billRemoveBtn.style.display = 'inline-flex';
+    } catch (err) {
+      showToast(err.message, 'error');
+      billFileInput.value = '';
+    }
+  };
+  billRemoveBtn.onclick = () => {
+    billAttachment = '';
+    billFileName.textContent = '';
+    billFileInput.value = '';
+    billRemoveBtn.style.display = 'none';
+  };
 
   document.getElementById('addItemBtn').onclick = () => {
     const pid = document.getElementById('addProductSelect').value;
@@ -481,6 +519,7 @@ export async function openPurchaseForm(container) {
       taxRate,
       taxAmount,
       total,
+      billAttachment,
       status: 'Completed'
     });
 
@@ -508,10 +547,17 @@ function viewPurchaseDetails(purchase) {
   openModal({
     title: `Purchase Details: ${purchase.id || 'N/A'}`,
     body: `
-      <div style="margin-bottom:16px">
-        <div style="font-size:14px;color:var(--text-secondary)">Supplier</div>
-        <div class="font-bold">${purchase.supplierName || 'Unknown Supplier'}</div>
-        <div style="font-size:12px;opacity:0.6">${purchase.date ? new Date(purchase.date).toLocaleString() : 'N/A'}</div>
+      <div style="margin-bottom:16px; display:flex; justify-content:space-between; align-items:flex-start">
+        <div>
+          <div style="font-size:14px;color:var(--text-secondary)">Supplier</div>
+          <div class="font-bold">${purchase.supplierName || 'Unknown Supplier'}</div>
+          <div style="font-size:12px;opacity:0.6">${purchase.date ? new Date(purchase.date).toLocaleString() : 'N/A'}</div>
+        </div>
+        ${purchase.billAttachment ? `
+          <button class="btn btn-ghost btn-sm" id="viewBillAttachmentBtn">
+            <i class="fa-solid ${purchase.billAttachment.startsWith('data:application/pdf') ? 'fa-file-pdf' : 'fa-image'} mr-4"></i> View Attached Bill
+          </button>
+        ` : ''}
       </div>
       <div class="table-wrap">
         <table class="responsive-table">
@@ -548,5 +594,11 @@ function viewPurchaseDetails(purchase) {
       </div>
     `,
     footer: `<button class="btn btn-primary" onclick="closeModal()">Close Details</button>`
+  });
+
+  // Wired here (not inlined into the button's HTML) since the attachment is a base64 data
+  // URI and can be several MB — far too large to embed as an onclick attribute value.
+  document.getElementById('viewBillAttachmentBtn')?.addEventListener('click', () => {
+    window.open(purchase.billAttachment, '_blank');
   });
 }

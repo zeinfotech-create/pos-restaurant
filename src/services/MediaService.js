@@ -70,5 +70,28 @@ export const MediaService = {
             reader.onerror = () => reject(new Error('Failed to read the selected file.'));
             reader.readAsDataURL(file);
         });
+    },
+
+    /**
+     * Handles a supplier bill/invoice attachment — images get the same
+     * resize/compress treatment as handleImageUpload(); PDFs are stored as-is
+     * (can't be canvas-resized) but capped in size since they aren't compressed.
+     */
+    async handleBillUpload(event, maxSizeMB = 5) {
+        const file = event.target.files[0];
+        if (!file) return null;
+
+        if (file.type.startsWith('image/')) {
+            return this.handleImageUpload(event);
+        }
+
+        if (file.type === 'application/pdf') {
+            if (file.size > maxSizeMB * 1024 * 1024) {
+                throw new Error(`PDF must be under ${maxSizeMB}MB`);
+            }
+            return this.fileToBase64(file);
+        }
+
+        throw new Error('Please upload an image or PDF file');
     }
 };

@@ -15,6 +15,7 @@ const purchaseSchema = new mongoose.Schema({
     taxRate: { type: Number, default: 0 },
     taxAmount: { type: Number, default: 0 },
     total: { type: Number, default: 0 },
+    billAttachment: { type: String, default: '' },
     status: { type: String },
     timestamp: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
