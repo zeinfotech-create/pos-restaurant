@@ -755,6 +755,20 @@ export async function getProductStockAcrossBranches(sku) {
 // ============================================================
 // Inventory Audit Logs
 // ============================================================
+// A stored timestamp is a full ISO string (e.g. "2026-07-22T09:52:10.000Z") — always UTC.
+// startDate/endDate range-picker values are plain local "YYYY-MM-DD". Naively slicing the
+// first 10 characters off the ISO string gives the UTC calendar date, which silently drifts
+// a whole day off the shop's actual local day in any timezone ahead of UTC (e.g. IST,
+// UTC+5:30) for anything that happened between local midnight and the UTC offset catching
+// up — a sale rung up at 2am IST would get filed under *yesterday* in every date-range
+// report. Always derive the date-only string from local calendar fields instead.
+function localDateOnly(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export async function getInventoryLogs(branchId = null, startDate = null, endDate = null) {
   const logs = await db.getAll(KEYS.INVENTORY_LOGS) || [];
   return logs.filter(l => {
@@ -763,7 +777,7 @@ export async function getInventoryLogs(branchId = null, startDate = null, endDat
     // are plain "YYYY-MM-DD". Comparing the raw strings makes today's records fail
     // the endDate check (the timestamp is lexicographically "greater" than the bare
     // date it falls on), silently excluding same-day records — compare date-only.
-    const dateOnly = (l.date || '').slice(0, 10);
+    const dateOnly = localDateOnly(l.date);
     const isDateMatch = (!startDate || dateOnly >= startDate) && (!endDate || dateOnly <= endDate);
     return isBranchMatch && isDateMatch;
   });
@@ -824,7 +838,7 @@ export async function getOrders(branchId = null, startDate = null, endDate = nul
     const isBranchMatch = !branchId || (o.branchId || 'b1') === branchId;
     // See getInventoryLogs() above — compare date-only so today's timestamped
     // orders aren't wrongly excluded when endDate is today.
-    const dateOnly = (o.date || '').slice(0, 10);
+    const dateOnly = localDateOnly(o.date);
     const isDateMatch = (!startDate || dateOnly >= startDate) && (!endDate || dateOnly <= endDate);
     return isBranchMatch && isDateMatch;
   });
@@ -994,7 +1008,7 @@ export async function getReturns(branchId = null, startDate = null, endDate = nu
     const isBranchMatch = !branchId || (r.branchId || 'b1') === branchId;
     // See getInventoryLogs() above — compare date-only so today's timestamped
     // returns aren't wrongly excluded when endDate is today.
-    const dateOnly = (r.date || '').slice(0, 10);
+    const dateOnly = localDateOnly(r.date);
     const isDateMatch = (!startDate || dateOnly >= startDate) && (!endDate || dateOnly <= endDate);
     return isBranchMatch && isDateMatch;
   });
@@ -1651,7 +1665,7 @@ export async function getPurchases(branchId = null, startDate = null, endDate = 
     const isBranchMatch = !branchId || (x.branchId || 'b1') === branchId;
     // See getInventoryLogs() above — compare date-only so today's timestamped
     // purchases aren't wrongly excluded when endDate is today.
-    const dateOnly = (x.date || '').slice(0, 10);
+    const dateOnly = localDateOnly(x.date);
     const isDateMatch = (!startDate || dateOnly >= startDate) && (!endDate || dateOnly <= endDate);
     return isBranchMatch && isDateMatch;
   });
@@ -1691,7 +1705,7 @@ export async function getTodaySales(branchId = null, startDate = null, endDate =
     } else {
       // See getInventoryLogs() above — compare date-only so today's timestamped
       // orders aren't wrongly excluded when endDate is today.
-      const dateOnly = (o.date || '').slice(0, 10);
+      const dateOnly = localDateOnly(o.date);
       return (!startDate || dateOnly >= startDate) && (!endDate || dateOnly <= endDate);
     }
   });
@@ -1707,7 +1721,7 @@ export async function getTodaySales(branchId = null, startDate = null, endDate =
       } else {
           // See getInventoryLogs() above — compare date-only so today's timestamped
           // returns aren't wrongly excluded when endDate is today.
-          const dateOnly = (r.date || '').slice(0, 10);
+          const dateOnly = localDateOnly(r.date);
           return (!startDate || dateOnly >= startDate) && (!endDate || dateOnly <= endDate);
       }
   });
@@ -1767,6 +1781,18 @@ export async function getSalesLast7Days(branchId = null) {
   return days;
 }
 
+// Shared by getTopProducts()/getDailySalesBreakdown() — an item's discount can be a flat ₹
+// amount or a % of the line, matching store.js's getCartTotals() discountTotal formula.
+function computeItemRevenueAndProfit(item) {
+  const baseLineTotal = (item.price || 0) * (item.qty || 0);
+  const discountAmt = item.itemDiscountType === 'pct'
+    ? (baseLineTotal * (item.itemDiscount || 0) / 100)
+    : ((item.itemDiscount || 0) * (item.qty || 0));
+  const revenue = baseLineTotal - discountAmt;
+  const cost = (item.costPrice || 0) * (item.qty || 0);
+  return { revenue, profit: revenue - cost };
+}
+
 export async function getTopProducts(branchId = null, startDate = null, endDate = null) {
   const allOrders = await getOrders(branchId, startDate, endDate);
   const orders = allOrders.filter(o => o.status !== 'cancelled');
@@ -1776,24 +1802,55 @@ export async function getTopProducts(branchId = null, startDate = null, endDate 
   orders.forEach(order => {
     order.items.forEach(item => {
       if (!productMap[item.name]) productMap[item.name] = { name: item.name, qty: 0, revenue: 0, emoji: item.emoji, profit: 0 };
+      const { revenue, profit } = computeItemRevenueAndProfit(item);
       productMap[item.name].qty += item.qty;
-      const rev = item.qty * (item.price - (item.itemDiscount || 0));
-      productMap[item.name].revenue += rev;
-      productMap[item.name].profit += (rev - (item.costPrice || 0) * item.qty);
+      productMap[item.name].revenue += revenue;
+      productMap[item.name].profit += profit;
     });
   });
   // Subtract returns
   returns.forEach(ret => {
     ret.items.forEach(item => {
       if (productMap[item.name]) {
+        const { revenue, profit } = computeItemRevenueAndProfit(item);
         productMap[item.name].qty -= item.qty;
-        const rev = item.qty * (item.price - (item.itemDiscount || 0));
-        productMap[item.name].revenue -= rev;
-        productMap[item.name].profit -= (rev - (item.costPrice || 0) * item.qty);
+        productMap[item.name].revenue -= revenue;
+        productMap[item.name].profit -= profit;
       }
     });
   });
   return Object.values(productMap).sort((a, b) => b.qty - a.qty).slice(0, 5);
+}
+
+// Day-by-day Sales (gross receipts, tax-inclusive — what actually came in) and Profit
+// (revenue excl. tax minus cost of goods, via computeItemRevenueAndProfit) for a date range.
+export async function getDailySalesBreakdown(branchId = null, startDate = null, endDate = null) {
+  const allOrders = await getOrders(branchId, startDate, endDate);
+  const orders = allOrders.filter(o => o.status !== 'cancelled');
+  const allReturns = await getReturns(branchId, startDate, endDate);
+  const salesReturns = allReturns.filter(r => r.type === 'sales');
+
+  const dayMap = {};
+  const ensureDay = (dateStr) => (dayMap[dateStr] ||= { date: dateStr, sales: 0, profit: 0, orders: 0 });
+
+  orders.forEach(order => {
+    const day = ensureDay(localDateOnly(order.date));
+    day.sales += order.total || 0;
+    day.orders += 1;
+    (order.items || []).forEach(item => {
+      day.profit += computeItemRevenueAndProfit(item).profit;
+    });
+  });
+
+  salesReturns.forEach(ret => {
+    const day = ensureDay(localDateOnly(ret.date));
+    day.sales -= ret.total || 0;
+    (ret.items || []).forEach(item => {
+      day.profit -= computeItemRevenueAndProfit(item).profit;
+    });
+  });
+
+  return Object.values(dayMap).sort((a, b) => b.date.localeCompare(a.date));
 }
 
 export async function getPurchasesMonthly() {
@@ -2206,7 +2263,7 @@ export async function getStaffIncentives(branchId = null, startDate = null, endD
     const isBranchMatch = !branchId || (i.branchId || 'b1') === branchId;
     // See getInventoryLogs() above — compare date-only so today's timestamped
     // incentive records aren't wrongly excluded when endDate is today.
-    const dateOnly = (i.date || '').slice(0, 10);
+    const dateOnly = localDateOnly(i.date);
     const isDateMatch = (!startDate || dateOnly >= startDate) && (!endDate || dateOnly <= endDate);
     return isBranchMatch && isDateMatch;
   });

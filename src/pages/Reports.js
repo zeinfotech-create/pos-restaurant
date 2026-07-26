@@ -1,4 +1,4 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getBranches, getCategorySales, getMonthlySales, getPaymentBreakdown, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getBranches, getCategorySales, getMonthlySales, getPaymentBreakdown, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { store } from '../store.js';
 import { navigate } from '../router.js';
@@ -242,18 +242,24 @@ async function renderSalesReport(container, cur) {
   const returnsTotal = salesReturns.reduce((s, r) => s + (r.total || 0), 0);
   const grossTotal = validOrders.reduce((s,o) => s + (o.total || 0), 0);
 
+  // Daily breakdown is the single source of truth for profit — the top-level "Gross Profit"
+  // stat card is just its sum, so the card and the day-by-day table below can never disagree
+  // the way the old order.total-minus-subtotal proxy (which ignored cost price entirely) did.
+  const dailyBreakdown = await getDailySalesBreakdown(currentBranchFilter, currentStartDate, currentEndDate);
+  const profitTotal = dailyBreakdown.reduce((s, d) => s + d.profit, 0);
+
   const todaySales = {
     grossTotal,
     returnsTotal,
     total: grossTotal - returnsTotal,
     count: validOrders.length,
-    profitTotal: validOrders.reduce((s,o) => s + (o.total - (o.subtotal || 0)), 0), // rough proxy
+    profitTotal,
   };
-  
+
   const last7 = await getSalesLast7Days(currentBranchFilter);
   const topProducts = await getTopProducts(currentBranchFilter, currentStartDate, currentEndDate);
 
-  const isToday = currentStartDate === new Date().toISOString().split('T')[0] && currentEndDate === currentStartDate;
+  const isToday = currentStartDate === format(new Date()) && currentEndDate === currentStartDate;
   const rangeLabel = isToday ? 'Today' : 'Range';
 
   container.innerHTML = `
@@ -317,6 +323,27 @@ async function renderSalesReport(container, cur) {
                 <td data-label="Qty Sold">${p.qty}</td>
                 <td data-label="Revenue" class="font-bold text-success">${cur}${p.revenue.toFixed(2)}</td>
                 <td data-label="Profit" class="font-bold text-accent">${cur}${(p.profit || 0).toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mt-16">
+      <div class="font-bold mb-16"><i class="fa-solid fa-calendar-days mr-8"></i> Daily Sales &amp; Profit</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Date</th><th>Orders</th><th>Sales</th><th>Profit</th><th>Margin</th></tr></thead>
+          <tbody>
+            ${dailyBreakdown.length === 0 ? `<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No sales in this range</td></tr>` :
+              dailyBreakdown.map(d => `
+              <tr>
+                <td data-label="Date">${new Date(d.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                <td data-label="Orders">${d.orders}</td>
+                <td data-label="Sales" class="font-bold text-success">${cur}${d.sales.toFixed(2)}</td>
+                <td data-label="Profit" class="font-bold text-accent">${cur}${d.profit.toFixed(2)}</td>
+                <td data-label="Margin">${d.sales > 0 ? ((d.profit / d.sales) * 100).toFixed(1) : '0.0'}%</td>
               </tr>
             `).join('')}
           </tbody>
