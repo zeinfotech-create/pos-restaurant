@@ -29,7 +29,8 @@ export async function renderPurchases(container, subPage) {
     if (searchQ) {
       filtered = filtered.filter(p =>
         (p.id || '').toLowerCase().includes(searchQ.toLowerCase()) ||
-        (p.supplierName || '').toLowerCase().includes(searchQ.toLowerCase())
+        (p.supplierName || '').toLowerCase().includes(searchQ.toLowerCase()) ||
+        (p.supplierInvoiceNo || '').toLowerCase().includes(searchQ.toLowerCase())
       );
     }
     if (supplierFilt !== 'all') {
@@ -114,7 +115,7 @@ export async function renderPurchases(container, subPage) {
       };
     }
 
-    tbody.innerHTML = paginatedPurchases.length === 0 ? `<tr><td colspan="7" style="text-align:center;padding:40px;opacity:0.5">No matching purchases found</td></tr>` :
+    tbody.innerHTML = paginatedPurchases.length === 0 ? `<tr><td colspan="8" style="text-align:center;padding:40px;opacity:0.5">No matching purchases found</td></tr>` :
       paginatedPurchases.map(p => `
         <tr class="${selectedIds.has(String(p.id)) ? 'selected' : ''}" data-id="${p.id}">
           <td class="th-checkbox" data-label="Select">
@@ -122,6 +123,7 @@ export async function renderPurchases(container, subPage) {
           </td>
           <td data-label="Date">${p.date ? new Date(p.date).toLocaleDateString() : 'N/A'}</td>
           <td data-label="Purchase ID" class="font-mono text-sm">${p.id || 'N/A'}</td>
+          <td data-label="Invoice #" class="font-mono text-sm">${p.supplierInvoiceNo || 'N/A'}</td>
           <td data-label="Supplier">${p.supplierName || 'Unknown Supplier'}</td>
           <td data-label="Total Amount" class="font-bold">\u20B9${p.total.toFixed(2)}</td>
           <td data-label="Status"><span class="badge ${p.status === 'Completed' ? 'badge-success' : 'badge-warning'}">${p.status}</span></td>
@@ -224,7 +226,7 @@ export async function renderPurchases(container, subPage) {
       <div class="data-mgmt-bar mobile-filter-stack p-16">
         <div class="search-input-wrap">
           <i class="fa-solid fa-magnifying-glass"></i>
-          <input class="form-input" id="purSearch" placeholder="Search by ID or Supplier..." />
+          <input class="form-input" id="purSearch" placeholder="Search by ID, Invoice #, or Supplier..." />
         </div>
         
         <div class="filter-group">
@@ -253,6 +255,7 @@ export async function renderPurchases(container, subPage) {
               <th class="th-checkbox"><input type="checkbox" class="row-checkbox" id="selectAllPurchases" /></th>
               <th>Date</th>
               <th>Purchase ID</th>
+              <th>Invoice #</th>
               <th>Supplier</th>
               <th>Total Amount</th>
               <th>Status</th>
@@ -319,6 +322,19 @@ export async function openPurchaseForm(container) {
   if (suppliers.length === 0) { showToast('Please add a supplier first', 'warning'); return; }
   if (products.length === 0) { showToast('Please add products first', 'warning'); return; }
 
+  // Suggest the next sequential invoice number as a pre-filled default (still editable —
+  // the user should overwrite it with the supplier's actual invoice number whenever they
+  // have one on hand). Based on the highest previously auto-generated number, not a plain
+  // count, so deleting an old purchase can't cause the next suggestion to collide with one
+  // that's still in use.
+  const branch = await getCurrentBranch();
+  const existingPurchases = await getPurchases(branch?.id);
+  const usedAutoNumbers = existingPurchases
+    .map(p => (p.supplierInvoiceNo || '').match(/^INV-(\d+)$/))
+    .filter(Boolean)
+    .map(m => parseInt(m[1], 10));
+  const nextInvoiceNo = `INV-${String((usedAutoNumbers.length ? Math.max(...usedAutoNumbers) : 0) + 1).padStart(4, '0')}`;
+
   let selectedItems = [];
   let billAttachment = '';
 
@@ -363,8 +379,9 @@ export async function openPurchaseForm(container) {
               <label class="form-label required">Supplier Invoice #</label>
               <div class="search-input-wrap">
                 <i class="fa-solid fa-file-invoice"></i>
-                <input class="form-input" id="purInvNo" placeholder="Bill Number" style="padding-left:36px; font-weight:700" />
+                <input class="form-input" id="purInvNo" placeholder="Bill Number" value="${nextInvoiceNo}" style="padding-left:36px; font-weight:700" />
               </div>
+              <p class="form-help-text">Auto-suggested — replace with the supplier's actual bill number if you have it.</p>
             </div>
             <div class="form-group">
               <label class="form-label">Place of Supply</label>
@@ -552,6 +569,7 @@ function viewPurchaseDetails(purchase) {
           <div style="font-size:14px;color:var(--text-secondary)">Supplier</div>
           <div class="font-bold">${purchase.supplierName || 'Unknown Supplier'}</div>
           <div style="font-size:12px;opacity:0.6">${purchase.date ? new Date(purchase.date).toLocaleString() : 'N/A'}</div>
+          <div style="font-size:12px;margin-top:4px">Invoice #: <span class="font-mono font-bold">${purchase.supplierInvoiceNo || 'N/A'}</span></div>
         </div>
         ${purchase.billAttachment ? `
           <button class="btn btn-ghost btn-sm" id="viewBillAttachmentBtn">
