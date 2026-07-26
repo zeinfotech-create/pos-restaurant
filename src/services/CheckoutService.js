@@ -878,7 +878,9 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         const iTaxRate = i.taxRate || 0;
         if (iTaxRate <= 0) return sum;
         
-        const iDiscount = (i.itemDiscount || 0) * iQty;
+        const iDiscount = i.itemDiscountType === 'pct'
+          ? (iPrice * iQty * (i.itemDiscount || 0) / 100)
+          : ((i.itemDiscount || 0) * iQty);
         const iSub = (iPrice * iQty) - iDiscount;
         return sum + (iSub * iTaxRate / 100);
      }, 0);
@@ -980,7 +982,10 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         <div style="font-size:11px; font-weight:bold; text-align:center; color:var(--danger); opacity:0.8; margin-bottom:8px">RETURNED ITEMS</div>
         ${allReturns.map(r => r.items.map(i => {
       const rQty = parseFloat(parseFloat(i.qty).toFixed(3));
-      const lineTotal = (i.price * rQty) - ((i.itemDiscount || 0) * rQty);
+      const rDiscount = i.itemDiscountType === 'pct'
+        ? (i.price * rQty * (i.itemDiscount || 0) / 100)
+        : ((i.itemDiscount || 0) * rQty);
+      const lineTotal = (i.price * rQty) - rDiscount;
       return `
           <div class="receipt-row" style="align-items:flex-start; color:var(--danger); margin-bottom:6px">
             <div style="flex:1">

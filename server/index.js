@@ -216,7 +216,13 @@ const server = http.createServer(async (req, res) => {
     // LAN devices know this shop's local hub is already set up.
     if (req.url === '/api/install-check' && req.method === 'GET') {
         try {
-            const userCount = await DBManager.count(User, 'users', { licenseKey: 'LOCAL_EXE' });
+            // No licenseKey filter: a standalone local hub represents exactly one shop at a
+            // time, and its admin user's licenseKey changes once a real Lifetime/Upgrade key
+            // is activated (moving off the 'LOCAL_EXE' placeholder) — filtering on the
+            // placeholder here made this check start reporting "not installed" for any shop
+            // that had since activated a real license, incorrectly bouncing them back to
+            // onboarding mid-session on every navigate() call.
+            const userCount = await DBManager.count(User, 'users', {});
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ hasUsers: userCount > 0, userCount, dbConnected: isDbConnected }));
         } catch (err) {
