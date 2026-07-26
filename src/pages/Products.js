@@ -1,4 +1,4 @@
-import { getProducts, addProduct, updateProduct, deleteProduct, getSettings, getBranches, getCurrentUser, hasPermission, logInventoryChange, getInventoryLogs, getCategories, getSubCategories, getProductStockAcrossBranches, getLabelConfig, saveLabelConfig } from '../db.js';
+import { getProducts, addProduct, updateProduct, deleteProduct, getSettings, getBranches, getCurrentUser, hasPermission, logInventoryChange, getInventoryLogs, getCategories, getSubCategories, getProductStockAcrossBranches, getLabelConfig, saveLabelConfig, getExpiringProducts } from '../db.js';
 import { store } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
@@ -151,6 +151,7 @@ export async function renderProducts(container) {
             <option value="In Stock" ${filterStock === 'In Stock' ? 'selected' : ''}>In Stock</option>
             <option value="Low Stock" ${filterStock === 'Low Stock' ? 'selected' : ''}>Low Stock</option>
             <option value="Out of Stock" ${filterStock === 'Out of Stock' ? 'selected' : ''}>Out of Stock</option>
+            <option value="Expiring Soon" ${filterStock === 'Expiring Soon' ? 'selected' : ''}>Expiring Soon</option>
           </select>
         </div>
 
@@ -274,7 +275,10 @@ async function renderTable(container, cur) {
   if (filterCategory !== 'All') {
     filteredProducts = filteredProducts.filter(p => p.category && p.category.trim().toLowerCase() === filterCategory.trim().toLowerCase());
   }
-  if (filterStock !== 'All') {
+  if (filterStock === 'Expiring Soon') {
+    const expiringIds = new Set((await getExpiringProducts(store.branch?.id)).map(p => String(p.id)));
+    filteredProducts = filteredProducts.filter(p => expiringIds.has(String(p.id)));
+  } else if (filterStock !== 'All') {
     filteredProducts = filteredProducts.filter(p => {
       if (filterStock === 'In Stock') return p.stock > 10;
       if (filterStock === 'Low Stock') return p.stock > 0 && p.stock <= 10;

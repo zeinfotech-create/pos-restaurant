@@ -1654,7 +1654,7 @@ export async function openExpiryModal(cur) {
     `,
     footer: `
       <button class="btn btn-ghost" onclick="closeModal()">Dismiss</button>
-      <button class="btn btn-primary" onclick="closeModal(); window.navigate('products')">
+      <button class="btn btn-primary" onclick="closeModal(); window.posFilterStock = 'Expiring Soon'; window.navigate('products')">
         <i class="fa-solid fa-box-open mr-8"></i> Manage Inventory
       </button>
     `
