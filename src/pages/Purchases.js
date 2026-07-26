@@ -123,7 +123,7 @@ export async function renderPurchases(container, subPage) {
           <td data-label="Date">${p.date ? new Date(p.date).toLocaleDateString() : 'N/A'}</td>
           <td data-label="Purchase ID" class="font-mono text-sm">${p.id || 'N/A'}</td>
           <td data-label="Supplier">${p.supplierName || 'Unknown Supplier'}</td>
-          <td data-label="Total Amount" class="font-bold">\u20B9${p.total.toLocaleString()}</td>
+          <td data-label="Total Amount" class="font-bold">\u20B9${p.total.toFixed(2)}</td>
           <td data-label="Status"><span class="badge ${p.status === 'Completed' ? 'badge-success' : 'badge-warning'}">${p.status}</span></td>
           <td>
             <div style="display:flex;gap:4px">
@@ -436,12 +436,27 @@ export async function openPurchaseForm(container) {
     if (!p) { showToast('Product not found', 'error'); return; }
     if (selectedItems.find(x => String(x.id) === String(pid))) { showToast('Product already added', 'warning'); return; }
 
-    selectedItems.push({ id: p.id, name: p.name, qty: 1, cost: (p.price || 0) * 0.8 }); // Guess cost as 80%
+    // Prefer the product's own recorded Cost Price — only fall back to a rough 80%-of-selling-price
+    // guess for products that have never had a cost price set at all.
+    const defaultCost = p.costPrice > 0 ? p.costPrice : (p.price || 0) * 0.8;
+    selectedItems.push({ id: p.id, name: p.name, qty: 1, cost: defaultCost });
     renderItems();
   };
 
   document.getElementById('completePurchaseBtn').onclick = async () => {
     if (selectedItems.length === 0) { showToast('Add items to purchase', 'error'); return; }
+
+    // Qty must be positive — a zero/negative quantity here would still log an inventory
+    // change tagged "Purchase Received IN" while actually leaving stock unchanged or
+    // reducing it, which is the opposite of what a purchase record should ever do.
+    const invalidItem = selectedItems.find(i => !(i.qty > 0) || i.cost < 0);
+    if (invalidItem) {
+      showToast(`"${invalidItem.name}": quantity must be greater than 0 and cost can't be negative`, 'error');
+      return;
+    }
+
+    const invNo = document.getElementById('purInvNo').value.trim();
+    if (!invNo) { showToast('Supplier Invoice # is required', 'error'); return; }
 
     const supplierId = document.getElementById('purSupplier').value;
     const sup = suppliers.find(s => String(s.id) === String(supplierId));
@@ -459,7 +474,7 @@ export async function openPurchaseForm(container) {
       supplierId,
       supplierName: sup.name || 'Unknown Supplier',
       supplierGstin: sup.gstin || '',
-      supplierInvoiceNo: document.getElementById('purInvNo').value.trim() || 'NOT_PROVIDED',
+      supplierInvoiceNo: invNo,
       placeOfSupply: document.getElementById('purPos').value.trim(),
       items: selectedItems,
       subtotal,
@@ -508,25 +523,25 @@ function viewPurchaseDetails(purchase) {
               <tr>
                 <td data-label="Product">${i.name}</td>
                 <td data-label="Qty">${i.qty}</td>
-                <td data-label="Cost">\u20B9${i.cost.toLocaleString()}</td>
-                <td data-label="Subtotal" class="font-bold">\u20B9${(i.qty * i.cost).toLocaleString()}</td>
+                <td data-label="Cost">\u20B9${i.cost.toFixed(2)}</td>
+                <td data-label="Subtotal" class="font-bold">\u20B9${(i.qty * i.cost).toFixed(2)}</td>
               </tr>
             `).join('')}
           </tbody>
           <tfoot>
             <tr>
               <td colspan="3" style="text-align:right">Subtotal:</td>
-              <td class="font-bold">\u20B9${(purchase.subtotal || purchase.total).toLocaleString()}</td>
+              <td class="font-bold">\u20B9${(purchase.subtotal || purchase.total).toFixed(2)}</td>
             </tr>
             ${purchase.taxAmount > 0 ? `
               <tr>
                 <td colspan="3" style="text-align:right">Tax (${purchase.taxRate}%):</td>
-                <td class="font-bold">\u20B9${purchase.taxAmount.toLocaleString()}</td>
+                <td class="font-bold">\u20B9${purchase.taxAmount.toFixed(2)}</td>
               </tr>
             ` : ''}
             <tr>
               <td colspan="3" style="text-align:right"><strong>Total Amount:</strong></td>
-              <td class="font-bold text-accent" style="font-size:16px">\u20B9${purchase.total.toLocaleString()}</td>
+              <td class="font-bold text-accent" style="font-size:16px">\u20B9${purchase.total.toFixed(2)}</td>
             </tr>
           </tfoot>
         </table>

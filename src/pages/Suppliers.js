@@ -22,10 +22,10 @@ export async function renderSuppliers(container, subPage) {
     let list = await getSuppliers(branchId);
     
     if (searchQ) {
-      list = list.filter(s => 
-        s.name.toLowerCase().includes(searchQ.toLowerCase()) || 
+      list = list.filter(s =>
+        (s.name || '').toLowerCase().includes(searchQ.toLowerCase()) ||
         (s.contact || '').toLowerCase().includes(searchQ.toLowerCase()) ||
-        s.phone.toLowerCase().includes(searchQ.toLowerCase())
+        (s.phone || '').toLowerCase().includes(searchQ.toLowerCase())
       );
     }
     
@@ -138,7 +138,7 @@ export async function renderSuppliers(container, subPage) {
                   </div>
                 </td>
                 <td data-label="Contact Person">${s.contact || '-'}</td>
-                <td data-label="Phone">${s.phone}</td>
+                <td data-label="Phone">${s.phone || '-'}</td>
                 <td>
                   <div style="display:flex;gap:4px">
                     ${canManage ? `
