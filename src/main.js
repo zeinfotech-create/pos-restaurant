@@ -128,7 +128,6 @@ async function renderSidebar() {
           <button class="submenu-item ${getCurrentPage() === 'reports/category-sales' ? 'active' : ''}" data-page="reports/category-sales"><i class="fa-solid fa-tags"></i> <span>Category Sales</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/sales-analysis' ? 'active' : ''}" data-page="reports/sales-analysis"><i class="fa-solid fa-chart-area"></i> <span>Business Analysis</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/inventory' ? 'active' : ''}" data-page="reports/inventory"><i class="fa-solid fa-cubes"></i> <span>Inventory Report</span></button>
-          <button class="submenu-item ${getCurrentPage() === 'reports/credit' ? 'active' : ''}" data-page="reports/credit"><i class="fa-solid fa-credit-card"></i> <span>Credit Hub</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/purchases' ? 'active' : ''}" data-page="reports/purchases"><i class="fa-solid fa-truck-ramp-box"></i> <span>Purchase Report</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/vehicles' ? 'active' : ''}" data-page="reports/vehicles"><i class="fa-solid fa-truck-fast"></i> <span>Vehicle Report</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/outstanding' ? 'active' : ''}" data-page="reports/outstanding"><i class="fa-solid fa-scale-unbalanced"></i> <span>Outstanding Report</span></button>

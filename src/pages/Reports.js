@@ -60,7 +60,6 @@ export async function renderReports(container, subPage = 'sales') {
       <button class="btn btn-ghost btn-sm ${subPage === 'category-sales' ? 'active-tab' : ''}" onclick="navigate('reports/category-sales')">Categories</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'sales-analysis' ? 'active-tab' : ''}" onclick="navigate('reports/sales-analysis')">Analysis</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'inventory' ? 'active-tab' : ''}" onclick="navigate('reports/inventory')">Inventory</button>
-      <button class="btn btn-ghost btn-sm ${subPage === 'credit' ? 'active-tab' : ''}" onclick="navigate('reports/credit')">Credit Hub</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'purchases' ? 'active-tab' : ''}" onclick="navigate('reports/purchases')">Procurement</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'vehicles' ? 'active-tab' : ''}" onclick="navigate('reports/vehicles')">Vehicles</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'outstanding' ? 'active-tab' : ''}" onclick="navigate('reports/outstanding')">Outstanding</button>
@@ -113,9 +112,6 @@ export async function renderReports(container, subPage = 'sales') {
     case 'inventory':
       await renderLowStockReport(contentEl, cur);
       break;
-    case 'credit':
-      await renderCreditReport(contentEl, cur);
-      break;
     case 'returns':
       await renderReturnsReport(contentEl, cur);
       break;
@@ -138,7 +134,7 @@ export async function renderReports(container, subPage = 'sales') {
 
   const REPORT_LABELS = {
     sales: 'Sales Hub', 'instant-sales': 'Instant Sales', 'category-sales': 'Category Sales',
-    'sales-analysis': 'Business Analysis', inventory: 'Inventory Report', credit: 'Credit Hub',
+    'sales-analysis': 'Business Analysis', inventory: 'Inventory Report',
     purchases: 'Procurement', vehicles: 'Vehicle Delivery Report', outstanding: 'Outstanding Report',
     gst: 'GST Center', customers: 'Customer Report', staff: 'Staff Earnings',
     registers: 'Register Report', 'login-activity': 'Login Audit', returns: 'Returns History'
@@ -760,19 +756,74 @@ async function renderVehicleDeliveryReport(container, cur) {
 }
 
 async function renderOutstandingReport(container, cur) {
+  // Purchase side: money the shop owes suppliers
   const suppliers = await getSupplierOutstandingReport(currentBranchFilter, currentStartDate, currentEndDate);
-  const totalOutstanding = suppliers.reduce((s, x) => s + x.outstanding, 0);
+  const totalPurchaseOutstanding = suppliers.reduce((s, x) => s + x.outstanding, 0);
+
+  // Sales side: money owed TO the shop from customer credit sales (formerly the separate
+  // "Credit Hub" tab — merged here so both directions of "outstanding" live in one place)
+  const ordersRaw = await getOrders(currentBranchFilter, currentStartDate, currentEndDate);
+  const creditOrders = ordersRaw.filter(o => o.isCredit);
+  const creditMap = {};
+  creditOrders.forEach(o => {
+    const cid = o.customer?.id || 'unknown';
+    if (!creditMap[cid]) {
+      creditMap[cid] = { name: o.customer?.name || 'Unknown Customer', phone: o.customer?.phone || 'N/A', totalOutstanding: 0, orderCount: 0, lastOrderDate: o.date, orders: [] };
+    }
+    const paid = (o.payments || []).reduce((s, p) => s + p.amount, 0);
+    const balance = o.total - paid;
+    creditMap[cid].totalOutstanding += balance;
+    creditMap[cid].orderCount++;
+    creditMap[cid].orders.push({ id: o.id, dailyNumber: o.dailyNumber, date: o.date, total: o.total, balance });
+    if (new Date(o.date) > new Date(creditMap[cid].lastOrderDate)) creditMap[cid].lastOrderDate = o.date;
+  });
+  const customers = Object.values(creditMap).sort((a, b) => b.totalOutstanding - a.totalOutstanding);
+  const totalSalesOutstanding = customers.reduce((s, c) => s + c.totalOutstanding, 0);
 
   container.innerHTML = `
-    <div class="stat-card mb-24" style="border-left:4px solid var(--danger)">
-      <div class="stat-info">
-        <div class="stat-label">Total Outstanding to Suppliers</div>
-        <div class="stat-value text-danger" style="font-size:32px">${cur}${totalOutstanding.toFixed(2)}</div>
+    <div class="grid-2 mb-24">
+      <div class="stat-card" style="border-left:4px solid var(--warning)">
+        <div class="stat-info">
+          <div class="stat-label">Sales Outstanding (owed TO you by customers)</div>
+          <div class="stat-value" style="font-size:32px; color:var(--warning)">${cur}${totalSalesOutstanding.toFixed(2)}</div>
+        </div>
+      </div>
+      <div class="stat-card" style="border-left:4px solid var(--danger)">
+        <div class="stat-info">
+          <div class="stat-label">Purchase Outstanding (owed BY you to suppliers)</div>
+          <div class="stat-value text-danger" style="font-size:32px">${cur}${totalPurchaseOutstanding.toFixed(2)}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-16">
+      <div class="font-bold mb-16"><i class="fa-solid fa-hand-holding-hand mr-8" style="color:var(--warning)"></i> Sales Outstanding — by Customer</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Customer</th><th>Pending Orders</th><th>Last Activity</th><th>Outstanding Balance</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${customers.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No outstanding customer credit found. Great! 💎</td></tr>' :
+              customers.map(c => `
+                <tr>
+                  <td data-label="Customer">
+                    <div style="text-align:left">
+                      <div class="font-bold">${c.name}</div>
+                      <div style="font-size:11px;opacity:0.6">${c.phone}</div>
+                    </div>
+                  </td>
+                  <td data-label="Orders"><span class="badge badge-info">${c.orderCount} Orders</span></td>
+                  <td data-label="Last Activity" style="font-size:12px">${new Date(c.lastOrderDate).toLocaleDateString()}</td>
+                  <td data-label="Balance" class="font-bold" style="font-size:16px; color:var(--warning)">${cur}${c.totalOutstanding.toFixed(2)}</td>
+                  <td><button class="btn btn-ghost btn-sm sales-outstanding-view-btn" data-customer="${c.name}"><i class="fa-solid fa-eye"></i> View Orders</button></td>
+                </tr>
+              `).join('')}
+          </tbody>
+        </table>
       </div>
     </div>
 
     <div class="card">
-      <div class="font-bold mb-16"><i class="fa-solid fa-truck-ramp-box mr-8 text-danger"></i> Outstanding by Supplier</div>
+      <div class="font-bold mb-16"><i class="fa-solid fa-truck-ramp-box mr-8 text-danger"></i> Purchase Outstanding — by Supplier</div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Supplier</th><th>Purchases</th><th>Total Purchased</th><th>Paid</th><th>Outstanding</th><th>Actions</th></tr></thead>
@@ -793,6 +844,34 @@ async function renderOutstandingReport(container, cur) {
       </div>
     </div>
   `;
+
+  container.querySelectorAll('.sales-outstanding-view-btn').forEach(btn => {
+    btn.onclick = () => {
+      const c = customers.find(x => x.name === btn.dataset.customer);
+      if (!c) return;
+      openModal({
+        title: `Outstanding Orders — ${c.name}`,
+        body: `
+          <div class="table-wrap">
+            <table class="responsive-table">
+              <thead><tr><th>Order #</th><th>Date</th><th>Total</th><th>Balance</th></tr></thead>
+              <tbody>
+                ${c.orders.sort((a, b) => new Date(b.date) - new Date(a.date)).map(o => `
+                  <tr>
+                    <td data-label="Order #">${o.dailyNumber ? '#' + o.dailyNumber : o.id}</td>
+                    <td data-label="Date">${o.date ? new Date(o.date).toLocaleDateString() : 'N/A'}</td>
+                    <td data-label="Total">${cur}${o.total.toFixed(2)}</td>
+                    <td data-label="Balance" class="font-bold" style="color:var(--warning)">${cur}${o.balance.toFixed(2)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `,
+        footer: `<button class="btn btn-primary" onclick="closeModal()">Close</button>`
+      });
+    };
+  });
 
   container.querySelectorAll('.outstanding-view-btn').forEach(btn => {
     btn.onclick = () => {
@@ -1542,71 +1621,6 @@ async function renderReturnsReport(container, cur) {
   });
 
 }
-
-async function renderCreditReport(container, cur) {
-  const ordersRaw = await getOrders(currentBranchFilter, currentStartDate, currentEndDate);
-  const orders = ordersRaw.filter(o => o.isCredit);
-
-  // Group by customer
-  const creditMap = {};
-  orders.forEach(o => {
-    const cid = o.customer?.id || 'unknown';
-    if (!creditMap[cid]) {
-      creditMap[cid] = {
-        name: o.customer?.name || 'Unknown Customer',
-        phone: o.customer?.phone || 'N/A',
-        totalOutstanding: 0,
-        orderCount: 0,
-        lastOrderDate: o.date
-      };
-    }
-    const paid = (o.payments || []).reduce((s, p) => s + p.amount, 0);
-    const balance = o.total - paid;
-    creditMap[cid].totalOutstanding += balance;
-    creditMap[cid].orderCount++;
-    if (new Date(o.date) > new Date(creditMap[cid].lastOrderDate)) {
-      creditMap[cid].lastOrderDate = o.date;
-    }
-  });
-
-  const creditList = Object.values(creditMap).sort((a, b) => b.totalOutstanding - a.totalOutstanding);
-  const totalGlobalCredit = creditList.reduce((s, c) => s + c.totalOutstanding, 0);
-
-  container.innerHTML = `
-    <div class="stat-card mb-24" style="border-left:4px solid var(--danger)">
-      <div class="stat-info">
-        <div class="stat-label">Total Outstanding Market Credit</div>
-        <div class="stat-value text-danger" style="font-size:32px">${cur}${totalGlobalCredit.toLocaleString()}</div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="font-bold mb-16"><i class="fa-solid fa-hand-holding-hand mr-8 text-primary"></i> Credit Summary by Customer</div>
-      <div class="table-wrap">
-        <table class="responsive-table">
-          <thead><tr><th>Customer</th><th>Pending Orders</th><th>Last Activity</th><th>Outstanding Balance</th></tr></thead>
-          <tbody>
-            ${creditList.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:40px;opacity:0.5">No outstanding credit found. Great! 💎</td></tr>' :
-      creditList.map(c => `
-                <tr>
-                  <td data-label="Customer">
-                    <div style="text-align:left">
-                      <div class="font-bold">${c.name}</div>
-                      <div style="font-size:11px;opacity:0.6">${c.phone}</div>
-                    </div>
-                  </td>
-                  <td data-label="Orders"><span class="badge badge-info">${c.orderCount} Orders</span></td>
-                  <td data-label="Last Activity" style="font-size:12px">${new Date(c.lastOrderDate).toLocaleDateString()}</td>
-                  <td data-label="Balance" class="font-bold text-danger" style="font-size:16px">${cur}${c.totalOutstanding.toFixed(2)}</td>
-                </tr>
-              `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
-}
-
 
 // Keep existing chart functions but update variable management
 function renderSalesChart(data) {
