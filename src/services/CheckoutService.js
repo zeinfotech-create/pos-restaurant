@@ -319,6 +319,16 @@ export async function openCheckout() {
                          </div>
                        ` : ''}
 
+                       <!-- Delivery Vehicle (optional) -->
+                       <div>
+                         <label class="form-label" style="font-size:10px; font-weight:800; color:var(--text-muted); text-transform:uppercase">Delivery Vehicle (optional)</label>
+                         <div style="position:relative">
+                           <i class="fa-solid fa-truck-fast" style="position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--text-muted); font-size:13px"></i>
+                           <input type="text" class="form-input" id="deliveryVehicleInput" placeholder="e.g. TN01AB1234" value=""
+                             style="padding-left:36px" />
+                         </div>
+                       </div>
+
                         <!-- Actions -->
                         <div style="display:flex; flex-direction:column; gap:12px; margin-top:12px">
                             <button class="btn" id="confirmPayBtn" style="background:var(--success); color:#fff; border:none; padding:18px; border-radius:16px; font-weight:900; font-size:16px; box-shadow:0 8px 24px rgba(16, 185, 129, 0.3); transition:all 0.2s; width:100%">
@@ -409,6 +419,7 @@ export async function openCheckout() {
         const paid = payments.reduce((s, p) => s + p.amount, 0);
         const outstanding = Math.max(0, total - redeemedPoints - paid);
         const creditNote = document.getElementById('creditInfo')?.value;
+        const deliveryVehicle = document.getElementById('deliveryVehicleInput')?.value.trim() || '';
 
         // Mode logic
         const isUnpaid = checkoutMode === 'unpaid';
@@ -437,7 +448,8 @@ export async function openCheckout() {
             isCredit: isUnpaid,
             creditInfo: creditNote || (isUnpaid ? 'Unpaid Transaction' : ''),
             redeemedPoints,
-            creditUsed: creditApplied
+            creditUsed: creditApplied,
+            deliveryVehicle
         });
 
         await confirmOrder(validPayments, getCartTotals(), settings, cur, confirmData());
@@ -719,6 +731,7 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
       globalDiscountRaw: store.discountRaw,
       total: totals.total,
       redeemedPoints: creditData.redeemedPoints || 0,
+      deliveryVehicle: creditData.deliveryVehicle || '',
       storeName: settings.storeName,
       branchId: store.branch?.id || 'b1',
       staff: store.selectedStaff || null,

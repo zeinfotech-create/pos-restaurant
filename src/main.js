@@ -130,6 +130,7 @@ async function renderSidebar() {
           <button class="submenu-item ${getCurrentPage() === 'reports/inventory' ? 'active' : ''}" data-page="reports/inventory"><i class="fa-solid fa-cubes"></i> <span>Inventory Report</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/credit' ? 'active' : ''}" data-page="reports/credit"><i class="fa-solid fa-credit-card"></i> <span>Credit Hub</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/purchases' ? 'active' : ''}" data-page="reports/purchases"><i class="fa-solid fa-truck-ramp-box"></i> <span>Purchase Report</span></button>
+          <button class="submenu-item ${getCurrentPage() === 'reports/vehicles' ? 'active' : ''}" data-page="reports/vehicles"><i class="fa-solid fa-truck-fast"></i> <span>Vehicle Report</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/gst' ? 'active' : ''}" data-page="reports/gst"><i class="fa-solid fa-file-invoice-dollar"></i> <span>GST Summary</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/customers' ? 'active' : ''}" data-page="reports/customers"><i class="fa-solid fa-users"></i> <span>Customer Based</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/staff' ? 'active' : ''}" data-page="reports/staff"><i class="fa-solid fa-hand-holding-dollar"></i> <span>Staff Earnings</span></button>

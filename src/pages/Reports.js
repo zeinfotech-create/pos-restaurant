@@ -1,5 +1,6 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getBranches, getCategorySales, getMonthlySales, getPaymentBreakdown, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getBranches, getCategorySales, getMonthlySales, getPaymentBreakdown, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission } from '../db.js';
 import { showToast } from '../components/Toast.js';
+import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
 import { navigate } from '../router.js';
 import { Chart, registerables } from 'chart.js';
@@ -52,6 +53,7 @@ export async function renderReports(container, subPage = 'sales') {
       <button class="btn btn-ghost btn-sm ${subPage === 'inventory' ? 'active-tab' : ''}" onclick="navigate('reports/inventory')">Inventory</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'credit' ? 'active-tab' : ''}" onclick="navigate('reports/credit')">Credit Hub</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'purchases' ? 'active-tab' : ''}" onclick="navigate('reports/purchases')">Procurement</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'vehicles' ? 'active-tab' : ''}" onclick="navigate('reports/vehicles')">Vehicles</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'gst' ? 'active-tab' : ''}" onclick="navigate('reports/gst')">GST Center</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'customers' ? 'active-tab' : ''}" onclick="navigate('reports/customers')">Customers</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'staff' ? 'active-tab' : ''}" onclick="navigate('reports/staff')">Staff</button>
@@ -79,6 +81,9 @@ export async function renderReports(container, subPage = 'sales') {
       break;
     case 'purchases':
       await renderPurchaseReport(contentEl, cur);
+      break;
+    case 'vehicles':
+      await renderVehicleDeliveryReport(contentEl, cur);
       break;
     case 'gst':
       await renderGSTReport(contentEl, cur);
@@ -578,6 +583,79 @@ async function renderPurchaseReport(container, cur) {
     btn.onclick = async () => {
       const pur = purchases.find(p => p.id === btn.dataset.id);
       if (pur) await openPurchaseReturnModal(pur, cur);
+    };
+  });
+}
+
+async function renderVehicleDeliveryReport(container, cur) {
+  const vehicles = await getVehicleDeliveryReport(currentBranchFilter, currentStartDate, currentEndDate);
+  const totalDeliveries = vehicles.reduce((s, v) => s + v.deliveries, 0);
+  const totalValue = vehicles.reduce((s, v) => s + v.totalValue, 0);
+
+  container.innerHTML = `
+    <div class="grid-2 mb-24">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(59,130,246,0.15)"><i class="fa-solid fa-truck-fast" style="color:#3b82f6"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${totalDeliveries}</div>
+          <div class="stat-label">Total Deliveries (Range)</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(16,185,129,0.15)"><i class="fa-solid fa-coins" style="color:#10b981"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${cur}${totalValue.toFixed(2)}</div>
+          <div class="stat-label">Total Delivery Value (Range)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="font-bold mb-16"><i class="fa-solid fa-truck-fast mr-8"></i> Vehicle-wise Delivery Report</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Vehicle</th><th>Deliveries</th><th>Total Value</th><th>Avg / Delivery</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${vehicles.length === 0 ? `<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No deliveries with a vehicle recorded in this range. Vehicle number is entered as an optional field at checkout.</td></tr>` :
+              vehicles.map(v => `
+              <tr>
+                <td data-label="Vehicle" class="font-bold">${v.vehicle}</td>
+                <td data-label="Deliveries">${v.deliveries}</td>
+                <td data-label="Total Value" class="font-bold text-success">${cur}${v.totalValue.toFixed(2)}</td>
+                <td data-label="Avg / Delivery">${cur}${(v.totalValue / v.deliveries).toFixed(2)}</td>
+                <td><button class="btn btn-ghost btn-sm vehicle-view-btn" data-vehicle="${v.vehicle}"><i class="fa-solid fa-eye"></i> View Orders</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  container.querySelectorAll('.vehicle-view-btn').forEach(btn => {
+    btn.onclick = () => {
+      const v = vehicles.find(x => x.vehicle === btn.dataset.vehicle);
+      if (!v) return;
+      openModal({
+        title: `Deliveries by ${v.vehicle}`,
+        body: `
+          <div class="table-wrap">
+            <table class="responsive-table">
+              <thead><tr><th>Order #</th><th>Date</th><th>Total</th></tr></thead>
+              <tbody>
+                ${v.orders.sort((a, b) => new Date(b.date) - new Date(a.date)).map(o => `
+                  <tr>
+                    <td data-label="Order #">${o.dailyNumber ? '#' + o.dailyNumber : o.id}</td>
+                    <td data-label="Date">${o.date ? new Date(o.date).toLocaleString() : 'N/A'}</td>
+                    <td data-label="Total" class="font-bold text-success">${cur}${o.total.toFixed(2)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `,
+        footer: `<button class="btn btn-primary" onclick="closeModal()">Close</button>`
+      });
     };
   });
 }

@@ -1853,6 +1853,24 @@ export async function getDailySalesBreakdown(branchId = null, startDate = null, 
   return Object.values(dayMap).sort((a, b) => b.date.localeCompare(a.date));
 }
 
+// Groups orders that had a delivery vehicle recorded at checkout (CheckoutService.js's
+// "Delivery Vehicle (optional)" field) by vehicle number, for a date range.
+export async function getVehicleDeliveryReport(branchId = null, startDate = null, endDate = null) {
+  const allOrders = await getOrders(branchId, startDate, endDate);
+  const orders = allOrders.filter(o => o.status !== 'cancelled' && (o.deliveryVehicle || '').trim());
+
+  const vehicleMap = {};
+  orders.forEach(order => {
+    const vehicle = order.deliveryVehicle.trim();
+    if (!vehicleMap[vehicle]) vehicleMap[vehicle] = { vehicle, deliveries: 0, totalValue: 0, orders: [] };
+    vehicleMap[vehicle].deliveries += 1;
+    vehicleMap[vehicle].totalValue += order.total || 0;
+    vehicleMap[vehicle].orders.push({ id: order.id, dailyNumber: order.dailyNumber, date: order.date, total: order.total || 0 });
+  });
+
+  return Object.values(vehicleMap).sort((a, b) => b.deliveries - a.deliveries);
+}
+
 export async function getPurchasesMonthly() {
   const purchases = await getPurchases();
   const months = {};
