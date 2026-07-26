@@ -440,6 +440,14 @@ export async function openPurchaseForm(container) {
             <input class="form-input" type="number" id="purTaxRate" value="0" placeholder="e.g. 18" style="padding-left:36px" />
           </div>
         </div>
+        <div class="form-group">
+          <label class="form-label">Amount Paid to Supplier Now</label>
+          <div class="search-input-wrap">
+            <i class="fa-solid fa-money-bill-wave"></i>
+            <input class="form-input" type="number" id="purAmountPaid" value="0" placeholder="0.00" min="0" style="padding-left:36px" />
+          </div>
+          <p class="form-help-text">Leave as 0 if this is fully on credit — the unpaid balance shows up in the Outstanding report.</p>
+        </div>
         <div class="form-group" style="display:flex; align-items:center; justify-content:flex-end">
            <div style="text-align:right">
               <div style="font-size:11px; color:var(--text-muted)">Current Items</div>
@@ -524,6 +532,10 @@ export async function openPurchaseForm(container) {
     const taxAmount = subtotal * (taxRate / 100);
     const total = subtotal + taxAmount;
 
+    let amountPaid = parseFloat(document.getElementById('purAmountPaid').value) || 0;
+    if (amountPaid < 0) { showToast('Amount Paid cannot be negative', 'error'); return; }
+    if (amountPaid > total) { showToast(`Amount Paid can't exceed the purchase total (${store.settings.currency || '₹'}${total.toFixed(2)})`, 'error'); return; }
+
     const newPur = await savePurchase({
       date: new Date().toISOString(),
       supplierId,
@@ -536,6 +548,7 @@ export async function openPurchaseForm(container) {
       taxRate,
       taxAmount,
       total,
+      amountPaid,
       billAttachment,
       status: 'Completed'
     });
@@ -561,6 +574,9 @@ export async function openPurchaseForm(container) {
 }
 
 function viewPurchaseDetails(purchase) {
+  const amountPaid = purchase.amountPaid || 0;
+  const outstanding = Math.max(0, purchase.total - amountPaid);
+
   openModal({
     title: `Purchase Details: ${purchase.id || 'N/A'}`,
     body: `
@@ -607,9 +623,26 @@ function viewPurchaseDetails(purchase) {
               <td colspan="3" style="text-align:right"><strong>Total Amount:</strong></td>
               <td class="font-bold text-accent" style="font-size:16px">\u20B9${purchase.total.toFixed(2)}</td>
             </tr>
+            <tr>
+              <td colspan="3" style="text-align:right">Paid to Supplier:</td>
+              <td class="font-bold text-success">\u20B9${amountPaid.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td colspan="3" style="text-align:right"><strong>Outstanding:</strong></td>
+              <td class="font-bold ${outstanding > 0 ? 'text-danger' : 'text-success'}" style="font-size:16px">\u20B9${outstanding.toFixed(2)}</td>
+            </tr>
           </tfoot>
         </table>
       </div>
+      ${outstanding > 0 ? `
+        <div style="margin-top:16px; padding:16px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border)">
+          <label class="form-label">Record a Payment to Supplier</label>
+          <div style="display:flex; gap:8px">
+            <input class="form-input" type="number" id="recordPaymentAmount" placeholder="0.00" min="0" max="${outstanding}" style="flex:1" />
+            <button class="btn btn-primary" id="recordPaymentBtn">Add Payment</button>
+          </div>
+        </div>
+      ` : ''}
     `,
     footer: `<button class="btn btn-primary" onclick="closeModal()">Close Details</button>`
   });
@@ -618,5 +651,18 @@ function viewPurchaseDetails(purchase) {
   // URI and can be several MB — far too large to embed as an onclick attribute value.
   document.getElementById('viewBillAttachmentBtn')?.addEventListener('click', () => {
     window.open(purchase.billAttachment, '_blank');
+  });
+
+  document.getElementById('recordPaymentBtn')?.addEventListener('click', async () => {
+    const input = document.getElementById('recordPaymentAmount');
+    const amount = parseFloat(input.value) || 0;
+    if (amount <= 0) { showToast('Enter a valid payment amount', 'error'); return; }
+    if (amount > outstanding + 0.01) { showToast(`Payment can't exceed the outstanding balance (₹${outstanding.toFixed(2)})`, 'error'); return; }
+
+    await savePurchase({ ...purchase, amountPaid: amountPaid + amount });
+    showToast('Payment recorded', 'success');
+    closeModal();
+    const { navigate } = await import('../router.js');
+    await navigate('purchases');
   });
 }

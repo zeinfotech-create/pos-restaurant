@@ -1871,6 +1871,28 @@ export async function getVehicleDeliveryReport(branchId = null, startDate = null
   return Object.values(vehicleMap).sort((a, b) => b.deliveries - a.deliveries);
 }
 
+// Groups purchases with an unpaid balance (total - amountPaid > 0) by supplier — money the
+// shop still owes, not to be confused with the customer-side "Credit Hub" (money owed TO
+// the shop from credit sales).
+export async function getSupplierOutstandingReport(branchId = null, startDate = null, endDate = null) {
+  const allPurchases = await getPurchases(branchId, startDate, endDate);
+
+  const supplierMap = {};
+  allPurchases.forEach(p => {
+    const outstanding = Math.max(0, (p.total || 0) - (p.amountPaid || 0));
+    if (outstanding <= 0.01) return;
+    const key = p.supplierId || p.supplierName || 'unknown';
+    if (!supplierMap[key]) supplierMap[key] = { supplierName: p.supplierName || 'Unknown Supplier', purchaseCount: 0, totalPurchased: 0, totalPaid: 0, outstanding: 0, purchases: [] };
+    supplierMap[key].purchaseCount += 1;
+    supplierMap[key].totalPurchased += p.total || 0;
+    supplierMap[key].totalPaid += p.amountPaid || 0;
+    supplierMap[key].outstanding += outstanding;
+    supplierMap[key].purchases.push({ id: p.id, date: p.date, supplierInvoiceNo: p.supplierInvoiceNo, total: p.total || 0, amountPaid: p.amountPaid || 0, outstanding });
+  });
+
+  return Object.values(supplierMap).sort((a, b) => b.outstanding - a.outstanding);
+}
+
 export async function getPurchasesMonthly() {
   const purchases = await getPurchases();
   const months = {};

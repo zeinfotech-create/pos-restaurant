@@ -1,4 +1,4 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getBranches, getCategorySales, getMonthlySales, getPaymentBreakdown, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getMonthlySales, getPaymentBreakdown, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
@@ -43,6 +43,15 @@ export async function renderReports(container, subPage = 'sales') {
           <option value="">All Branches</option>
           ${(await getBranches()).map(b => `<option value="${b.id}" ${currentBranchFilter === b.id ? 'selected' : ''}>${b.name}</option>`).join('')}
         </select>
+
+        ${await hasPermission('reports:export') ? `
+          <button class="btn btn-ghost btn-sm" id="reportExportCsvBtn" title="Export the currently viewed report as CSV (opens in Excel)">
+            <i class="fa-solid fa-file-csv"></i> Excel
+          </button>
+          <button class="btn btn-ghost btn-sm" id="reportExportPdfBtn" title="Print / Save the currently viewed report as PDF">
+            <i class="fa-solid fa-file-pdf"></i> PDF
+          </button>
+        ` : ''}
       </div>
     </div>
     <div class="report-nav custom-scrollbar" style="display:flex;gap:12px;margin-bottom:24px;border-bottom:1px solid var(--border);padding-bottom:12px;overflow-x:auto">
@@ -54,6 +63,7 @@ export async function renderReports(container, subPage = 'sales') {
       <button class="btn btn-ghost btn-sm ${subPage === 'credit' ? 'active-tab' : ''}" onclick="navigate('reports/credit')">Credit Hub</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'purchases' ? 'active-tab' : ''}" onclick="navigate('reports/purchases')">Procurement</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'vehicles' ? 'active-tab' : ''}" onclick="navigate('reports/vehicles')">Vehicles</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'outstanding' ? 'active-tab' : ''}" onclick="navigate('reports/outstanding')">Outstanding</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'gst' ? 'active-tab' : ''}" onclick="navigate('reports/gst')">GST Center</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'customers' ? 'active-tab' : ''}" onclick="navigate('reports/customers')">Customers</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'staff' ? 'active-tab' : ''}" onclick="navigate('reports/staff')">Staff</button>
@@ -84,6 +94,9 @@ export async function renderReports(container, subPage = 'sales') {
       break;
     case 'vehicles':
       await renderVehicleDeliveryReport(contentEl, cur);
+      break;
+    case 'outstanding':
+      await renderOutstandingReport(contentEl, cur);
       break;
     case 'gst':
       await renderGSTReport(contentEl, cur);
@@ -122,6 +135,18 @@ export async function renderReports(container, subPage = 'sales') {
       await renderReports(container, subPage);
     };
   }
+
+  const REPORT_LABELS = {
+    sales: 'Sales Hub', 'instant-sales': 'Instant Sales', 'category-sales': 'Category Sales',
+    'sales-analysis': 'Business Analysis', inventory: 'Inventory Report', credit: 'Credit Hub',
+    purchases: 'Procurement', vehicles: 'Vehicle Delivery Report', outstanding: 'Outstanding Report',
+    gst: 'GST Center', customers: 'Customer Report', staff: 'Staff Earnings',
+    registers: 'Register Report', 'login-activity': 'Login Audit', returns: 'Returns History'
+  };
+  const reportLabel = REPORT_LABELS[subPage] || 'Report';
+
+  document.getElementById('reportExportCsvBtn')?.addEventListener('click', () => exportReportCSV(contentEl, reportLabel));
+  document.getElementById('reportExportPdfBtn')?.addEventListener('click', () => exportReportPDF(contentEl, reportLabel));
 
   const rangeEl = document.getElementById('report-date-range');
   if (rangeEl) {
@@ -228,6 +253,80 @@ export async function renderReports(container, subPage = 'sales') {
     // Set initial display value
     rangeEl.value = `${new Date(currentStartDate).toLocaleDateString('en-GB')} - ${new Date(currentEndDate).toLocaleDateString('en-GB')}`;
   }
+}
+
+// Generic export — works for whichever report tab is currently rendered into #report-content,
+// so every report gets Excel/PDF export for free instead of hand-building it per tab.
+function csvEscape(val) {
+  const s = String(val ?? '').replace(/\s+/g, ' ').trim();
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function exportReportCSV(contentEl, reportLabel) {
+  const lines = [];
+
+  // Summary stat cards first (e.g. "Gross Profit: ₹80.00")
+  const statCards = contentEl.querySelectorAll('.stat-card');
+  if (statCards.length > 0) {
+    lines.push('Summary');
+    statCards.forEach(card => {
+      const label = card.querySelector('.stat-label')?.innerText;
+      const value = card.querySelector('.stat-value')?.innerText;
+      if (label) lines.push(`${csvEscape(label)},${csvEscape(value)}`);
+    });
+    lines.push('');
+  }
+
+  // Every data table on the page, each with its own section title if it has one
+  contentEl.querySelectorAll('table.responsive-table').forEach(table => {
+    const titleEl = table.closest('.card')?.querySelector('.font-bold');
+    if (titleEl) lines.push(csvEscape(titleEl.innerText));
+
+    const allHeaderCells = [...table.querySelectorAll('thead th')].map(th => th.innerText);
+    // "Actions"/"Select" columns are button controls or checkboxes, not reportable data —
+    // drop them from the export rather than leaking button labels like "View Orders" as text.
+    const skipIdx = new Set(allHeaderCells.map((h, i) => (!h.trim() || /^(actions?|select)$/i.test(h.trim())) ? i : -1).filter(i => i >= 0));
+    const headerCells = allHeaderCells.filter((_, i) => !skipIdx.has(i)).map(csvEscape);
+    if (headerCells.length) lines.push(headerCells.join(','));
+
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      const cells = [...tr.querySelectorAll('td')].filter((_, i) => !skipIdx.has(i)).map(td => csvEscape(td.innerText));
+      if (cells.length) lines.push(cells.join(','));
+    });
+    lines.push('');
+  });
+
+  if (lines.length === 0) {
+    showToast('Nothing to export on this report yet', 'warning');
+    return;
+  }
+
+  // Leading BOM so Excel renders the ₹ symbol and other non-ASCII text correctly
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${reportLabel.replace(/\s+/g, '_')}_${format(new Date())}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('CSV exported — opens directly in Excel', 'success');
+}
+
+function exportReportPDF(contentEl, reportLabel) {
+  // This app's print CSS (style.css) hides everything except an open modal's body during
+  // print — the same mechanism CheckoutService.js uses for receipts — so printing the report
+  // means putting a copy of it inside a real modal first, then invoking window.print().
+  // Note: <canvas> chart content (Weekly Trend / Payment Methods) is drawn imperatively by
+  // Chart.js and isn't captured by innerHTML cloning, so charts print blank — tables and
+  // summary figures (the actual reportable data) print fine.
+  openModal({
+    title: reportLabel,
+    body: `<div style="padding:8px">${contentEl.innerHTML}</div>`,
+    footer: '',
+    hideClose: true
+  });
+  window.addEventListener('afterprint', () => closeModal(), { once: true });
+  setTimeout(() => window.print(), 200);
 }
 
 async function renderSalesReport(container, cur) {
@@ -648,6 +747,71 @@ async function renderVehicleDeliveryReport(container, cur) {
                     <td data-label="Order #">${o.dailyNumber ? '#' + o.dailyNumber : o.id}</td>
                     <td data-label="Date">${o.date ? new Date(o.date).toLocaleString() : 'N/A'}</td>
                     <td data-label="Total" class="font-bold text-success">${cur}${o.total.toFixed(2)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `,
+        footer: `<button class="btn btn-primary" onclick="closeModal()">Close</button>`
+      });
+    };
+  });
+}
+
+async function renderOutstandingReport(container, cur) {
+  const suppliers = await getSupplierOutstandingReport(currentBranchFilter, currentStartDate, currentEndDate);
+  const totalOutstanding = suppliers.reduce((s, x) => s + x.outstanding, 0);
+
+  container.innerHTML = `
+    <div class="stat-card mb-24" style="border-left:4px solid var(--danger)">
+      <div class="stat-info">
+        <div class="stat-label">Total Outstanding to Suppliers</div>
+        <div class="stat-value text-danger" style="font-size:32px">${cur}${totalOutstanding.toFixed(2)}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="font-bold mb-16"><i class="fa-solid fa-truck-ramp-box mr-8 text-danger"></i> Outstanding by Supplier</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Supplier</th><th>Purchases</th><th>Total Purchased</th><th>Paid</th><th>Outstanding</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${suppliers.length === 0 ? `<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.5">No outstanding supplier balances in this range. Nice! \u{1F4B0}</td></tr>` :
+              suppliers.map(s => `
+              <tr>
+                <td data-label="Supplier" class="font-bold">${s.supplierName}</td>
+                <td data-label="Purchases"><span class="badge badge-info">${s.purchaseCount} Purchases</span></td>
+                <td data-label="Total Purchased">${cur}${s.totalPurchased.toFixed(2)}</td>
+                <td data-label="Paid" class="text-success">${cur}${s.totalPaid.toFixed(2)}</td>
+                <td data-label="Outstanding" class="font-bold text-danger" style="font-size:16px">${cur}${s.outstanding.toFixed(2)}</td>
+                <td><button class="btn btn-ghost btn-sm outstanding-view-btn" data-supplier="${s.supplierName}"><i class="fa-solid fa-eye"></i> View Purchases</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  container.querySelectorAll('.outstanding-view-btn').forEach(btn => {
+    btn.onclick = () => {
+      const s = suppliers.find(x => x.supplierName === btn.dataset.supplier);
+      if (!s) return;
+      openModal({
+        title: `Outstanding Purchases — ${s.supplierName}`,
+        body: `
+          <div class="table-wrap">
+            <table class="responsive-table">
+              <thead><tr><th>Invoice #</th><th>Date</th><th>Total</th><th>Paid</th><th>Outstanding</th></tr></thead>
+              <tbody>
+                ${s.purchases.sort((a, b) => new Date(b.date) - new Date(a.date)).map(p => `
+                  <tr>
+                    <td data-label="Invoice #" class="font-mono">${p.supplierInvoiceNo || p.id}</td>
+                    <td data-label="Date">${p.date ? new Date(p.date).toLocaleDateString() : 'N/A'}</td>
+                    <td data-label="Total">${cur}${p.total.toFixed(2)}</td>
+                    <td data-label="Paid" class="text-success">${cur}${p.amountPaid.toFixed(2)}</td>
+                    <td data-label="Outstanding" class="font-bold text-danger">${cur}${p.outstanding.toFixed(2)}</td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -1671,7 +1835,7 @@ async function exportPurchaseRegisterJson(purchases) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `PurchaseRegister_${new Date().toISOString().split('T')[0]}.json`;
+  a.download = `PurchaseRegister_${format(new Date())}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -1761,7 +1925,7 @@ async function exportGSTR1Json(orders) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `GSTR1_${new Date().toISOString().split('T')[0]}.json`;
+  a.download = `GSTR1_${format(new Date())}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
