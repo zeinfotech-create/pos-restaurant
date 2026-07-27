@@ -247,7 +247,7 @@ export async function renderDashboard(container) {
           })()}
         </div>
         ${lowStockItems.length > 3 ? `
-          <button class="btn btn-ghost btn-sm" style="width:100%; margin-top:12px; font-size:12px;" onclick="window.navigate('products')">
+          <button class="btn btn-ghost btn-sm" style="width:100%; margin-top:12px; font-size:12px;" onclick="window.posFilterStock = 'Low Stock'; window.navigate('products')">
             <i class="fa-solid fa-arrow-right mr-4"></i> View All ${lowStockItems.length} Low Stock Items
           </button>
         ` : ''}
