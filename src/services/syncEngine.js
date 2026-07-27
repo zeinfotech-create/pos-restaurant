@@ -276,8 +276,14 @@ class SyncEngine {
         if (isElectron || settings.deploymentMode === 'standalone') {
             console.log('SyncEngine: Standalone mode detected. Verifying credentials locally...');
             const { verifyLocalUser, updateData } = await import('../db.js');
+            // NOTE: login activity is deliberately NOT recorded here — at this point the
+            // user has only entered a password, not picked a branch/register yet, so
+            // there's nothing meaningful to put in the Register column. Login.js's
+            // finalizeLogin() calls notifyLoginActivity() once branch+register are known.
             const localResult = await verifyLocalUser(username, password);
-            if (localResult.success && localResult.branches?.length > 0) return localResult;
+            if (localResult.success && localResult.branches?.length > 0) {
+                return localResult;
+            }
 
             // Either no local match (profile reset/reinstalled while the local
             // Mongo hub's data survived), or the local user exists but its
@@ -341,6 +347,26 @@ class SyncEngine {
         }
     }
 
+    // Fire-and-forget: tells the (local, for standalone) hub a login just succeeded, so the
+    // Login Activity report has something to show. Standalone logins verify locally and skip
+    // pos_verify_credentials entirely, which is the only other place this gets recorded —
+    // without this call, Login Activity would silently stay empty for every standalone install.
+    async notifyLoginActivity(user) {
+        try {
+            if (!this.isConnected || this.ws?.readyState !== WebSocket.OPEN) return;
+            const systemDetails = await this.getSystemDetails();
+            this.ws.send(JSON.stringify({
+                type: 'pos_log_login_activity',
+                userId: user.id || user.userId,
+                userName: user.name,
+                role: user.role,
+                systemDetails
+            }));
+        } catch (err) {
+            console.warn('SyncEngine: Failed to notify login activity (non-fatal):', err.message);
+        }
+    }
+
     async getLoginActivities(limit = 100) {
         if (!this.isConnected) return { success: false, message: 'Offline' };
 
@@ -380,7 +406,19 @@ class SyncEngine {
 
         const sess = await db.get(KEYS.SESSION, 'current');
         const registerId = sess?.data?.registerId || null;
-        
+
+        // Resolve the actual register/counter name by id — this used to fall back to the
+        // BRANCH name, which is a different thing and made every login look like it came
+        // from "Unknown" register once a real registerId was actually present.
+        let registerName = 'Global Terminal';
+        if (registerId) {
+            try {
+                const { getRegisters } = await import('../db.js');
+                const registers = await getRegisters();
+                registerName = registers.find(r => r.id === registerId)?.name || registerName;
+            } catch (e) { /* non-fatal — keep the fallback name */ }
+        }
+
         return {
             userAgent: ua,
             browser,
@@ -389,7 +427,7 @@ class SyncEngine {
             platform: navigator.platform,
             screen: `${window.screen.width}x${window.screen.height}`,
             registerId: registerId,
-            registerName: sess?.data?.branch?.name || 'Unknown'
+            registerName
         };
     }
 

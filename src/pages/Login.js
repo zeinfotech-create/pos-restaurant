@@ -357,6 +357,12 @@ export function renderLogin(container) {
         loginAt,
         sessionId: 'LA-' + Date.now()
       });
+      // Notify the hub for the server-side Login Activity & System Audit report —
+      // fired here (not at verifyCredentials() time) so registerId is already known
+      // and getSystemDetails() can resolve the real register/counter name.
+      if (window.syncEngine?.notifyLoginActivity) {
+        window.syncEngine.notifyLoginActivity(authenticatedUser);
+      }
       // Record login activity entry
       await saveLoginActivity({
         id: 'LA-' + Date.now(),

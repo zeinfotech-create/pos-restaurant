@@ -2753,6 +2753,35 @@ wss.on('connection', (ws, req) => {
                     break;
                 }
 
+                // Standalone/Electron logins verify credentials locally (src/services/
+                // syncEngine.js verifyCredentials()) and never reach pos_verify_credentials
+                // above, so they'd otherwise never get recorded here — lets the client tell
+                // the hub a local login just succeeded, without re-sending the password.
+                case 'pos_log_login_activity': {
+                    if (!licenseKey) break;
+                    const { userId, userName, role, systemDetails, registerId, registerName } = msg;
+                    try {
+                        const details = systemDetails || {};
+                        await DBManager.insert(LoginActivity, 'login_activities', {
+                            licenseKey,
+                            userId,
+                            userName,
+                            role,
+                            timestamp: new Date(),
+                            ip: ws._ip?.replace('::ffff:', ''),
+                            userAgent: details.userAgent,
+                            deviceType: details.deviceType || 'Unknown',
+                            browser: details.browser,
+                            os: details.os,
+                            registerId: registerId || details.registerId,
+                            registerName: registerName || details.registerName
+                        });
+                    } catch (logErr) {
+                        console.error('[Hub] ❌ Failed to log activity (standalone):', logErr.message);
+                    }
+                    break;
+                }
+
                 case 'pos_get_login_activities': {
                     const { requestId, limit = 100 } = msg;
                     if (!licenseKey) break;
