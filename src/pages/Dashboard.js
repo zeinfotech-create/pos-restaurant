@@ -235,8 +235,8 @@ export async function renderDashboard(container) {
                   <span style="font-size:13px; font-weight:700;" class="${p.stock <= 0 ? 'text-danger' : 'text-warning'}">${parseFloat(Number(p.stock).toFixed(3))}</span>
                   
                   <div class="dash-quick-stock" style="display:flex; align-items:center; gap:4px;">
-                    <input type="number" min="1" value="10" class="form-input" id="addQty_${idx}" style="width:60px; padding:4px 6px; font-size:12px; text-align:center; border-radius:8px;" />
-                    <button class="btn btn-sm" id="addStockBtn_${idx}" data-idx="${idx}" style="padding:4px 10px; font-size:11px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); border-radius:8px; font-weight:700; white-space:nowrap;" title="Add stock">
+                    <input type="number" min="1" value="10" class="form-input dash-addqty-input" data-product-id="${p.id}" data-variant-name="${p.isVariant ? p.variantName : ''}" style="width:60px; padding:4px 6px; font-size:12px; text-align:center; border-radius:8px;" />
+                    <button class="btn btn-sm dash-addstock-btn" data-product-id="${p.id}" data-variant-name="${p.isVariant ? p.variantName : ''}" style="padding:4px 10px; font-size:11px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); border-radius:8px; font-weight:700; white-space:nowrap;" title="Add stock">
                       <i class="fa-solid fa-plus" style="font-size:10px"></i> Add
                     </button>
                   </div>
@@ -496,41 +496,42 @@ export async function renderDashboard(container) {
     };
   }
 
-  // Quick Add Stock — use event delegation so it survives DOM mutations
+  // Quick Add Stock — event delegation on the container survives DOM
+  // mutations, but the button/input identity is read straight from the
+  // clicked element's own data-attributes (data-product-id/data-variant-name)
+  // rather than an `idx` into the `lowStockItems` array captured in this
+  // closure — that array goes stale the moment the dashboard re-renders
+  // after this listener was first wired (this guard only ever attaches it
+  // once), which was silently mapping clicks to the WRONG product once any
+  // refresh had happened (periodic refresh, cart update, data-synced, etc.)
+  // and threw "Product not found for ID" instead of updating anything.
   if (!dashClickDelegated) {
     dashClickDelegated = true;
     container.addEventListener('click', async (e) => {
-      const btn = e.target.closest('[id^="addStockBtn_"]');
+      const btn = e.target.closest('.dash-addstock-btn');
       if (!btn) return;
 
-      const idx = btn.dataset.idx;
-      if (idx === undefined) return;
-
-      const input = document.getElementById(`addQty_${idx}`);
+      const productId = btn.dataset.productId;
+      const variantName = btn.dataset.variantName || null;
+      const inputSelector = `.dash-addqty-input[data-product-id="${productId}"]${variantName ? `[data-variant-name="${variantName}"]` : ''}`;
+      const input = container.querySelector(inputSelector);
       const qty = parseInt(input?.value) || 0;
       if (qty <= 0) {
         if (window.showToast) window.showToast('Enter a valid quantity', 'error');
         return;
       }
 
-      // Re-sort the fetched list to precisely match what was rendered on-screen
-      const lowStockSorted = lowStockItems.sort((a,b) => a.stock - b.stock).slice(0, 3);
-      const dashItem = lowStockSorted[idx];
-      if (!dashItem) return;
-
       const allProducts = await getProducts();
-      const product = allProducts.find(p => String(p.id) === String(dashItem.id));
+      const product = allProducts.find(p => String(p.id) === String(productId));
       if (!product) {
-        console.error('[Dashboard] Product not found for ID:', dashItem.id);
+        console.error('[Dashboard] Product not found for ID:', productId);
         return;
       }
 
       let oldStock = 0;
       let newStock = 0;
-      let variantName = null;
 
-      if (dashItem.isVariant) {
-        variantName = dashItem.variantName;
+      if (variantName) {
         const v = product.variants?.find(vx => vx.name === variantName);
         if (v) {
           oldStock = v.stock || 0;
@@ -545,13 +546,15 @@ export async function renderDashboard(container) {
 
       await updateProduct(product);
 
-      // Log the inventory change
+      // Log the inventory change — also fixes a pre-existing param-order bug
+      // here that always passed `variantName` as `null` and the real variant
+      // name into the `refId` slot instead, corrupting variant restock history.
       const session = await getSession();
       await logInventoryChange(
-        product.id, null, 'IN', qty,
+        product.id, variantName, 'IN', qty,
         'Quick Dashboard Restock',
         product.branchId || store.branch?.id || 'b1',
-        variantName, oldStock, newStock,
+        null, oldStock, newStock,
         session?.user?.name || 'Admin'
       );
 

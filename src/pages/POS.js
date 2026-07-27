@@ -1,4 +1,4 @@
-import { getProducts, getSettings, getCustomers, isRegisterOpen, getBusinessFeatures, getAppointments, getStaff, saveAppointment, deleteAppointment, updateAppointmentStatus, hasPermission, getCategories, getSubCategories, getLowStockProducts, getExpiringProducts, getCurrentRegisterId } from '../db.js';
+import { getProducts, getSettings, getCustomers, isRegisterOpen, getBusinessFeatures, getAppointments, getStaff, saveAppointment, deleteAppointment, updateAppointmentStatus, hasPermission, getCategories, getSubCategories, getLowStockProducts, getExpiringProducts, getCurrentRegisterId, updateProduct, logInventoryChange, getCurrentUser } from '../db.js';
 import { store, addToCart, onCartUpdate, getCartTotals, updateQty, removeFromCart, clearCart, setDiscount, loadAppointmentIntoCart, updateCartItem } from '../store.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { openCustomerForm } from '../components/CustomerForm.js';
@@ -1562,46 +1562,70 @@ function normalizeSearchQuery(q) {
   return str.replace(/[\s\-\.]/g, '');
 }
 
+// Small inline "quantity to add" control reused for both plain products and
+// variant rows — matches Dashboard.js's existing "Low Stock Alerts" widget
+// quick-restock pattern (qty input defaulting to 10 + green "+ Add" pill)
+// exactly, so restocking looks/behaves the same wherever it's offered.
+// `data-product-id`/`data-variant-name` are read back by the click handler
+// wired right after openModal() below.
+function lowStockUpdateControlHtml(productId, variantName) {
+  const variantAttr = variantName ? ` data-variant-name="${variantName}"` : '';
+  return `
+    <input type="number" min="1" value="10" class="form-input lowstock-input" data-product-id="${productId}"${variantAttr} style="width:60px; padding:4px 6px; font-size:12px; text-align:center; border-radius:8px;" />
+    <button class="btn btn-sm lowstock-update-btn" data-product-id="${productId}"${variantAttr} style="padding:4px 10px; font-size:11px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); border-radius:8px; font-weight:700; white-space:nowrap;" title="Add stock">
+      <i class="fa-solid fa-plus" style="font-size:10px"></i> Add
+    </button>
+  `;
+}
+
 export async function openLowStockModal(cur) {
   const items = await getLowStockProducts(store.branch?.id);
+
+  if (items.length === 0) {
+    closeModal();
+    showToast('All items restocked!', 'success');
+    return;
+  }
 
   openModal({
     title: '<i class="fa-solid fa-triangle-exclamation text-danger"></i> Low Stock Alert',
     body: `
       <div style="padding:10px 0">
-        <p style="margin-bottom:20px; font-size:14px; opacity:0.8">The following items are below their minimum stock levels and need restocking.</p>
+        <p style="margin-bottom:20px; font-size:14px; opacity:0.8">The following items are below their minimum stock levels and need restocking. Add stock right here, or use Manage Inventory for more detail.</p>
         <div style="display:flex; flex-direction:column; gap:12px; max-height:400px; overflow-y:auto" class="custom-scrollbar">
           ${items.map(p => {
             const isVariant = p.variants && p.variants.length > 0;
             if (isVariant) {
               return p.variants.filter(v => (v.stock || 0) <= (v.minStock || 10)).map(v => `
-                <div style="background:var(--bg-elevated); border:1px solid var(--border); border-left:4px solid var(--danger); padding:12px 16px; border-radius:12px; display:flex; align-items:center; justify-content:space-between">
-                  <div style="display:flex; align-items:center; gap:12px">
-                    <span style="font-size:24px">${p.emoji || '📦'}</span>
-                    <div>
+                <div style="background:var(--bg-elevated); border:1px solid var(--border); border-left:4px solid var(--danger); padding:12px 16px; border-radius:12px; display:flex; align-items:center; justify-content:space-between; gap:10px">
+                  <div style="display:flex; align-items:center; gap:12px; min-width:0">
+                    <span style="font-size:24px; flex-shrink:0">${p.emoji || '📦'}</span>
+                    <div style="min-width:0">
                       <div style="font-weight:700; font-size:14px">${p.name}</div>
                       <div style="font-size:11px; opacity:0.6; font-weight:600; text-transform:uppercase">${v.name}</div>
+                      <div style="font-size:10px; opacity:0.5; font-weight:600">MIN: ${v.minStock || 0}</div>
                     </div>
                   </div>
-                  <div style="text-align:right">
-                    <div style="font-size:18px; font-weight:900; color:var(--danger)">${parseFloat(Number(v.stock || 0).toFixed(3))}</div>
-                    <div style="font-size:10px; opacity:0.5; font-weight:600">MIN: ${v.minStock || 0}</div>
+                  <div style="display:flex; align-items:center; gap:8px; flex-shrink:0">
+                    <span style="font-size:13px; font-weight:700;" class="${(v.stock || 0) <= 0 ? 'text-danger' : 'text-warning'}">${parseFloat(Number(v.stock || 0).toFixed(3))}</span>
+                    ${lowStockUpdateControlHtml(p.id, v.name)}
                   </div>
                 </div>
               `).join('');
             }
             return `
-              <div style="background:var(--bg-elevated); border:1px solid var(--border); border-left:4px solid var(--danger); padding:12px 16px; border-radius:12px; display:flex; align-items:center; justify-content:space-between">
-                <div style="display:flex; align-items:center; gap:12px">
-                  <span style="font-size:24px">${p.emoji || '📦'}</span>
-                  <div>
+              <div style="background:var(--bg-elevated); border:1px solid var(--border); border-left:4px solid var(--danger); padding:12px 16px; border-radius:12px; display:flex; align-items:center; justify-content:space-between; gap:10px">
+                <div style="display:flex; align-items:center; gap:12px; min-width:0">
+                  <span style="font-size:24px; flex-shrink:0">${p.emoji || '📦'}</span>
+                  <div style="min-width:0">
                     <div style="font-weight:700; font-size:14px">${p.name}</div>
                     <div style="font-size:11px; opacity:0.6">${p.category || ''}</div>
+                    <div style="font-size:10px; opacity:0.5; font-weight:600">MIN: ${p.minStock || 0}</div>
                   </div>
                 </div>
-                <div style="text-align:right">
-                  <div style="font-size:18px; font-weight:900; color:var(--danger)">${parseFloat(Number(p.stock || 0).toFixed(3))}</div>
-                  <div style="font-size:10px; opacity:0.5; font-weight:600">MIN: ${p.minStock || 0}</div>
+                <div style="display:flex; align-items:center; gap:8px; flex-shrink:0">
+                  <span style="font-size:13px; font-weight:700;" class="${(p.stock || 0) <= 0 ? 'text-danger' : 'text-warning'}">${parseFloat(Number(p.stock || 0).toFixed(3))}</span>
+                  ${lowStockUpdateControlHtml(p.id, null)}
                 </div>
               </div>
             `;
@@ -1615,6 +1639,46 @@ export async function openLowStockModal(cur) {
         <i class="fa-solid fa-box-open mr-8"></i> Manage Inventory
       </button>
     `
+  });
+
+  document.querySelectorAll('.lowstock-update-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const productId = btn.dataset.productId;
+      const variantName = btn.dataset.variantName || null;
+      const selector = `.lowstock-input[data-product-id="${productId}"]${variantName ? `[data-variant-name="${variantName}"]` : ':not([data-variant-name])'}`;
+      const input = document.querySelector(selector);
+      const qty = parseInt(input?.value) || 0;
+      if (qty <= 0) return showToast('Enter a valid quantity', 'error');
+
+      // Compare as strings — data-attributes are always strings, but some
+      // older product records store `.id` as a raw number (this app has a
+      // documented history of number/string id mismatches, see db.js's
+      // cleanupTypeMismatches()); a strict `===` here would silently never
+      // match those and this handler would exit with zero visible effect.
+      const product = items.find(p => String(p.id) === String(productId));
+      if (!product) return showToast('Could not find that product — please refresh and try again', 'error');
+
+      const currentUser = await getCurrentUser();
+      let oldStock = 0;
+      let newStock = 0;
+
+      if (variantName) {
+        const variant = (product.variants || []).find(v => v.name === variantName);
+        oldStock = variant?.stock || 0;
+        newStock = oldStock + qty;
+        const updatedVariants = product.variants.map(v => v.name === variantName ? { ...v, stock: newStock } : v);
+        await updateProduct({ ...product, variants: updatedVariants });
+      } else {
+        oldStock = product.stock || 0;
+        newStock = oldStock + qty;
+        await updateProduct({ ...product, stock: newStock });
+      }
+
+      await logInventoryChange(product.id, variantName, 'IN', qty, 'Quick Restock (Low Stock Alert)', product.branchId || store.branch?.id || 'b1', null, oldStock, newStock, currentUser?.name);
+
+      showToast(`+${qty} added to ${product.name}${variantName ? ' (' + variantName + ')' : ''} (now ${newStock})`, 'success');
+      await openLowStockModal(cur); // refresh — restocked items drop off the list automatically
+    };
   });
 }
 

@@ -2575,7 +2575,16 @@ export async function updateData(store, data, isSilent = false) {
   // ─── ID NORMALIZATION ───
   // PostgreSQL uses TEXT for record_id, and IndexedDB treats 123 !== "123".
   // We force all IDs to strings to prevent duplication during sync round-trips.
-  if (data && data.id) {
+  // If the record's CURRENT stored key is still a raw number (legacy
+  // autoIncrement-assigned ids from before this normalization existed),
+  // coercing `.id` to a string here makes `db.put()` INSERT a brand-new
+  // string-keyed record rather than update the existing number-keyed one —
+  // IndexedDB treats them as different keys — silently orphaning the
+  // original with stale data forever. Delete the old numeric-keyed record
+  // once the normalized write lands, so the update actually takes effect.
+  let legacyNumericId = null;
+  if (data && data.id != null && typeof data.id !== 'string') {
+    legacyNumericId = data.id;
     data.id = String(data.id);
   }
 
@@ -2616,6 +2625,12 @@ export async function updateData(store, data, isSilent = false) {
       console.error('[updateData] DataCloneError! Object contains non-serializable data:', data);
     }
     throw err;
+  }
+
+  // Remove the orphaned original numeric-keyed record now that the
+  // normalized string-keyed version has landed (see ID NORMALIZATION above).
+  if (legacyNumericId !== null) {
+    await db.delete(key, legacyNumericId).catch(() => {});
   }
 
   if (!isSilent) {
