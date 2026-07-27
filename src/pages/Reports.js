@@ -346,7 +346,26 @@ async function exportSingleTablePDF(tableEl, titleText, getFullBodyHtml) {
         return node.outerHTML;
       }
     }));
-    const fullHtml = `<html><head><title>${titleText}</title>${styleParts.join('')}</head><body style="background:white; color:black; padding:16px">${bodyHtml}</body></html>`;
+    // The hidden print window lays out narrower than 768px, which would
+    // otherwise trigger .responsive-table's mobile "stacked card" view
+    // (style.css's @media max-width:768px block) — force the real table
+    // layout back on for the PDF regardless of that breakpoint. Also strip
+    // the app's dark-theme card styling (CSS-var backgrounds, shadows,
+    // heavy rounding) down to a plain light/print-friendly table, regardless
+    // of which theme is active on screen — dark backgrounds waste ink and
+    // look wrong on paper.
+    const tableOverrideCss = `<style>
+      .table-wrap { background: #ffffff !important; border: 1px solid #e2e2e2 !important; box-shadow: none !important; border-radius: 6px !important; }
+      .responsive-table thead { display: table-header-group !important; }
+      .responsive-table tbody { display: table-row-group !important; }
+      .responsive-table tr { display: table-row !important; margin-bottom: 0 !important; border: none !important; border-radius: 0 !important; box-shadow: none !important; }
+      .responsive-table th { background: #f5f5f5 !important; color: #333333 !important; border-bottom: 1px solid #d9d9d9 !important; }
+      .responsive-table td { display: table-cell !important; width: auto !important; text-align: left !important; padding: 8px 12px !important; position: static !important; min-height: 0 !important; background: #ffffff !important; color: #1a1a1a !important; border-bottom: 1px solid #e8e8e8 !important; font-size: 12px !important; }
+      .responsive-table td::before { content: none !important; display: none !important; }
+      .responsive-table td:last-child { background: #ffffff !important; padding-left: 12px !important; }
+      .responsive-table tr:nth-child(even) td { background: #fafafa !important; }
+    </style>`;
+    const fullHtml = `<html><head><title>${titleText}</title>${styleParts.join('')}${tableOverrideCss}</head><body style="background:white; color:black; padding:16px">${bodyHtml}</body></html>`;
     const res = await window.electronAPI.exportReportPdfSilent({ html: fullHtml, filename: titleText });
     if (res?.success) {
       showToast(`Saved to Downloads: ${res.path.split(/[\\/]/).pop()}`, 'success');
