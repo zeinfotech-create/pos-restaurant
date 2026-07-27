@@ -3,6 +3,9 @@ import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { initDateRangePicker } from '../utils/dateRangeHelper.js';
 import { store } from '../store.js';
+import { paginate, renderPaginationBar } from '../utils/pagination.js';
+
+const BRANCHES_PAGE_SIZE = 10;
 
 export async function renderBranches(container) {
   const branches = (await getBranches()).sort((a,b) => {
@@ -21,6 +24,8 @@ export async function renderBranches(container) {
   let statusFilter = 'All';
   let startDate = null;
   let endDate = null;
+  let branchPage = 1;
+  const restrictedIds = new Set(branches.slice(limits.maxBranches).map(b => b.id));
 
   container.innerHTML = `
     <div class="page-header">
@@ -73,24 +78,23 @@ export async function renderBranches(container) {
               <th>Actions</th>
             </tr>
           </thead>
-          <tbody id="branchTableBody">
-            ${await renderBranchRows(branches, limits)}
-          </tbody>
+          <tbody id="branchTableBody"></tbody>
         </table>
       </div>
+      <div id="branchPagination"></div>
     </div>
   `;
 
 
-  async function renderBranchRows(items, limits) {
+  async function renderBranchRows(items) {
     const canEditBranch = await hasPermission('settings:branches');
     const canManageRegs = await hasPermission('settings:registers');
     const canDeleteBranch = await hasPermission('settings:manage');
-    
+
     const rows = [];
     for (let i = 0; i < items.length; i++) {
       const b = items[i];
-      const restricted = i >= limits.maxBranches;
+      const restricted = restrictedIds.has(b.id);
       const branchRegs = (await getBranchRegisters(b.id)).length;
       
       rows.push(`
@@ -169,12 +173,12 @@ export async function renderBranches(container) {
   }
 
   const applyFilters = async () => {
-    const filtered = branches.filter((b, idx) => {
+    const filtered = branches.filter((b) => {
       const matchSearch = !searchQ || b.name.toLowerCase().includes(searchQ) || (b.address && b.address.toLowerCase().includes(searchQ)) || (b.phone && b.phone.toLowerCase().includes(searchQ));
-      
-      const restricted = idx >= limits.maxBranches;
+
+      const restricted = restrictedIds.has(b.id);
       const matchStatus = statusFilter === 'All' || (statusFilter === 'Active' && !restricted) || (statusFilter === 'Locked' && restricted);
-      
+
       const matchDate = (!startDate || !endDate) || (() => {
         const d = (b.createdAt || new Date().toISOString()).split('T')[0];
         return d >= startDate && d <= endDate;
@@ -183,27 +187,38 @@ export async function renderBranches(container) {
       return matchSearch && matchStatus && matchDate;
     });
 
+    const { pageItems, page, totalPages } = paginate(filtered, branchPage, BRANCHES_PAGE_SIZE);
+    branchPage = page;
+
     const tableBody = document.getElementById('branchTableBody');
-    if (tableBody) tableBody.innerHTML = await renderBranchRows(filtered, limits);
+    if (tableBody) tableBody.innerHTML = await renderBranchRows(pageItems);
     attachEvents();
+
+    renderPaginationBar(document.getElementById('branchPagination'), {
+      page, totalPages, onChange: (p) => { branchPage = p; applyFilters(); }
+    });
   };
 
   document.getElementById('branchSearch').oninput = (e) => {
     searchQ = e.target.value.toLowerCase().trim();
+    branchPage = 1;
     applyFilters();
   };
 
   document.getElementById('branchStatusFilter').onchange = (e) => {
     statusFilter = e.target.value;
+    branchPage = 1;
     applyFilters();
   };
 
   // Call attachEvents synchronously so that buttons (like Add Branch) have their event listeners bound immediately before any async yielding
   attachEvents();
+  applyFilters();
 
   initDateRangePicker('branch-date-range', null, null, (start, end) => {
     startDate = start;
     endDate = end;
+    branchPage = 1;
     applyFilters();
   });
 

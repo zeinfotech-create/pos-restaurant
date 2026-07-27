@@ -2,6 +2,9 @@ import { getUsers, getBranches, saveUser, deleteUser, getCurrentUser, hasPermiss
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { MediaService } from '../services/MediaService.js';
+import { paginate, renderPaginationBar } from '../utils/pagination.js';
+
+const USERS_PAGE_SIZE = 10;
 
 export async function renderUsers(container) {
   const users = (await getUsers()).sort((a,b) => {
@@ -20,6 +23,7 @@ export async function renderUsers(container) {
   let statusFilter = 'All';
   let startDate = null;
   let endDate = null;
+  let userPage = 1;
 
   container.innerHTML = `
     <div class="page-header">
@@ -104,11 +108,10 @@ export async function renderUsers(container) {
               <th>Actions</th>
             </tr>
           </thead>
-          <tbody id="userTableBody">
-            ${await renderUserRows(users)}
-          </tbody>
+          <tbody id="userTableBody"></tbody>
         </table>
       </div>
+      <div id="userPagination"></div>
     </div>
   `;
 
@@ -236,28 +239,39 @@ export async function renderUsers(container) {
       return matchSearch && matchRole && matchBranch && matchStatus && matchDate;
     });
 
+    const { pageItems, page, totalPages } = paginate(filtered, userPage, USERS_PAGE_SIZE);
+    userPage = page;
+
     const tableBody = document.getElementById('userTableBody');
-    if (tableBody) tableBody.innerHTML = await renderUserRows(filtered);
+    if (tableBody) tableBody.innerHTML = await renderUserRows(pageItems);
     attachEvents();
+
+    renderPaginationBar(document.getElementById('userPagination'), {
+      page, totalPages, onChange: (p) => { userPage = p; applyFilters(); }
+    });
   };
 
   document.getElementById('userSearch').oninput = (e) => {
     searchQ = e.target.value.toLowerCase().trim();
+    userPage = 1;
     applyFilters();
   };
 
   document.getElementById('roleFilter').onchange = (e) => {
     roleFilter = e.target.value;
+    userPage = 1;
     applyFilters();
   };
 
   document.getElementById('branchFilter').onchange = (e) => {
     branchFilter = e.target.value;
+    userPage = 1;
     applyFilters();
   };
 
   document.getElementById('statusFilter').onchange = (e) => {
     statusFilter = e.target.value;
+    userPage = 1;
     applyFilters();
   };
 
@@ -265,6 +279,7 @@ export async function renderUsers(container) {
   initDateRangePicker('user-date-range', null, null, (start, end) => {
     startDate = start;
     endDate = end;
+    userPage = 1;
     applyFilters();
   });
 
@@ -303,7 +318,7 @@ export async function renderUsers(container) {
     };
   }
 
-  attachEvents();
+  applyFilters();
 
 }
 

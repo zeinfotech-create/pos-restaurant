@@ -18,7 +18,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   verifyLifetimeToken: (token) => ipcRenderer.invoke('verify-lifetime-token', token),
   markLifetimeActivated: () => ipcRenderer.invoke('mark-lifetime-activated'),
   // Silent thermal receipt printing (no PDF, no preview, no print dialog)
-  printReceiptSilent: (html) => ipcRenderer.invoke('print-receipt-silent', html)
+  printReceiptSilent: (html) => ipcRenderer.invoke('print-receipt-silent', html),
+  // Silent PDF export — saves straight to the Downloads folder, no print dialog
+  exportReportPdfSilent: (payload) => ipcRenderer.invoke('export-pdf-silent', payload)
 
 });
 

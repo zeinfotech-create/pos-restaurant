@@ -4,6 +4,7 @@ import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
 import { navigate } from '../router.js';
 import { Chart, registerables } from 'chart.js';
+import { paginate, renderPaginationBar } from '../utils/pagination.js';
 Chart.register(...registerables);
 
 let currentBranchFilter = store.branch?.id || '';
@@ -13,6 +14,23 @@ const now = new Date();
 const format = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 let currentStartDate = format(new Date(now.getFullYear(), now.getMonth(), 1));
 let currentEndDate = format(now);
+
+const REPORT_PAGE_SIZE = 10;
+// Per-table pagination state, reset to 1 each time its tab is (re)opened.
+let dailySalesPage = 1;
+let instantSalesPage = 1;
+let purchaseRecentPage = 1;
+let vehicleReportPage = 1;
+let outstandingSalesPage = 1;
+let outstandingPurchasePage = 1;
+let customerReportPage = 1;
+let supplierReportPage = 1;
+let gstOutputPage = 1;
+let gstInputPage = 1;
+let staffIncentiveLogPage = 1;
+let registerReportPage = 1;
+let returnsReportPage = 1;
+let loginActivityPage = 1;
 
 export async function renderReports(container, subPage = 'sales') {
   if (!(await hasPermission('reports:view'))) {
@@ -308,13 +326,43 @@ function exportReportCSV(contentEl, reportLabel) {
   showToast('CSV exported — opens directly in Excel', 'success');
 }
 
-function exportReportPDF(contentEl, reportLabel) {
-  // This app's print CSS (style.css) hides everything except an open modal's body during
-  // print — the same mechanism CheckoutService.js uses for receipts — so printing the report
-  // means putting a copy of it inside a real modal first, then invoking window.print().
-  // Note: <canvas> chart content (Weekly Trend / Payment Methods) is drawn imperatively by
-  // Chart.js and isn't captured by innerHTML cloning, so charts print blank — tables and
-  // summary figures (the actual reportable data) print fine.
+// On Electron, render the report HTML off-screen and save it straight to the
+// Downloads folder as a PDF — no OS print dialog (electron/main.cjs:
+// export-pdf-silent), same silent approach used for receipt printing. In a
+// plain browser (dev testing without Electron), fall back to the native print
+// dialog via window.print(), which already has its own "Save as PDF" option.
+// Note either way: <canvas> chart content (Weekly Trend / Payment Methods) is
+// drawn imperatively by Chart.js and isn't captured by innerHTML cloning, so
+// charts export blank — tables and summary figures (the actual reportable
+// data) export fine.
+async function exportReportPDF(contentEl, reportLabel) {
+  const isElectron = /Electron/i.test(navigator.userAgent);
+  if (isElectron && window.electronAPI?.exportReportPdfSilent) {
+    const styleNodes = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
+    const styleParts = await Promise.all(styleNodes.map(async (node) => {
+      if (node.tagName === 'STYLE') return node.outerHTML;
+      // The app's own stylesheet is a relative <link> (./assets/...), which has
+      // no base to resolve against inside the hidden window's data:text/html
+      // document — inline the actual CSS text instead (node.href is already an
+      // absolute file:// URL here in the main window's own context).
+      try {
+        const cssText = await (await fetch(node.href)).text();
+        return `<style>${cssText}</style>`;
+      } catch (e) {
+        return node.outerHTML;
+      }
+    }));
+    const styles = styleParts.join('');
+    const fullHtml = `<html><head><title>${reportLabel}</title>${styles}</head><body style="background:white; color:black; padding:16px">${contentEl.innerHTML}</body></html>`;
+    const res = await window.electronAPI.exportReportPdfSilent({ html: fullHtml, filename: reportLabel });
+    if (res?.success) {
+      showToast(`Saved to Downloads: ${res.path.split(/[\\/]/).pop()}`, 'success');
+    } else {
+      showToast('PDF export failed: ' + (res?.error || 'unknown error'), 'error');
+    }
+    return;
+  }
+
   openModal({
     title: reportLabel,
     body: `<div style="padding:8px">${contentEl.innerHTML}</div>`,
@@ -435,9 +483,19 @@ async function renderSalesReport(container, cur) {
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Date</th><th>Orders</th><th>Sales</th><th>Profit</th><th>Margin</th></tr></thead>
-          <tbody>
-            ${dailyBreakdown.length === 0 ? `<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No sales in this range</td></tr>` :
-              dailyBreakdown.map(d => `
+          <tbody id="dailySalesBody"></tbody>
+        </table>
+      </div>
+      <div id="dailySalesPagination"></div>
+    </div>
+  `;
+
+  dailySalesPage = 1;
+  (function renderDailySalesRows() {
+    const { pageItems, page, totalPages } = paginate(dailyBreakdown, dailySalesPage, REPORT_PAGE_SIZE);
+    dailySalesPage = page;
+    document.getElementById('dailySalesBody').innerHTML = pageItems.length === 0 ? `<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No sales in this range</td></tr>` :
+      pageItems.map(d => `
               <tr>
                 <td data-label="Date">${new Date(d.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                 <td data-label="Orders">${d.orders}</td>
@@ -445,12 +503,12 @@ async function renderSalesReport(container, cur) {
                 <td data-label="Profit" class="font-bold text-accent">${cur}${d.profit.toFixed(2)}</td>
                 <td data-label="Margin">${d.sales > 0 ? ((d.profit / d.sales) * 100).toFixed(1) : '0.0'}%</td>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+            `).join('');
+
+    renderPaginationBar(document.getElementById('dailySalesPagination'), {
+      page, totalPages, onChange: (p) => { dailySalesPage = p; renderDailySalesRows(); }
+    });
+  })();
 
   renderSalesChart(last7);
   renderPaymentChart(allOrders, cur);
@@ -478,7 +536,7 @@ async function renderInstantSalesReport(container, cur) {
     </div>
 
     <div class="card">
-      <div class="font-bold mb-16"><i class="fa-solid fa-list mr-8"></i> Recent Instant Sales Transactions</div>
+      <div class="font-bold mb-16"><i class="fa-solid fa-list mr-8"></i> Instant Sales Transactions</div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead>
@@ -491,9 +549,19 @@ async function renderInstantSalesReport(container, cur) {
               <th>Total</th>
             </tr>
           </thead>
-          <tbody>
-            ${items.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:32px;opacity:0.5">No instant sales found</td></tr>' : 
-              items.slice(0, 50).map(item => `
+          <tbody id="instantSalesBody"></tbody>
+        </table>
+      </div>
+      <div id="instantSalesPagination"></div>
+    </div>
+  `;
+
+  instantSalesPage = 1;
+  (function renderInstantSalesRows() {
+    const { pageItems, page, totalPages } = paginate(items, instantSalesPage, REPORT_PAGE_SIZE);
+    instantSalesPage = page;
+    document.getElementById('instantSalesBody').innerHTML = pageItems.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:32px;opacity:0.5">No instant sales found</td></tr>' :
+      pageItems.map(item => `
               <tr>
                 <td data-label="Date">${new Date(item.date).toLocaleString()}</td>
                 <td data-label="Customer">${item.customer}</td>
@@ -502,12 +570,12 @@ async function renderInstantSalesReport(container, cur) {
                 <td data-label="Price">${cur}${item.price.toFixed(2)}</td>
                 <td data-label="Total" class="text-success font-bold">${cur}${item.revenue.toFixed(2)}</td>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+            `).join('');
+
+    renderPaginationBar(document.getElementById('instantSalesPagination'), {
+      page, totalPages, onChange: (p) => { instantSalesPage = p; renderInstantSalesRows(); }
+    });
+  })();
 }
 
 async function renderCategorySalesReport(container, cur) {
@@ -621,6 +689,7 @@ async function renderSalesAnalysis(container, cur) {
 
 async function renderPurchaseReport(container, cur) {
   const purchases = await getPurchases(currentBranchFilter, currentStartDate, currentEndDate);
+  const purchasesSorted = purchases.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
   const monthly = await getPurchasesMonthly(currentBranchFilter);
   const totalSpend = purchases.reduce((s, p) => s + p.total, 0);
 
@@ -648,12 +717,25 @@ async function renderPurchaseReport(container, cur) {
     </div>
 
     <div class="card">
-      <div class="font-bold mb-16">Recent Purchases</div>
+      <div class="font-bold mb-16">Purchases</div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Date</th><th>ID</th><th>Supplier</th><th>Total</th><th>Action</th></tr></thead>
-          <tbody>
-            ${purchases.slice(0, 5).map(p => `
+          <tbody id="purchaseRecentBody"></tbody>
+        </table>
+      </div>
+      <div id="purchaseRecentPagination"></div>
+    </div>
+  `;
+
+  renderProcurementChart(monthly);
+
+  purchaseRecentPage = 1;
+  (function renderPurchaseRecentRows() {
+    const { pageItems, page, totalPages } = paginate(purchasesSorted, purchaseRecentPage, REPORT_PAGE_SIZE);
+    purchaseRecentPage = page;
+    const tbody = document.getElementById('purchaseRecentBody');
+    tbody.innerHTML = pageItems.map(p => `
               <tr>
                 <td data-label="Date">${new Date(p.date).toLocaleDateString()}</td>
                 <td data-label="ID">${p.id}</td>
@@ -665,27 +747,27 @@ async function renderPurchaseReport(container, cur) {
                   </button>
                 </td>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+            `).join('');
 
-  renderProcurementChart(monthly);
+    tbody.querySelectorAll('.purchase-return-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const pur = purchases.find(p => p.id === btn.dataset.id);
+        if (pur) await openPurchaseReturnModal(pur, cur);
+      };
+    });
 
-  container.querySelectorAll('.purchase-return-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const pur = purchases.find(p => p.id === btn.dataset.id);
-      if (pur) await openPurchaseReturnModal(pur, cur);
-    };
-  });
+    renderPaginationBar(document.getElementById('purchaseRecentPagination'), {
+      page, totalPages, onChange: (p) => { purchaseRecentPage = p; renderPurchaseRecentRows(); }
+    });
+  })();
 }
 
 async function renderVehicleDeliveryReport(container, cur) {
   const vehicles = await getVehicleDeliveryReport(currentBranchFilter, currentStartDate, currentEndDate);
   const totalDeliveries = vehicles.reduce((s, v) => s + v.deliveries, 0);
   const totalValue = vehicles.reduce((s, v) => s + v.totalValue, 0);
+
+  vehicleReportPage = 1;
 
   container.innerHTML = `
     <div class="grid-2 mb-24">
@@ -710,9 +792,19 @@ async function renderVehicleDeliveryReport(container, cur) {
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Vehicle</th><th>Deliveries</th><th>Total Value</th><th>Avg / Delivery</th><th>Actions</th></tr></thead>
-          <tbody>
-            ${vehicles.length === 0 ? `<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No deliveries with a vehicle recorded in this range. Vehicle number is entered as an optional field at checkout.</td></tr>` :
-              vehicles.map(v => `
+          <tbody id="vehicleReportBody"></tbody>
+        </table>
+      </div>
+      <div id="vehicleReportPagination"></div>
+    </div>
+  `;
+
+  function renderVehicleRows() {
+    const { pageItems, page, totalPages } = paginate(vehicles, vehicleReportPage, REPORT_PAGE_SIZE);
+    vehicleReportPage = page;
+    const tbody = document.getElementById('vehicleReportBody');
+    tbody.innerHTML = pageItems.length === 0 ? `<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No deliveries with a vehicle recorded in this range. Vehicle number is entered as an optional field at checkout.</td></tr>` :
+      pageItems.map(v => `
               <tr>
                 <td data-label="Vehicle" class="font-bold">${v.vehicle}</td>
                 <td data-label="Deliveries">${v.deliveries}</td>
@@ -720,39 +812,52 @@ async function renderVehicleDeliveryReport(container, cur) {
                 <td data-label="Avg / Delivery">${cur}${(v.totalValue / v.deliveries).toFixed(2)}</td>
                 <td><button class="btn btn-ghost btn-sm vehicle-view-btn" data-vehicle="${v.vehicle}"><i class="fa-solid fa-eye"></i> View Orders</button></td>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+            `).join('');
 
-  container.querySelectorAll('.vehicle-view-btn').forEach(btn => {
-    btn.onclick = () => {
-      const v = vehicles.find(x => x.vehicle === btn.dataset.vehicle);
-      if (!v) return;
-      openModal({
-        title: `Deliveries by ${v.vehicle}`,
-        body: `
-          <div class="table-wrap">
-            <table class="responsive-table">
-              <thead><tr><th>Order #</th><th>Date</th><th>Total</th></tr></thead>
-              <tbody>
-                ${v.orders.sort((a, b) => new Date(b.date) - new Date(a.date)).map(o => `
-                  <tr>
-                    <td data-label="Order #">${o.dailyNumber ? '#' + o.dailyNumber : o.id}</td>
-                    <td data-label="Date">${o.date ? new Date(o.date).toLocaleString() : 'N/A'}</td>
-                    <td data-label="Total" class="font-bold text-success">${cur}${o.total.toFixed(2)}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        `,
-        footer: `<button class="btn btn-primary" onclick="closeModal()">Close</button>`
-      });
-    };
-  });
+    tbody.querySelectorAll('.vehicle-view-btn').forEach(btn => {
+      btn.onclick = () => {
+        const v = vehicles.find(x => x.vehicle === btn.dataset.vehicle);
+        if (!v) return;
+        const sortedOrders = v.orders.sort((a, b) => new Date(b.date) - new Date(a.date));
+        let modalPage = 1;
+        function renderVehicleModal() {
+          const res = paginate(sortedOrders, modalPage, REPORT_PAGE_SIZE);
+          modalPage = res.page;
+          openModal({
+            title: `Deliveries by ${v.vehicle}`,
+            body: `
+              <div class="table-wrap">
+                <table class="responsive-table">
+                  <thead><tr><th>Order #</th><th>Date</th><th>Total</th></tr></thead>
+                  <tbody>
+                    ${res.pageItems.map(o => `
+                      <tr>
+                        <td data-label="Order #">${o.dailyNumber ? '#' + o.dailyNumber : o.id}</td>
+                        <td data-label="Date">${o.date ? new Date(o.date).toLocaleString() : 'N/A'}</td>
+                        <td data-label="Total" class="font-bold text-success">${cur}${o.total.toFixed(2)}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+              <div id="vehicleModalPagination"></div>
+            `,
+            footer: `<button class="btn btn-primary" onclick="closeModal()">Close</button>`
+          });
+          renderPaginationBar(document.getElementById('vehicleModalPagination'), {
+            page: res.page, totalPages: res.totalPages, onChange: (p) => { modalPage = p; renderVehicleModal(); }
+          });
+        }
+        renderVehicleModal();
+      };
+    });
+
+    renderPaginationBar(document.getElementById('vehicleReportPagination'), {
+      page, totalPages, onChange: (p) => { vehicleReportPage = p; renderVehicleRows(); }
+    });
+  }
+
+  renderVehicleRows();
 }
 
 async function renderOutstandingReport(container, cur) {
@@ -780,6 +885,9 @@ async function renderOutstandingReport(container, cur) {
   const customers = Object.values(creditMap).sort((a, b) => b.totalOutstanding - a.totalOutstanding);
   const totalSalesOutstanding = customers.reduce((s, c) => s + c.totalOutstanding, 0);
 
+  outstandingSalesPage = 1;
+  outstandingPurchasePage = 1;
+
   container.innerHTML = `
     <div class="grid-2 mb-24">
       <div class="stat-card" style="border-left:4px solid var(--warning)">
@@ -801,9 +909,30 @@ async function renderOutstandingReport(container, cur) {
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Customer</th><th>Pending Orders</th><th>Last Activity</th><th>Outstanding Balance</th><th>Actions</th></tr></thead>
-          <tbody>
-            ${customers.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No outstanding customer credit found. Great! 💎</td></tr>' :
-              customers.map(c => `
+          <tbody id="outstandingSalesBody"></tbody>
+        </table>
+      </div>
+      <div id="outstandingSalesPagination"></div>
+    </div>
+
+    <div class="card">
+      <div class="font-bold mb-16"><i class="fa-solid fa-truck-ramp-box mr-8 text-danger"></i> Purchase Outstanding — by Supplier</div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Supplier</th><th>Purchases</th><th>Total Purchased</th><th>Paid</th><th>Outstanding</th><th>Actions</th></tr></thead>
+          <tbody id="outstandingPurchaseBody"></tbody>
+        </table>
+      </div>
+      <div id="outstandingPurchasePagination"></div>
+    </div>
+  `;
+
+  function renderSalesOutstandingRows() {
+    const { pageItems, page, totalPages } = paginate(customers, outstandingSalesPage, REPORT_PAGE_SIZE);
+    outstandingSalesPage = page;
+    const tbody = document.getElementById('outstandingSalesBody');
+    tbody.innerHTML = pageItems.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No outstanding customer credit found. Great! 💎</td></tr>' :
+      pageItems.map(c => `
                 <tr>
                   <td data-label="Customer">
                     <div style="text-align:left">
@@ -816,20 +945,58 @@ async function renderOutstandingReport(container, cur) {
                   <td data-label="Balance" class="font-bold" style="font-size:16px; color:var(--warning)">${cur}${c.totalOutstanding.toFixed(2)}</td>
                   <td><button class="btn btn-ghost btn-sm sales-outstanding-view-btn" data-customer="${c.name}"><i class="fa-solid fa-eye"></i> View Orders</button></td>
                 </tr>
-              `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
+              `).join('');
 
-    <div class="card">
-      <div class="font-bold mb-16"><i class="fa-solid fa-truck-ramp-box mr-8 text-danger"></i> Purchase Outstanding — by Supplier</div>
-      <div class="table-wrap">
-        <table class="responsive-table">
-          <thead><tr><th>Supplier</th><th>Purchases</th><th>Total Purchased</th><th>Paid</th><th>Outstanding</th><th>Actions</th></tr></thead>
-          <tbody>
-            ${suppliers.length === 0 ? `<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.5">No outstanding supplier balances in this range. Nice! \u{1F4B0}</td></tr>` :
-              suppliers.map(s => `
+    tbody.querySelectorAll('.sales-outstanding-view-btn').forEach(btn => {
+      btn.onclick = () => {
+        const c = customers.find(x => x.name === btn.dataset.customer);
+        if (!c) return;
+        const sortedOrders = c.orders.sort((a, b) => new Date(b.date) - new Date(a.date));
+        let modalPage = 1;
+        function renderOrdersModal() {
+          const res = paginate(sortedOrders, modalPage, REPORT_PAGE_SIZE);
+          modalPage = res.page;
+          openModal({
+            title: `Outstanding Orders — ${c.name}`,
+            body: `
+              <div class="table-wrap">
+                <table class="responsive-table">
+                  <thead><tr><th>Order #</th><th>Date</th><th>Total</th><th>Balance</th></tr></thead>
+                  <tbody>
+                    ${res.pageItems.map(o => `
+                      <tr>
+                        <td data-label="Order #">${o.dailyNumber ? '#' + o.dailyNumber : o.id}</td>
+                        <td data-label="Date">${o.date ? new Date(o.date).toLocaleDateString() : 'N/A'}</td>
+                        <td data-label="Total">${cur}${o.total.toFixed(2)}</td>
+                        <td data-label="Balance" class="font-bold" style="color:var(--warning)">${cur}${o.balance.toFixed(2)}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+              <div id="outstandingOrdersModalPagination"></div>
+            `,
+            footer: `<button class="btn btn-primary" onclick="closeModal()">Close</button>`
+          });
+          renderPaginationBar(document.getElementById('outstandingOrdersModalPagination'), {
+            page: res.page, totalPages: res.totalPages, onChange: (p) => { modalPage = p; renderOrdersModal(); }
+          });
+        }
+        renderOrdersModal();
+      };
+    });
+
+    renderPaginationBar(document.getElementById('outstandingSalesPagination'), {
+      page, totalPages, onChange: (p) => { outstandingSalesPage = p; renderSalesOutstandingRows(); }
+    });
+  }
+
+  function renderPurchaseOutstandingRows() {
+    const { pageItems, page, totalPages } = paginate(suppliers, outstandingPurchasePage, REPORT_PAGE_SIZE);
+    outstandingPurchasePage = page;
+    const tbody = document.getElementById('outstandingPurchaseBody');
+    tbody.innerHTML = pageItems.length === 0 ? `<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.5">No outstanding supplier balances in this range. Nice! \u{1F4B0}</td></tr>` :
+      pageItems.map(s => `
               <tr>
                 <td data-label="Supplier" class="font-bold">${s.supplierName}</td>
                 <td data-label="Purchases"><span class="badge badge-info">${s.purchaseCount} Purchases</span></td>
@@ -838,69 +1005,55 @@ async function renderOutstandingReport(container, cur) {
                 <td data-label="Outstanding" class="font-bold text-danger" style="font-size:16px">${cur}${s.outstanding.toFixed(2)}</td>
                 <td><button class="btn btn-ghost btn-sm outstanding-view-btn" data-supplier="${s.supplierName}"><i class="fa-solid fa-eye"></i> View Purchases</button></td>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+            `).join('');
 
-  container.querySelectorAll('.sales-outstanding-view-btn').forEach(btn => {
-    btn.onclick = () => {
-      const c = customers.find(x => x.name === btn.dataset.customer);
-      if (!c) return;
-      openModal({
-        title: `Outstanding Orders — ${c.name}`,
-        body: `
-          <div class="table-wrap">
-            <table class="responsive-table">
-              <thead><tr><th>Order #</th><th>Date</th><th>Total</th><th>Balance</th></tr></thead>
-              <tbody>
-                ${c.orders.sort((a, b) => new Date(b.date) - new Date(a.date)).map(o => `
-                  <tr>
-                    <td data-label="Order #">${o.dailyNumber ? '#' + o.dailyNumber : o.id}</td>
-                    <td data-label="Date">${o.date ? new Date(o.date).toLocaleDateString() : 'N/A'}</td>
-                    <td data-label="Total">${cur}${o.total.toFixed(2)}</td>
-                    <td data-label="Balance" class="font-bold" style="color:var(--warning)">${cur}${o.balance.toFixed(2)}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        `,
-        footer: `<button class="btn btn-primary" onclick="closeModal()">Close</button>`
-      });
-    };
-  });
+    tbody.querySelectorAll('.outstanding-view-btn').forEach(btn => {
+      btn.onclick = () => {
+        const s = suppliers.find(x => x.supplierName === btn.dataset.supplier);
+        if (!s) return;
+        const sortedPurchases = s.purchases.sort((a, b) => new Date(b.date) - new Date(a.date));
+        let modalPage = 1;
+        function renderPurchasesModal() {
+          const res = paginate(sortedPurchases, modalPage, REPORT_PAGE_SIZE);
+          modalPage = res.page;
+          openModal({
+            title: `Outstanding Purchases — ${s.supplierName}`,
+            body: `
+              <div class="table-wrap">
+                <table class="responsive-table">
+                  <thead><tr><th>Invoice #</th><th>Date</th><th>Total</th><th>Paid</th><th>Outstanding</th></tr></thead>
+                  <tbody>
+                    ${res.pageItems.map(p => `
+                      <tr>
+                        <td data-label="Invoice #" class="font-mono">${p.supplierInvoiceNo || p.id}</td>
+                        <td data-label="Date">${p.date ? new Date(p.date).toLocaleDateString() : 'N/A'}</td>
+                        <td data-label="Total">${cur}${p.total.toFixed(2)}</td>
+                        <td data-label="Paid" class="text-success">${cur}${p.amountPaid.toFixed(2)}</td>
+                        <td data-label="Outstanding" class="font-bold text-danger">${cur}${p.outstanding.toFixed(2)}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+              <div id="outstandingPurchasesModalPagination"></div>
+            `,
+            footer: `<button class="btn btn-primary" onclick="closeModal()">Close</button>`
+          });
+          renderPaginationBar(document.getElementById('outstandingPurchasesModalPagination'), {
+            page: res.page, totalPages: res.totalPages, onChange: (p) => { modalPage = p; renderPurchasesModal(); }
+          });
+        }
+        renderPurchasesModal();
+      };
+    });
 
-  container.querySelectorAll('.outstanding-view-btn').forEach(btn => {
-    btn.onclick = () => {
-      const s = suppliers.find(x => x.supplierName === btn.dataset.supplier);
-      if (!s) return;
-      openModal({
-        title: `Outstanding Purchases — ${s.supplierName}`,
-        body: `
-          <div class="table-wrap">
-            <table class="responsive-table">
-              <thead><tr><th>Invoice #</th><th>Date</th><th>Total</th><th>Paid</th><th>Outstanding</th></tr></thead>
-              <tbody>
-                ${s.purchases.sort((a, b) => new Date(b.date) - new Date(a.date)).map(p => `
-                  <tr>
-                    <td data-label="Invoice #" class="font-mono">${p.supplierInvoiceNo || p.id}</td>
-                    <td data-label="Date">${p.date ? new Date(p.date).toLocaleDateString() : 'N/A'}</td>
-                    <td data-label="Total">${cur}${p.total.toFixed(2)}</td>
-                    <td data-label="Paid" class="text-success">${cur}${p.amountPaid.toFixed(2)}</td>
-                    <td data-label="Outstanding" class="font-bold text-danger">${cur}${p.outstanding.toFixed(2)}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        `,
-        footer: `<button class="btn btn-primary" onclick="closeModal()">Close</button>`
-      });
-    };
-  });
+    renderPaginationBar(document.getElementById('outstandingPurchasePagination'), {
+      page, totalPages, onChange: (p) => { outstandingPurchasePage = p; renderPurchaseOutstandingRows(); }
+    });
+  }
+
+  renderSalesOutstandingRows();
+  renderPurchaseOutstandingRows();
 }
 
 async function openPurchaseReturnModal(purchase, cur) {
@@ -1070,14 +1223,25 @@ async function renderCustomerReport(container, cur) {
     };
   }).sort((a, b) => b.totalSpent - a.totalSpent);
 
+  customerReportPage = 1;
+
   container.innerHTML = `
     <div class="card">
       <div class="font-bold mb-16">Customer Activity & Loyalty Report</div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Customer</th><th>Phone</th><th>Orders</th><th>Total Spent</th><th>Loyalty Points</th></tr></thead>
-          <tbody>
-            ${processed.map(c => `
+          <tbody id="customerReportBody"></tbody>
+        </table>
+      </div>
+      <div id="customerReportPagination"></div>
+    </div>
+  `;
+
+  function renderCustomerRows() {
+    const { pageItems, page, totalPages } = paginate(processed, customerReportPage, REPORT_PAGE_SIZE);
+    customerReportPage = page;
+    document.getElementById('customerReportBody').innerHTML = pageItems.map(c => `
               <tr>
                 <td data-label="Customer">
                   <div style="text-align:left">
@@ -1095,12 +1259,14 @@ async function renderCustomerReport(container, cur) {
                 <td data-label="Total Spent" class="font-bold text-accent">${cur}${c.totalSpent.toFixed(2)}</td>
                 <td data-label="Loyalty Points" class="font-bold text-success">${c.loyaltyPoints || 0} Pts</td>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+            `).join('');
+
+    renderPaginationBar(document.getElementById('customerReportPagination'), {
+      page, totalPages, onChange: (p) => { customerReportPage = p; renderCustomerRows(); }
+    });
+  }
+
+  renderCustomerRows();
 }
 
 async function renderSupplierReport(container, cur) {
@@ -1116,14 +1282,25 @@ async function renderSupplierReport(container, cur) {
     };
   }).sort((a, b) => b.totalSpend - a.totalSpend);
 
+  supplierReportPage = 1;
+
   container.innerHTML = `
     <div class="card">
       <div class="font-bold mb-16">Supplier Procurement Analysis</div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Supplier</th><th>Contact</th><th>Orders</th><th>Total Spending</th></tr></thead>
-          <tbody>
-            ${processed.map(s => `
+          <tbody id="supplierReportBody"></tbody>
+        </table>
+      </div>
+      <div id="supplierReportPagination"></div>
+    </div>
+  `;
+
+  function renderSupplierRows() {
+    const { pageItems, page, totalPages } = paginate(processed, supplierReportPage, REPORT_PAGE_SIZE);
+    supplierReportPage = page;
+    document.getElementById('supplierReportBody').innerHTML = pageItems.map(s => `
               <tr>
                 <td data-label="Supplier">
                   <div style="text-align:left">
@@ -1135,12 +1312,14 @@ async function renderSupplierReport(container, cur) {
                 <td data-label="Orders">${s.orderCount}</td>
                 <td data-label="Total Spending" class="text-danger font-bold">${cur}${s.totalSpend.toFixed(2)}</td>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+            `).join('');
+
+    renderPaginationBar(document.getElementById('supplierReportPagination'), {
+      page, totalPages, onChange: (p) => { supplierReportPage = p; renderSupplierRows(); }
+    });
+  }
+
+  renderSupplierRows();
 }
 
 async function renderGSTReport(container, cur) {
@@ -1182,20 +1361,10 @@ async function renderGSTReport(container, cur) {
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Date</th><th>Customer</th><th>Invoice ID</th><th>Taxable Amt</th><th>GST Amt</th></tr></thead>
-          <tbody>
-            ${orders.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No sales recorded</td></tr>' :
-      orders.slice(0, 10).map(o => `
-                <tr>
-                  <td data-label="Date">${new Date(o.date).toLocaleDateString()}</td>
-                  <td data-label="Customer">${o.customer?.name || 'Walk-in'}</td>
-                  <td data-label="Invoice ID" class="font-mono" style="font-size:11px">${o.id}</td>
-                  <td data-label="Taxable Amt">${cur}${(o.subtotal || 0).toFixed(2)}</td>
-                  <td data-label="GST Amt" class="font-bold text-accent">${cur}${(o.tax || 0).toFixed(2)}</td>
-                </tr>
-              `).join('')}
-          </tbody>
+          <tbody id="gstOutputBody"></tbody>
         </table>
       </div>
+      <div id="gstOutputPagination"></div>
     </div>
 
     <!-- Purchase GST Section (Input) -->
@@ -1215,9 +1384,45 @@ async function renderGSTReport(container, cur) {
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Date</th><th>Supplier</th><th>Purchase ID</th><th>Taxable Amt</th><th>GST Amt</th></tr></thead>
-          <tbody>
-            ${purchases.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No purchases recorded</td></tr>' :
-      purchases.slice(0, 10).map(p => `
+          <tbody id="gstInputBody"></tbody>
+        </table>
+      </div>
+      <div id="gstInputPagination"></div>
+    </div>
+  `;
+
+  const salesExportBtn = document.getElementById('exportSalesGstBtn');
+  if (salesExportBtn) salesExportBtn.onclick = async () => await exportGSTR1Json(orders);
+
+  const purchaseExportBtn = document.getElementById('exportPurchaseGstBtn');
+  if (purchaseExportBtn) purchaseExportBtn.onclick = async () => await exportPurchaseRegisterJson(purchases);
+
+  gstOutputPage = 1;
+  (function renderGstOutputRows() {
+    const { pageItems, page, totalPages } = paginate(orders, gstOutputPage, REPORT_PAGE_SIZE);
+    gstOutputPage = page;
+    document.getElementById('gstOutputBody').innerHTML = pageItems.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No sales recorded</td></tr>' :
+      pageItems.map(o => `
+                <tr>
+                  <td data-label="Date">${new Date(o.date).toLocaleDateString()}</td>
+                  <td data-label="Customer">${o.customer?.name || 'Walk-in'}</td>
+                  <td data-label="Invoice ID" class="font-mono" style="font-size:11px">${o.id}</td>
+                  <td data-label="Taxable Amt">${cur}${(o.subtotal || 0).toFixed(2)}</td>
+                  <td data-label="GST Amt" class="font-bold text-accent">${cur}${(o.tax || 0).toFixed(2)}</td>
+                </tr>
+              `).join('');
+
+    renderPaginationBar(document.getElementById('gstOutputPagination'), {
+      page, totalPages, onChange: (p) => { gstOutputPage = p; renderGstOutputRows(); }
+    });
+  })();
+
+  gstInputPage = 1;
+  (function renderGstInputRows() {
+    const { pageItems, page, totalPages } = paginate(purchases, gstInputPage, REPORT_PAGE_SIZE);
+    gstInputPage = page;
+    document.getElementById('gstInputBody').innerHTML = pageItems.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No purchases recorded</td></tr>' :
+      pageItems.map(p => `
                 <tr>
                   <td data-label="Date">${new Date(p.date).toLocaleDateString()}</td>
                   <td data-label="Supplier">${p.supplierName}</td>
@@ -1225,18 +1430,12 @@ async function renderGSTReport(container, cur) {
                   <td data-label="Taxable Amt">${cur}${(p.subtotal || p.total).toFixed(2)}</td>
                   <td data-label="GST Amt" class="font-bold text-info">${cur}${(p.taxAmount || 0).toFixed(2)}</td>
                 </tr>
-              `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+              `).join('');
 
-  const salesExportBtn = document.getElementById('exportSalesGstBtn');
-  if (salesExportBtn) salesExportBtn.onclick = async () => await exportGSTR1Json(orders);
-  
-  const purchaseExportBtn = document.getElementById('exportPurchaseGstBtn');
-  if (purchaseExportBtn) purchaseExportBtn.onclick = async () => await exportPurchaseRegisterJson(purchases);
+    renderPaginationBar(document.getElementById('gstInputPagination'), {
+      page, totalPages, onChange: (p) => { gstInputPage = p; renderGstInputRows(); }
+    });
+  })();
 }
 
 async function renderStaffIncentiveReport(container, cur) {
@@ -1300,8 +1499,19 @@ async function renderStaffIncentiveReport(container, cur) {
       <div class="table-wrap">
         <table class="responsive-table table-sm">
           <thead><tr><th>Date</th><th>Staff</th><th>Order ID</th><th>Total</th><th>Incentive</th></tr></thead>
-          <tbody>
-            ${incentives.slice().reverse().slice(0, 20).map(i => `
+          <tbody id="staffIncentiveLogBody"></tbody>
+        </table>
+      </div>
+      <div id="staffIncentiveLogPagination"></div>
+    </div>
+  `;
+
+  const incentivesSorted = incentives.slice().reverse();
+  staffIncentiveLogPage = 1;
+  (function renderIncentiveLogRows() {
+    const { pageItems, page, totalPages } = paginate(incentivesSorted, staffIncentiveLogPage, REPORT_PAGE_SIZE);
+    staffIncentiveLogPage = page;
+    document.getElementById('staffIncentiveLogBody').innerHTML = pageItems.map(i => `
               <tr>
                 <td data-label="Date" style="font-size:11px">${new Date(i.date).toLocaleDateString()}</td>
                 <td data-label="Staff">${i.staffName}</td>
@@ -1309,28 +1519,30 @@ async function renderStaffIncentiveReport(container, cur) {
                 <td data-label="Total">${cur}${i.orderTotal.toFixed(2)}</td>
                 <td data-label="Incentive" class="font-bold text-success">+${cur}${i.amount.toFixed(2)}</td>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+            `).join('');
+
+    renderPaginationBar(document.getElementById('staffIncentiveLogPagination'), {
+      page, totalPages, onChange: (p) => { staffIncentiveLogPage = p; renderIncentiveLogRows(); }
+    });
+  })();
 }
 
 async function renderRegisterReport(container, cur) {
   const shiftsRaw = await getShifts();
   const branches = await getBranches();
   const registers = await getRegisters();
-  
+
   // Filter shifts by date range
   const shifts = (shiftsRaw || []).filter(s => {
     const isBranchMatch = !currentBranchFilter || s.branchId === currentBranchFilter;
     const isDateMatch = (!currentStartDate || s.openedAt >= currentStartDate) && (!currentEndDate || s.openedAt <= currentEndDate + 'T23:59:59');
     return isBranchMatch && isDateMatch;
   });
-  
+
   // Sort by date descending
   shifts.sort((a, b) => new Date(b.openedAt) - new Date(a.openedAt));
+
+  registerReportPage = 1;
 
   container.innerHTML = `
     <div class="card">
@@ -1338,7 +1550,7 @@ async function renderRegisterReport(container, cur) {
         <div class="font-bold" style="font-size:18px"><i class="fa-solid fa-cash-register mr-8 text-success"></i> Register & Shift History</div>
         <div class="text-muted" style="font-size:12px">${shifts.length} Shifts Recorded</div>
       </div>
-      
+
       <div class="table-wrap">
         <table class="responsive-table">
           <thead>
@@ -1352,9 +1564,20 @@ async function renderRegisterReport(container, cur) {
               <th>Action</th>
             </tr>
           </thead>
-          <tbody>
-            ${shifts.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:40px;opacity:0.5">No shift history found for this branch.</td></tr>' : 
-              shifts.map(s => {
+          <tbody id="registerReportBody"></tbody>
+        </table>
+      </div>
+      <div id="registerReportPagination"></div>
+    </div>
+  `;
+
+  function renderShiftRows() {
+    const { pageItems, page, totalPages } = paginate(shifts, registerReportPage, REPORT_PAGE_SIZE);
+    registerReportPage = page;
+    const tbody = document.getElementById('registerReportBody');
+    if (!tbody) return;
+    tbody.innerHTML = pageItems.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:40px;opacity:0.5">No shift history found for this branch.</td></tr>' :
+      pageItems.map(s => {
                 const branchName = branches.find(b => b.id === s.branchId)?.name || 'Branch';
                 const regName = registers.find(r => r.id === s.registerId)?.name || s.registerId || 'Main Terminal';
                 const openDate = new Date(s.openedAt);
@@ -1419,17 +1642,18 @@ async function renderRegisterReport(container, cur) {
                     </td>
                   </tr>
                 `;
-              }).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+      }).join('');
 
-  // Attach modal events
-  container.querySelectorAll('.view-shift-report-btn').forEach(btn => {
-    btn.onclick = () => openShiftSummaryModal(btn.dataset.id, cur, shifts, registers);
-  });
+    tbody.querySelectorAll('.view-shift-report-btn').forEach(btn => {
+      btn.onclick = () => openShiftSummaryModal(btn.dataset.id, cur, shifts, registers);
+    });
+
+    renderPaginationBar(document.getElementById('registerReportPagination'), {
+      page, totalPages, onChange: (p) => { registerReportPage = p; renderShiftRows(); }
+    });
+  }
+
+  renderShiftRows();
 }
 
 function openShiftSummaryModal(shiftId, cur, allShifts, registers = []) {
@@ -1574,8 +1798,11 @@ async function renderLowStockReport(container, cur) {
 }
 
 async function renderReturnsReport(container, cur) {
-  const returns = await getReturns(currentBranchFilter, currentStartDate, currentEndDate);
+  const returnsSorted = (await getReturns(currentBranchFilter, currentStartDate, currentEndDate)).slice().reverse();
   const canExport = await hasPermission('reports:export');
+  const settings = await getSettings();
+
+  returnsReportPage = 1;
 
   container.innerHTML = `
     <div class="card">
@@ -1583,9 +1810,20 @@ async function renderReturnsReport(container, cur) {
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Return Items</th><th>Total Value</th><th>Method</th><th>Reason</th><th>Actions</th></tr></thead>
-          <tbody>
-            ${returns.length === 0 ? '<tr><td colspan="8" style="text-align:center;padding:40px;opacity:0.5">No returns logged yet</td></tr>' :
-      returns.slice().reverse().map(r => `
+          <tbody id="returnsReportBody"></tbody>
+        </table>
+      </div>
+      <div id="returnsReportPagination"></div>
+    </div>
+  `;
+
+  function renderReturnRows() {
+    const { pageItems, page, totalPages } = paginate(returnsSorted, returnsReportPage, REPORT_PAGE_SIZE);
+    returnsReportPage = page;
+    const tbody = document.getElementById('returnsReportBody');
+    if (!tbody) return;
+    tbody.innerHTML = pageItems.length === 0 ? '<tr><td colspan="8" style="text-align:center;padding:40px;opacity:0.5">No returns logged yet</td></tr>' :
+      pageItems.map(r => `
                 <tr>
                   <td data-label="Date" style="font-size:11px">${new Date(r.date).toLocaleString()}</td>
                   <td data-label="Type"><span class="badge badge-${r.type === 'sales' ? 'accent' : 'primary'}">${r.type.toUpperCase()}</span></td>
@@ -1602,24 +1840,24 @@ async function renderReturnsReport(container, cur) {
                     ` : '<span class="text-muted" style="font-size:10px">Locked</span>'}
                   </td>
                 </tr>
-              `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+              `).join('');
 
-  const settings = await getSettings();
-  container.querySelectorAll('.print-return-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const ret = returns.find(r => r.id === btn.dataset.id);
-      if (ret) {
-        const cs = await import('../services/CheckoutService.js');
-        cs.showRefundReceipt(ret, settings, cur);
-      }
-    };
-  });
+    tbody.querySelectorAll('.print-return-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const ret = returnsSorted.find(r => r.id === btn.dataset.id);
+        if (ret) {
+          const cs = await import('../services/CheckoutService.js');
+          cs.showRefundReceipt(ret, settings, cur);
+        }
+      };
+    });
 
+    renderPaginationBar(document.getElementById('returnsReportPagination'), {
+      page, totalPages, onChange: (p) => { returnsReportPage = p; renderReturnRows(); }
+    });
+  }
+
+  renderReturnRows();
 }
 
 // Keep existing chart functions but update variable management
@@ -1751,28 +1989,18 @@ function renderLoginActivityReport(container, cur) {
           </tbody>
         </table>
       </div>
+      <div id="loginLogsPagination"></div>
     </div>
   `;
 
-  async function loadLogs() {
+  let allLogs = [];
+
+  function renderLogsPage() {
     const tableBody = document.getElementById('login-logs-body');
-    if (!window.syncEngine || !window.syncEngine.isConnected) {
-      tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--danger)">Offline - Hub connection required</td></tr>';
-      return;
-    }
+    const { pageItems, page, totalPages } = paginate(allLogs, loginActivityPage, REPORT_PAGE_SIZE);
+    loginActivityPage = page;
 
-    const res = await window.syncEngine.getLoginActivities(100);
-    if (!res.success) {
-      tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--danger)">${res.message}</td></tr>`;
-      return;
-    }
-
-    if (res.logs.length === 0) {
-      tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.5">No login activity recorded yet.</td></tr>';
-      return;
-    }
-
-    tableBody.innerHTML = res.logs.map(log => {
+    tableBody.innerHTML = pageItems.map(log => {
       const date = new Date(log.timestamp);
       const isMobile = log.deviceType === 'Mobile/Tablet';
       return `
@@ -1811,6 +2039,33 @@ function renderLoginActivityReport(container, cur) {
         </tr>
       `;
     }).join('');
+
+    renderPaginationBar(document.getElementById('loginLogsPagination'), {
+      page, totalPages, onChange: (p) => { loginActivityPage = p; renderLogsPage(); }
+    });
+  }
+
+  async function loadLogs() {
+    const tableBody = document.getElementById('login-logs-body');
+    if (!window.syncEngine || !window.syncEngine.isConnected) {
+      tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--danger)">Offline - Hub connection required</td></tr>';
+      return;
+    }
+
+    const res = await window.syncEngine.getLoginActivities(100);
+    if (!res.success) {
+      tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--danger)">${res.message}</td></tr>`;
+      return;
+    }
+
+    if (res.logs.length === 0) {
+      tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.5">No login activity recorded yet.</td></tr>';
+      return;
+    }
+
+    allLogs = res.logs;
+    loginActivityPage = 1;
+    renderLogsPage();
   }
 
   loadLogs();

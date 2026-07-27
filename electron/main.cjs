@@ -458,6 +458,44 @@ ipcMain.handle('print-receipt-silent', async (event, html) => {
   }
 });
 
+// ─── Silent PDF export (Reports) ────────────────────────────────────────
+// Renders arbitrary report HTML off-screen and saves it straight to the
+// Downloads folder as a PDF — no OS print dialog, same silent approach as
+// print-receipt-silent above, just producing a file instead of a printout.
+ipcMain.handle('export-pdf-silent', async (event, { html, filename }) => {
+  let hiddenWin;
+  try {
+    hiddenWin = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true } });
+    await hiddenWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+
+    // printToPDF's pageSize is in inches (unlike webContents.print's microns —
+    // see the note above); 'A4' is one of Electron's supported named sizes.
+    const pdfBuffer = await hiddenWin.webContents.printToPDF({
+      pageSize: 'A4',
+      printBackground: true,
+      margins: { marginType: 'default' }
+    });
+
+    hiddenWin.destroy();
+    hiddenWin = null;
+
+    const downloadsDir = app.getPath('downloads');
+    const safeName = (filename || 'Report').replace(/[\\/:*?"<>|]/g, '_');
+    let targetPath = path.join(downloadsDir, `${safeName}.pdf`);
+    let counter = 1;
+    while (fs.existsSync(targetPath)) {
+      targetPath = path.join(downloadsDir, `${safeName} (${counter}).pdf`);
+      counter++;
+    }
+    fs.writeFileSync(targetPath, pdfBuffer);
+    return { success: true, path: targetPath };
+  } catch (e) {
+    if (hiddenWin && !hiddenWin.isDestroyed()) hiddenWin.destroy();
+    console.error('[Print] export-pdf-silent failed:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
 // ─── Lifetime Offline License (Item 2) ─────────────────────────────────────
 ipcMain.handle('get-machine-fingerprint', () => {
   try { return machineIdSync(true); } catch (e) { console.error('[Lifetime] Fingerprint error:', e.message); return null; }
