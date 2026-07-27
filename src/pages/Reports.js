@@ -61,15 +61,6 @@ export async function renderReports(container, subPage = 'sales') {
           <option value="">All Branches</option>
           ${(await getBranches()).map(b => `<option value="${b.id}" ${currentBranchFilter === b.id ? 'selected' : ''}>${b.name}</option>`).join('')}
         </select>
-
-        ${await hasPermission('reports:export') ? `
-          <button class="btn btn-ghost btn-sm" id="reportExportCsvBtn" title="Export the currently viewed report as CSV (opens in Excel)">
-            <i class="fa-solid fa-file-csv"></i> Excel
-          </button>
-          <button class="btn btn-ghost btn-sm" id="reportExportPdfBtn" title="Print / Save the currently viewed report as PDF">
-            <i class="fa-solid fa-file-pdf"></i> PDF
-          </button>
-        ` : ''}
       </div>
     </div>
     <div class="report-nav custom-scrollbar" style="display:flex;gap:12px;margin-bottom:24px;border-bottom:1px solid var(--border);padding-bottom:12px;overflow-x:auto">
@@ -149,18 +140,6 @@ export async function renderReports(container, subPage = 'sales') {
       await renderReports(container, subPage);
     };
   }
-
-  const REPORT_LABELS = {
-    sales: 'Sales Hub', 'instant-sales': 'Instant Sales', 'category-sales': 'Category Sales',
-    'sales-analysis': 'Business Analysis', inventory: 'Inventory Report',
-    purchases: 'Procurement', vehicles: 'Vehicle Delivery Report', outstanding: 'Outstanding Report',
-    gst: 'GST Center', customers: 'Customer Report', staff: 'Staff Earnings',
-    registers: 'Register Report', 'login-activity': 'Login Audit', returns: 'Returns History'
-  };
-  const reportLabel = REPORT_LABELS[subPage] || 'Report';
-
-  document.getElementById('reportExportCsvBtn')?.addEventListener('click', () => exportReportCSV(contentEl, reportLabel));
-  document.getElementById('reportExportPdfBtn')?.addEventListener('click', () => exportReportPDF(contentEl, reportLabel));
 
   const rangeEl = document.getElementById('report-date-range');
   if (rangeEl) {
@@ -276,66 +255,81 @@ function csvEscape(val) {
   return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
-function exportReportCSV(contentEl, reportLabel) {
+// ============================================================
+// Per-table Excel/PDF export — each table gets its own small export buttons
+// in its own card header instead of one shared "export the whole tab" button,
+// so exporting one table never drags in unrelated data from other tables
+// sharing the same tab (e.g. Outstanding's separate Sales/Purchase tables).
+// ============================================================
+
+// Small icon-button pair, dropped into a table's card header. `exportId` just
+// needs to be unique within the current tab — used to find these buttons again
+// in wireTableExport() without needing per-table global ids.
+function tableExportButtonsHtml(exportId) {
+  return `<div style="display:flex;gap:4px;flex-shrink:0">
+    <button class="btn btn-ghost btn-xs table-export-csv-btn" data-export-id="${exportId}" title="Export this table as CSV (opens in Excel)"><i class="fa-solid fa-file-csv"></i></button>
+    <button class="btn btn-ghost btn-xs table-export-pdf-btn" data-export-id="${exportId}" title="Export this table as PDF"><i class="fa-solid fa-file-pdf"></i></button>
+  </div>`;
+}
+
+function extractTableToCsvLines(table, titleText) {
   const lines = [];
+  if (titleText) lines.push(csvEscape(titleText));
 
-  // Summary stat cards first (e.g. "Gross Profit: ₹80.00")
-  const statCards = contentEl.querySelectorAll('.stat-card');
-  if (statCards.length > 0) {
-    lines.push('Summary');
-    statCards.forEach(card => {
-      const label = card.querySelector('.stat-label')?.innerText;
-      const value = card.querySelector('.stat-value')?.innerText;
-      if (label) lines.push(`${csvEscape(label)},${csvEscape(value)}`);
-    });
-    lines.push('');
-  }
+  const allHeaderCells = [...table.querySelectorAll('thead th')].map(th => th.innerText);
+  // "Actions"/"Select" columns are button controls or checkboxes, not reportable data —
+  // drop them from the export rather than leaking button labels like "View Orders" as text.
+  const skipIdx = new Set(allHeaderCells.map((h, i) => (!h.trim() || /^(actions?|select)$/i.test(h.trim())) ? i : -1).filter(i => i >= 0));
+  const headerCells = allHeaderCells.filter((_, i) => !skipIdx.has(i)).map(csvEscape);
+  if (headerCells.length) lines.push(headerCells.join(','));
 
-  // Every data table on the page, each with its own section title if it has one
-  contentEl.querySelectorAll('table.responsive-table').forEach(table => {
-    const titleEl = table.closest('.card')?.querySelector('.font-bold');
-    if (titleEl) lines.push(csvEscape(titleEl.innerText));
-
-    const allHeaderCells = [...table.querySelectorAll('thead th')].map(th => th.innerText);
-    // "Actions"/"Select" columns are button controls or checkboxes, not reportable data —
-    // drop them from the export rather than leaking button labels like "View Orders" as text.
-    const skipIdx = new Set(allHeaderCells.map((h, i) => (!h.trim() || /^(actions?|select)$/i.test(h.trim())) ? i : -1).filter(i => i >= 0));
-    const headerCells = allHeaderCells.filter((_, i) => !skipIdx.has(i)).map(csvEscape);
-    if (headerCells.length) lines.push(headerCells.join(','));
-
-    table.querySelectorAll('tbody tr').forEach(tr => {
-      const cells = [...tr.querySelectorAll('td')].filter((_, i) => !skipIdx.has(i)).map(td => csvEscape(td.innerText));
-      if (cells.length) lines.push(cells.join(','));
-    });
-    lines.push('');
+  table.querySelectorAll('tbody tr').forEach(tr => {
+    const cells = [...tr.querySelectorAll('td')].filter((_, i) => !skipIdx.has(i)).map(td => csvEscape(td.innerText));
+    if (cells.length) lines.push(cells.join(','));
   });
+  return lines;
+}
 
+function downloadCsvLines(lines, filename) {
   if (lines.length === 0) {
-    showToast('Nothing to export on this report yet', 'warning');
+    showToast('Nothing to export in this table yet', 'warning');
     return;
   }
-
   // Leading BOM so Excel renders the ₹ symbol and other non-ASCII text correctly
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${reportLabel.replace(/\s+/g, '_')}_${format(new Date())}.csv`;
+  a.download = `${filename.replace(/\s+/g, '_')}_${format(new Date())}.csv`;
   a.click();
   URL.revokeObjectURL(url);
   showToast('CSV exported — opens directly in Excel', 'success');
 }
 
-// On Electron, render the report HTML off-screen and save it straight to the
-// Downloads folder as a PDF — no OS print dialog (electron/main.cjs:
+// Exports `tableEl`'s FULL dataset, not just whatever page pagination currently
+// has rendered — `getFullBodyHtml()` (when given) rebuilds every row via the
+// same row-template each table already uses for display, so there's no
+// duplicated column-mapping code. The tbody swap is synchronous and restored
+// immediately after reading, so there's no visible flicker.
+function exportSingleTableCSV(tableEl, titleText, getFullBodyHtml) {
+  const tbody = tableEl.querySelector('tbody');
+  const original = tbody.innerHTML;
+  if (getFullBodyHtml) tbody.innerHTML = getFullBodyHtml();
+  const lines = extractTableToCsvLines(tableEl, titleText);
+  if (getFullBodyHtml) tbody.innerHTML = original;
+  downloadCsvLines(lines, titleText);
+}
+
+// On Electron, render just this one table off-screen and save it straight to
+// the Downloads folder as a PDF — no OS print dialog (electron/main.cjs:
 // export-pdf-silent), same silent approach used for receipt printing. In a
 // plain browser (dev testing without Electron), fall back to the native print
 // dialog via window.print(), which already has its own "Save as PDF" option.
-// Note either way: <canvas> chart content (Weekly Trend / Payment Methods) is
-// drawn imperatively by Chart.js and isn't captured by innerHTML cloning, so
-// charts export blank — tables and summary figures (the actual reportable
-// data) export fine.
-async function exportReportPDF(contentEl, reportLabel) {
+async function exportSingleTablePDF(tableEl, titleText, getFullBodyHtml) {
+  const clone = tableEl.cloneNode(true);
+  if (getFullBodyHtml) clone.querySelector('tbody').innerHTML = getFullBodyHtml();
+  const bodyHtml = `<div style="padding:8px"><h3 style="margin-bottom:12px">${titleText}</h3><div class="table-wrap">${clone.outerHTML}</div></div>`;
+
   const isElectron = /Electron/i.test(navigator.userAgent);
   if (isElectron && window.electronAPI?.exportReportPdfSilent) {
     const styleNodes = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
@@ -352,9 +346,8 @@ async function exportReportPDF(contentEl, reportLabel) {
         return node.outerHTML;
       }
     }));
-    const styles = styleParts.join('');
-    const fullHtml = `<html><head><title>${reportLabel}</title>${styles}</head><body style="background:white; color:black; padding:16px">${contentEl.innerHTML}</body></html>`;
-    const res = await window.electronAPI.exportReportPdfSilent({ html: fullHtml, filename: reportLabel });
+    const fullHtml = `<html><head><title>${titleText}</title>${styleParts.join('')}</head><body style="background:white; color:black; padding:16px">${bodyHtml}</body></html>`;
+    const res = await window.electronAPI.exportReportPdfSilent({ html: fullHtml, filename: titleText });
     if (res?.success) {
       showToast(`Saved to Downloads: ${res.path.split(/[\\/]/).pop()}`, 'success');
     } else {
@@ -363,14 +356,19 @@ async function exportReportPDF(contentEl, reportLabel) {
     return;
   }
 
-  openModal({
-    title: reportLabel,
-    body: `<div style="padding:8px">${contentEl.innerHTML}</div>`,
-    footer: '',
-    hideClose: true
-  });
+  openModal({ title: titleText, body: bodyHtml, footer: '', hideClose: true });
   window.addEventListener('afterprint', () => closeModal(), { once: true });
   setTimeout(() => window.print(), 200);
+}
+
+// Wires one table's export buttons — ids only need to be unique within the
+// current tab, so this is safe to call once per table right after its buttons
+// and table exist in the DOM (pagination page-changes don't need to re-wire).
+function wireTableExport(exportId, tableEl, titleText, getFullBodyHtml) {
+  const csvBtn = document.querySelector(`.table-export-csv-btn[data-export-id="${exportId}"]`);
+  if (csvBtn) csvBtn.onclick = () => exportSingleTableCSV(tableEl, titleText, getFullBodyHtml);
+  const pdfBtn = document.querySelector(`.table-export-pdf-btn[data-export-id="${exportId}"]`);
+  if (pdfBtn) pdfBtn.onclick = () => exportSingleTablePDF(tableEl, titleText, getFullBodyHtml);
 }
 
 async function renderSalesReport(container, cur) {
@@ -409,6 +407,7 @@ async function renderSalesReport(container, cur) {
 
   const isToday = currentStartDate === format(new Date()) && currentEndDate === currentStartDate;
   const rangeLabel = isToday ? 'Today' : 'Range';
+  const canExportSales = await hasPermission('reports:export');
 
   container.innerHTML = `
     <div class="grid-4 mb-24">
@@ -454,32 +453,25 @@ async function renderSalesReport(container, cur) {
     </div>
 
     <div class="card mt-16">
-      <div class="font-bold mb-16"><i class="fa-solid fa-fire mr-8"></i> Top Performing Products</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold"><i class="fa-solid fa-fire mr-8"></i> Top Performing Products</div>
+        ${canExportSales ? tableExportButtonsHtml('top-products') : ''}
+      </div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Rank</th><th>Product</th><th>Qty Sold</th><th>Revenue</th><th>Profit</th></tr></thead>
-          <tbody>
-            ${topProducts.map((p, i) => `
-              <tr>
-                <td data-label="Rank">#${i + 1}</td>
-                <td data-label="Product">
-                  <div style="display:flex;align-items:center;gap:10px;justify-content:flex-start">
-                    <span style="font-size:20px">${p.emoji || '📦'}</span>
-                    <span>${p.name}</span>
-                  </div>
-                </td>
-                <td data-label="Qty Sold">${p.qty}</td>
-                <td data-label="Revenue" class="font-bold text-success">${cur}${p.revenue.toFixed(2)}</td>
-                <td data-label="Profit" class="font-bold text-accent">${cur}${(p.profit || 0).toFixed(2)}</td>
-              </tr>
-            `).join('')}
+          <tbody id="topProductsBody">
+            ${topProducts.map(topProductRowHtml).join('')}
           </tbody>
         </table>
       </div>
     </div>
 
     <div class="card mt-16">
-      <div class="font-bold mb-16"><i class="fa-solid fa-calendar-days mr-8"></i> Daily Sales &amp; Profit</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold"><i class="fa-solid fa-calendar-days mr-8"></i> Daily Sales &amp; Profit</div>
+        ${canExportSales ? tableExportButtonsHtml('daily-sales') : ''}
+      </div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Date</th><th>Orders</th><th>Sales</th><th>Profit</th><th>Margin</th></tr></thead>
@@ -490,12 +482,29 @@ async function renderSalesReport(container, cur) {
     </div>
   `;
 
-  dailySalesPage = 1;
-  (function renderDailySalesRows() {
-    const { pageItems, page, totalPages } = paginate(dailyBreakdown, dailySalesPage, REPORT_PAGE_SIZE);
-    dailySalesPage = page;
-    document.getElementById('dailySalesBody').innerHTML = pageItems.length === 0 ? `<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No sales in this range</td></tr>` :
-      pageItems.map(d => `
+  const topProductsTableEl = document.getElementById('topProductsBody').closest('table');
+  const dailySalesTableEl = document.getElementById('dailySalesBody').closest('table');
+
+  function topProductRowHtml(p, i) {
+    const rank = (typeof i === 'number' ? i : topProducts.indexOf(p)) + 1;
+    return `
+              <tr>
+                <td data-label="Rank">#${rank}</td>
+                <td data-label="Product">
+                  <div style="display:flex;align-items:center;gap:10px;justify-content:flex-start">
+                    <span style="font-size:20px">${p.emoji || '📦'}</span>
+                    <span>${p.name}</span>
+                  </div>
+                </td>
+                <td data-label="Qty Sold">${p.qty}</td>
+                <td data-label="Revenue" class="font-bold text-success">${cur}${p.revenue.toFixed(2)}</td>
+                <td data-label="Profit" class="font-bold text-accent">${cur}${(p.profit || 0).toFixed(2)}</td>
+              </tr>
+            `;
+  }
+
+  function dailySalesRowHtml(d) {
+    return `
               <tr>
                 <td data-label="Date">${new Date(d.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                 <td data-label="Orders">${d.orders}</td>
@@ -503,7 +512,15 @@ async function renderSalesReport(container, cur) {
                 <td data-label="Profit" class="font-bold text-accent">${cur}${d.profit.toFixed(2)}</td>
                 <td data-label="Margin">${d.sales > 0 ? ((d.profit / d.sales) * 100).toFixed(1) : '0.0'}%</td>
               </tr>
-            `).join('');
+            `;
+  }
+
+  dailySalesPage = 1;
+  (function renderDailySalesRows() {
+    const { pageItems, page, totalPages } = paginate(dailyBreakdown, dailySalesPage, REPORT_PAGE_SIZE);
+    dailySalesPage = page;
+    document.getElementById('dailySalesBody').innerHTML = pageItems.length === 0 ? `<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No sales in this range</td></tr>` :
+      pageItems.map(dailySalesRowHtml).join('');
 
     renderPaginationBar(document.getElementById('dailySalesPagination'), {
       page, totalPages, onChange: (p) => { dailySalesPage = p; renderDailySalesRows(); }
@@ -512,10 +529,14 @@ async function renderSalesReport(container, cur) {
 
   renderSalesChart(last7);
   renderPaymentChart(allOrders, cur);
+
+  wireTableExport('top-products', topProductsTableEl, 'Top Performing Products', () => topProducts.map((p, i) => topProductRowHtml(p, i)).join(''));
+  wireTableExport('daily-sales', dailySalesTableEl, 'Daily Sales & Profit', () => dailyBreakdown.map(dailySalesRowHtml).join(''));
 }
 
 async function renderInstantSalesReport(container, cur) {
   const { totalRevenue, totalOrdersCount, items } = await getInstantSalesData(currentBranchFilter, currentStartDate, currentEndDate);
+  const canExportInst = await hasPermission('reports:export');
 
   container.innerHTML = `
     <div class="grid-2 mb-24">
@@ -536,7 +557,10 @@ async function renderInstantSalesReport(container, cur) {
     </div>
 
     <div class="card">
-      <div class="font-bold mb-16"><i class="fa-solid fa-list mr-8"></i> Instant Sales Transactions</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold"><i class="fa-solid fa-list mr-8"></i> Instant Sales Transactions</div>
+        ${canExportInst ? tableExportButtonsHtml('instant-sales') : ''}
+      </div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead>
@@ -556,12 +580,10 @@ async function renderInstantSalesReport(container, cur) {
     </div>
   `;
 
-  instantSalesPage = 1;
-  (function renderInstantSalesRows() {
-    const { pageItems, page, totalPages } = paginate(items, instantSalesPage, REPORT_PAGE_SIZE);
-    instantSalesPage = page;
-    document.getElementById('instantSalesBody').innerHTML = pageItems.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:32px;opacity:0.5">No instant sales found</td></tr>' :
-      pageItems.map(item => `
+  const instantSalesTableEl = document.getElementById('instantSalesBody').closest('table');
+
+  function instantSaleRowHtml(item) {
+    return `
               <tr>
                 <td data-label="Date">${new Date(item.date).toLocaleString()}</td>
                 <td data-label="Customer">${item.customer}</td>
@@ -570,31 +592,31 @@ async function renderInstantSalesReport(container, cur) {
                 <td data-label="Price">${cur}${item.price.toFixed(2)}</td>
                 <td data-label="Total" class="text-success font-bold">${cur}${item.revenue.toFixed(2)}</td>
               </tr>
-            `).join('');
+            `;
+  }
+
+  instantSalesPage = 1;
+  (function renderInstantSalesRows() {
+    const { pageItems, page, totalPages } = paginate(items, instantSalesPage, REPORT_PAGE_SIZE);
+    instantSalesPage = page;
+    document.getElementById('instantSalesBody').innerHTML = pageItems.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:32px;opacity:0.5">No instant sales found</td></tr>' :
+      pageItems.map(instantSaleRowHtml).join('');
 
     renderPaginationBar(document.getElementById('instantSalesPagination'), {
       page, totalPages, onChange: (p) => { instantSalesPage = p; renderInstantSalesRows(); }
     });
   })();
+
+  wireTableExport('instant-sales', instantSalesTableEl, 'Instant Sales Transactions', () => items.map(instantSaleRowHtml).join(''));
 }
 
 async function renderCategorySalesReport(container, cur) {
   const categorySales = await getCategorySales(currentBranchFilter, currentStartDate, currentEndDate);
   const totalRevenue = categorySales.reduce((s, c) => s + c.revenue, 0);
+  const canExportCat = await hasPermission('reports:export');
 
-  container.innerHTML = `
-    <div class="card mb-24">
-      <div class="font-bold mb-16"><i class="fa-solid fa-tags mr-8"></i> Category-wise Performance</div>
-      <div style="height:300px"><canvas id="categoryChart"></canvas></div>
-    </div>
-
-    <div class="card">
-      <div class="font-bold mb-16">Revenue Breakdown by Category</div>
-      <div class="table-wrap">
-        <table class="responsive-table">
-          <thead><tr><th>Category</th><th>Qty Sold</th><th>Revenue</th><th>Market Share</th></tr></thead>
-          <tbody>
-            ${categorySales.map(c => `
+  function categoryRowHtml(c) {
+    return `
               <tr>
                 <td data-label="Category"><span class="badge badge-ghost">${c.category}</span></td>
                 <td data-label="Qty Sold">${c.qty}</td>
@@ -608,12 +630,32 @@ async function renderCategorySalesReport(container, cur) {
                   </div>
                 </td>
               </tr>
-            `).join('')}
+            `;
+  }
+
+  container.innerHTML = `
+    <div class="card mb-24">
+      <div class="font-bold mb-16"><i class="fa-solid fa-tags mr-8"></i> Category-wise Performance</div>
+      <div style="height:300px"><canvas id="categoryChart"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold">Revenue Breakdown by Category</div>
+        ${canExportCat ? tableExportButtonsHtml('category-sales') : ''}
+      </div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Category</th><th>Qty Sold</th><th>Revenue</th><th>Market Share</th></tr></thead>
+          <tbody id="categorySalesBody">
+            ${categorySales.map(categoryRowHtml).join('')}
           </tbody>
         </table>
       </div>
     </div>
   `;
+
+  wireTableExport('category-sales', document.getElementById('categorySalesBody').closest('table'), 'Revenue Breakdown by Category', () => categorySales.map(categoryRowHtml).join(''));
 
   const ctx = document.getElementById('categoryChart');
   if (ctx) {
@@ -692,6 +734,7 @@ async function renderPurchaseReport(container, cur) {
   const purchasesSorted = purchases.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
   const monthly = await getPurchasesMonthly(currentBranchFilter);
   const totalSpend = purchases.reduce((s, p) => s + p.total, 0);
+  const canExportPurch = await hasPermission('reports:export');
 
   container.innerHTML = `
     <div class="grid-2 mb-24">
@@ -717,7 +760,10 @@ async function renderPurchaseReport(container, cur) {
     </div>
 
     <div class="card">
-      <div class="font-bold mb-16">Purchases</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold">Purchases</div>
+        ${canExportPurch ? tableExportButtonsHtml('purchases') : ''}
+      </div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Date</th><th>ID</th><th>Supplier</th><th>Total</th><th>Action</th></tr></thead>
@@ -730,12 +776,10 @@ async function renderPurchaseReport(container, cur) {
 
   renderProcurementChart(monthly);
 
-  purchaseRecentPage = 1;
-  (function renderPurchaseRecentRows() {
-    const { pageItems, page, totalPages } = paginate(purchasesSorted, purchaseRecentPage, REPORT_PAGE_SIZE);
-    purchaseRecentPage = page;
-    const tbody = document.getElementById('purchaseRecentBody');
-    tbody.innerHTML = pageItems.map(p => `
+  const purchaseTableEl = document.getElementById('purchaseRecentBody').closest('table');
+
+  function purchaseRecentRowHtml(p) {
+    return `
               <tr>
                 <td data-label="Date">${new Date(p.date).toLocaleDateString()}</td>
                 <td data-label="ID">${p.id}</td>
@@ -747,7 +791,15 @@ async function renderPurchaseReport(container, cur) {
                   </button>
                 </td>
               </tr>
-            `).join('');
+            `;
+  }
+
+  purchaseRecentPage = 1;
+  (function renderPurchaseRecentRows() {
+    const { pageItems, page, totalPages } = paginate(purchasesSorted, purchaseRecentPage, REPORT_PAGE_SIZE);
+    purchaseRecentPage = page;
+    const tbody = document.getElementById('purchaseRecentBody');
+    tbody.innerHTML = pageItems.map(purchaseRecentRowHtml).join('');
 
     tbody.querySelectorAll('.purchase-return-btn').forEach(btn => {
       btn.onclick = async () => {
@@ -760,6 +812,8 @@ async function renderPurchaseReport(container, cur) {
       page, totalPages, onChange: (p) => { purchaseRecentPage = p; renderPurchaseRecentRows(); }
     });
   })();
+
+  wireTableExport('purchases', purchaseTableEl, 'Purchases', () => purchasesSorted.map(purchaseRecentRowHtml).join(''));
 }
 
 async function renderVehicleDeliveryReport(container, cur) {
@@ -768,6 +822,7 @@ async function renderVehicleDeliveryReport(container, cur) {
   const totalValue = vehicles.reduce((s, v) => s + v.totalValue, 0);
 
   vehicleReportPage = 1;
+  const canExportVeh = await hasPermission('reports:export');
 
   container.innerHTML = `
     <div class="grid-2 mb-24">
@@ -788,7 +843,10 @@ async function renderVehicleDeliveryReport(container, cur) {
     </div>
 
     <div class="card">
-      <div class="font-bold mb-16"><i class="fa-solid fa-truck-fast mr-8"></i> Vehicle-wise Delivery Report</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold"><i class="fa-solid fa-truck-fast mr-8"></i> Vehicle-wise Delivery Report</div>
+        ${canExportVeh ? tableExportButtonsHtml('vehicles') : ''}
+      </div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Vehicle</th><th>Deliveries</th><th>Total Value</th><th>Avg / Delivery</th><th>Actions</th></tr></thead>
@@ -799,12 +857,10 @@ async function renderVehicleDeliveryReport(container, cur) {
     </div>
   `;
 
-  function renderVehicleRows() {
-    const { pageItems, page, totalPages } = paginate(vehicles, vehicleReportPage, REPORT_PAGE_SIZE);
-    vehicleReportPage = page;
-    const tbody = document.getElementById('vehicleReportBody');
-    tbody.innerHTML = pageItems.length === 0 ? `<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No deliveries with a vehicle recorded in this range. Vehicle number is entered as an optional field at checkout.</td></tr>` :
-      pageItems.map(v => `
+  const vehicleTableEl = document.getElementById('vehicleReportBody').closest('table');
+
+  function vehicleRowHtml(v) {
+    return `
               <tr>
                 <td data-label="Vehicle" class="font-bold">${v.vehicle}</td>
                 <td data-label="Deliveries">${v.deliveries}</td>
@@ -812,7 +868,15 @@ async function renderVehicleDeliveryReport(container, cur) {
                 <td data-label="Avg / Delivery">${cur}${(v.totalValue / v.deliveries).toFixed(2)}</td>
                 <td><button class="btn btn-ghost btn-sm vehicle-view-btn" data-vehicle="${v.vehicle}"><i class="fa-solid fa-eye"></i> View Orders</button></td>
               </tr>
-            `).join('');
+            `;
+  }
+
+  function renderVehicleRows() {
+    const { pageItems, page, totalPages } = paginate(vehicles, vehicleReportPage, REPORT_PAGE_SIZE);
+    vehicleReportPage = page;
+    const tbody = document.getElementById('vehicleReportBody');
+    tbody.innerHTML = pageItems.length === 0 ? `<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No deliveries with a vehicle recorded in this range. Vehicle number is entered as an optional field at checkout.</td></tr>` :
+      pageItems.map(vehicleRowHtml).join('');
 
     tbody.querySelectorAll('.vehicle-view-btn').forEach(btn => {
       btn.onclick = () => {
@@ -858,6 +922,7 @@ async function renderVehicleDeliveryReport(container, cur) {
   }
 
   renderVehicleRows();
+  wireTableExport('vehicles', vehicleTableEl, 'Vehicle-wise Delivery Report', () => vehicles.map(vehicleRowHtml).join(''));
 }
 
 async function renderOutstandingReport(container, cur) {
@@ -887,6 +952,7 @@ async function renderOutstandingReport(container, cur) {
 
   outstandingSalesPage = 1;
   outstandingPurchasePage = 1;
+  const canExportOut = await hasPermission('reports:export');
 
   container.innerHTML = `
     <div class="grid-2 mb-24">
@@ -905,7 +971,10 @@ async function renderOutstandingReport(container, cur) {
     </div>
 
     <div class="card mb-16">
-      <div class="font-bold mb-16"><i class="fa-solid fa-hand-holding-hand mr-8" style="color:var(--warning)"></i> Sales Outstanding — by Customer</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold"><i class="fa-solid fa-hand-holding-hand mr-8" style="color:var(--warning)"></i> Sales Outstanding — by Customer</div>
+        ${canExportOut ? tableExportButtonsHtml('outstanding-sales') : ''}
+      </div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Customer</th><th>Pending Orders</th><th>Last Activity</th><th>Outstanding Balance</th><th>Actions</th></tr></thead>
@@ -916,7 +985,10 @@ async function renderOutstandingReport(container, cur) {
     </div>
 
     <div class="card">
-      <div class="font-bold mb-16"><i class="fa-solid fa-truck-ramp-box mr-8 text-danger"></i> Purchase Outstanding — by Supplier</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold"><i class="fa-solid fa-truck-ramp-box mr-8 text-danger"></i> Purchase Outstanding — by Supplier</div>
+        ${canExportOut ? tableExportButtonsHtml('outstanding-purchase') : ''}
+      </div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Supplier</th><th>Purchases</th><th>Total Purchased</th><th>Paid</th><th>Outstanding</th><th>Actions</th></tr></thead>
@@ -927,12 +999,11 @@ async function renderOutstandingReport(container, cur) {
     </div>
   `;
 
-  function renderSalesOutstandingRows() {
-    const { pageItems, page, totalPages } = paginate(customers, outstandingSalesPage, REPORT_PAGE_SIZE);
-    outstandingSalesPage = page;
-    const tbody = document.getElementById('outstandingSalesBody');
-    tbody.innerHTML = pageItems.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No outstanding customer credit found. Great! 💎</td></tr>' :
-      pageItems.map(c => `
+  const outstandingSalesTableEl = document.getElementById('outstandingSalesBody').closest('table');
+  const outstandingPurchaseTableEl = document.getElementById('outstandingPurchaseBody').closest('table');
+
+  function salesOutstandingRowHtml(c) {
+    return `
                 <tr>
                   <td data-label="Customer">
                     <div style="text-align:left">
@@ -945,7 +1016,15 @@ async function renderOutstandingReport(container, cur) {
                   <td data-label="Balance" class="font-bold" style="font-size:16px; color:var(--warning)">${cur}${c.totalOutstanding.toFixed(2)}</td>
                   <td><button class="btn btn-ghost btn-sm sales-outstanding-view-btn" data-customer="${c.name}"><i class="fa-solid fa-eye"></i> View Orders</button></td>
                 </tr>
-              `).join('');
+              `;
+  }
+
+  function renderSalesOutstandingRows() {
+    const { pageItems, page, totalPages } = paginate(customers, outstandingSalesPage, REPORT_PAGE_SIZE);
+    outstandingSalesPage = page;
+    const tbody = document.getElementById('outstandingSalesBody');
+    tbody.innerHTML = pageItems.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:40px;opacity:0.5">No outstanding customer credit found. Great! 💎</td></tr>' :
+      pageItems.map(salesOutstandingRowHtml).join('');
 
     tbody.querySelectorAll('.sales-outstanding-view-btn').forEach(btn => {
       btn.onclick = () => {
@@ -991,12 +1070,8 @@ async function renderOutstandingReport(container, cur) {
     });
   }
 
-  function renderPurchaseOutstandingRows() {
-    const { pageItems, page, totalPages } = paginate(suppliers, outstandingPurchasePage, REPORT_PAGE_SIZE);
-    outstandingPurchasePage = page;
-    const tbody = document.getElementById('outstandingPurchaseBody');
-    tbody.innerHTML = pageItems.length === 0 ? `<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.5">No outstanding supplier balances in this range. Nice! \u{1F4B0}</td></tr>` :
-      pageItems.map(s => `
+  function purchaseOutstandingRowHtml(s) {
+    return `
               <tr>
                 <td data-label="Supplier" class="font-bold">${s.supplierName}</td>
                 <td data-label="Purchases"><span class="badge badge-info">${s.purchaseCount} Purchases</span></td>
@@ -1005,7 +1080,15 @@ async function renderOutstandingReport(container, cur) {
                 <td data-label="Outstanding" class="font-bold text-danger" style="font-size:16px">${cur}${s.outstanding.toFixed(2)}</td>
                 <td><button class="btn btn-ghost btn-sm outstanding-view-btn" data-supplier="${s.supplierName}"><i class="fa-solid fa-eye"></i> View Purchases</button></td>
               </tr>
-            `).join('');
+            `;
+  }
+
+  function renderPurchaseOutstandingRows() {
+    const { pageItems, page, totalPages } = paginate(suppliers, outstandingPurchasePage, REPORT_PAGE_SIZE);
+    outstandingPurchasePage = page;
+    const tbody = document.getElementById('outstandingPurchaseBody');
+    tbody.innerHTML = pageItems.length === 0 ? `<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.5">No outstanding supplier balances in this range. Nice! \u{1F4B0}</td></tr>` :
+      pageItems.map(purchaseOutstandingRowHtml).join('');
 
     tbody.querySelectorAll('.outstanding-view-btn').forEach(btn => {
       btn.onclick = () => {
@@ -1054,6 +1137,8 @@ async function renderOutstandingReport(container, cur) {
 
   renderSalesOutstandingRows();
   renderPurchaseOutstandingRows();
+  wireTableExport('outstanding-sales', outstandingSalesTableEl, 'Sales Outstanding by Customer', () => customers.map(salesOutstandingRowHtml).join(''));
+  wireTableExport('outstanding-purchase', outstandingPurchaseTableEl, 'Purchase Outstanding by Supplier', () => suppliers.map(purchaseOutstandingRowHtml).join(''));
 }
 
 async function openPurchaseReturnModal(purchase, cur) {
@@ -1224,10 +1309,14 @@ async function renderCustomerReport(container, cur) {
   }).sort((a, b) => b.totalSpent - a.totalSpent);
 
   customerReportPage = 1;
+  const canExportCust = await hasPermission('reports:export');
 
   container.innerHTML = `
     <div class="card">
-      <div class="font-bold mb-16">Customer Activity & Loyalty Report</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold">Customer Activity & Loyalty Report</div>
+        ${canExportCust ? tableExportButtonsHtml('customers') : ''}
+      </div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Customer</th><th>Phone</th><th>Orders</th><th>Total Spent</th><th>Loyalty Points</th></tr></thead>
@@ -1238,10 +1327,8 @@ async function renderCustomerReport(container, cur) {
     </div>
   `;
 
-  function renderCustomerRows() {
-    const { pageItems, page, totalPages } = paginate(processed, customerReportPage, REPORT_PAGE_SIZE);
-    customerReportPage = page;
-    document.getElementById('customerReportBody').innerHTML = pageItems.map(c => `
+  function customerRowHtml(c) {
+    return `
               <tr>
                 <td data-label="Customer">
                   <div style="text-align:left">
@@ -1259,7 +1346,15 @@ async function renderCustomerReport(container, cur) {
                 <td data-label="Total Spent" class="font-bold text-accent">${cur}${c.totalSpent.toFixed(2)}</td>
                 <td data-label="Loyalty Points" class="font-bold text-success">${c.loyaltyPoints || 0} Pts</td>
               </tr>
-            `).join('');
+            `;
+  }
+
+  const customerTableEl = container.querySelector('table.responsive-table');
+
+  function renderCustomerRows() {
+    const { pageItems, page, totalPages } = paginate(processed, customerReportPage, REPORT_PAGE_SIZE);
+    customerReportPage = page;
+    document.getElementById('customerReportBody').innerHTML = pageItems.map(customerRowHtml).join('');
 
     renderPaginationBar(document.getElementById('customerReportPagination'), {
       page, totalPages, onChange: (p) => { customerReportPage = p; renderCustomerRows(); }
@@ -1267,6 +1362,7 @@ async function renderCustomerReport(container, cur) {
   }
 
   renderCustomerRows();
+  wireTableExport('customers', customerTableEl, 'Customer Activity & Loyalty Report', () => processed.map(customerRowHtml).join(''));
 }
 
 async function renderSupplierReport(container, cur) {
@@ -1283,10 +1379,14 @@ async function renderSupplierReport(container, cur) {
   }).sort((a, b) => b.totalSpend - a.totalSpend);
 
   supplierReportPage = 1;
+  const canExportSup = await hasPermission('reports:export');
 
   container.innerHTML = `
     <div class="card">
-      <div class="font-bold mb-16">Supplier Procurement Analysis</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold">Supplier Procurement Analysis</div>
+        ${canExportSup ? tableExportButtonsHtml('suppliers') : ''}
+      </div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Supplier</th><th>Contact</th><th>Orders</th><th>Total Spending</th></tr></thead>
@@ -1297,10 +1397,8 @@ async function renderSupplierReport(container, cur) {
     </div>
   `;
 
-  function renderSupplierRows() {
-    const { pageItems, page, totalPages } = paginate(processed, supplierReportPage, REPORT_PAGE_SIZE);
-    supplierReportPage = page;
-    document.getElementById('supplierReportBody').innerHTML = pageItems.map(s => `
+  function supplierRowHtml(s) {
+    return `
               <tr>
                 <td data-label="Supplier">
                   <div style="text-align:left">
@@ -1312,7 +1410,15 @@ async function renderSupplierReport(container, cur) {
                 <td data-label="Orders">${s.orderCount}</td>
                 <td data-label="Total Spending" class="text-danger font-bold">${cur}${s.totalSpend.toFixed(2)}</td>
               </tr>
-            `).join('');
+            `;
+  }
+
+  const supplierTableEl = container.querySelector('table.responsive-table');
+
+  function renderSupplierRows() {
+    const { pageItems, page, totalPages } = paginate(processed, supplierReportPage, REPORT_PAGE_SIZE);
+    supplierReportPage = page;
+    document.getElementById('supplierReportBody').innerHTML = pageItems.map(supplierRowHtml).join('');
 
     renderPaginationBar(document.getElementById('supplierReportPagination'), {
       page, totalPages, onChange: (p) => { supplierReportPage = p; renderSupplierRows(); }
@@ -1320,6 +1426,7 @@ async function renderSupplierReport(container, cur) {
   }
 
   renderSupplierRows();
+  wireTableExport('suppliers', supplierTableEl, 'Supplier Procurement Analysis', () => processed.map(supplierRowHtml).join(''));
 }
 
 async function renderGSTReport(container, cur) {
@@ -1329,6 +1436,7 @@ async function renderGSTReport(container, cur) {
   const outputGST = orders.reduce((sum, o) => sum + (o.tax || 0), 0);
   const inputGST = purchases.reduce((sum, p) => sum + (p.taxAmount || 0), 0);
   const netPayable = outputGST - inputGST;
+  const canExportGst = await hasPermission('reports:export');
 
   container.innerHTML = `
     <!-- Net Summary Card -->
@@ -1351,11 +1459,14 @@ async function renderGSTReport(container, cur) {
     <div class="card mb-24">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <div class="font-bold" style="font-size:16px"><i class="fa-solid fa-arrow-up-right-from-square mr-8 text-accent"></i> Output GST (Sales)</div>
-        ${await hasPermission('reports:export') ? `
-          <button class="btn btn-primary btn-sm" id="exportSalesGstBtn">
-            <i class="fa-solid fa-download"></i> GSTR-1 JSON (Sales)
-          </button>
-        ` : ''}
+        <div style="display:flex;align-items:center;gap:8px">
+          ${canExportGst ? tableExportButtonsHtml('gst-output') : ''}
+          ${canExportGst ? `
+            <button class="btn btn-primary btn-sm" id="exportSalesGstBtn">
+              <i class="fa-solid fa-download"></i> GSTR-1 JSON (Sales)
+            </button>
+          ` : ''}
+        </div>
       </div>
       
       <div class="table-wrap">
@@ -1374,11 +1485,14 @@ async function renderGSTReport(container, cur) {
           <div class="font-bold" style="font-size:16px"><i class="fa-solid fa-arrow-down-left-and-arrow-up-right-to-center mr-8 text-info"></i> Input GST (Purchases)</div>
           <p style="font-size:11px;color:var(--text-muted);margin-top:4px">For GSTR-2B reconciliation and Input Tax Credit audit.</p>
         </div>
-        ${await hasPermission('reports:export') ? `
-          <button class="btn btn-ghost btn-sm" id="exportPurchaseGstBtn" style="border:1px solid var(--border)">
-            <i class="fa-solid fa-download"></i> GSTR-2B Register JSON
-          </button>
-        ` : ''}
+        <div style="display:flex;align-items:center;gap:8px">
+          ${canExportGst ? tableExportButtonsHtml('gst-input') : ''}
+          ${canExportGst ? `
+            <button class="btn btn-ghost btn-sm" id="exportPurchaseGstBtn" style="border:1px solid var(--border)">
+              <i class="fa-solid fa-download"></i> GSTR-2B Register JSON
+            </button>
+          ` : ''}
+        </div>
       </div>
 
       <div class="table-wrap">
@@ -1397,12 +1511,11 @@ async function renderGSTReport(container, cur) {
   const purchaseExportBtn = document.getElementById('exportPurchaseGstBtn');
   if (purchaseExportBtn) purchaseExportBtn.onclick = async () => await exportPurchaseRegisterJson(purchases);
 
-  gstOutputPage = 1;
-  (function renderGstOutputRows() {
-    const { pageItems, page, totalPages } = paginate(orders, gstOutputPage, REPORT_PAGE_SIZE);
-    gstOutputPage = page;
-    document.getElementById('gstOutputBody').innerHTML = pageItems.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No sales recorded</td></tr>' :
-      pageItems.map(o => `
+  const gstOutputTableEl = document.getElementById('gstOutputBody').closest('table');
+  const gstInputTableEl = document.getElementById('gstInputBody').closest('table');
+
+  function gstOutputRowHtml(o) {
+    return `
                 <tr>
                   <td data-label="Date">${new Date(o.date).toLocaleDateString()}</td>
                   <td data-label="Customer">${o.customer?.name || 'Walk-in'}</td>
@@ -1410,7 +1523,27 @@ async function renderGSTReport(container, cur) {
                   <td data-label="Taxable Amt">${cur}${(o.subtotal || 0).toFixed(2)}</td>
                   <td data-label="GST Amt" class="font-bold text-accent">${cur}${(o.tax || 0).toFixed(2)}</td>
                 </tr>
-              `).join('');
+              `;
+  }
+
+  function gstInputRowHtml(p) {
+    return `
+                <tr>
+                  <td data-label="Date">${new Date(p.date).toLocaleDateString()}</td>
+                  <td data-label="Supplier">${p.supplierName}</td>
+                  <td data-label="Purchase ID" class="font-mono" style="font-size:11px">${p.id}</td>
+                  <td data-label="Taxable Amt">${cur}${(p.subtotal || p.total).toFixed(2)}</td>
+                  <td data-label="GST Amt" class="font-bold text-info">${cur}${(p.taxAmount || 0).toFixed(2)}</td>
+                </tr>
+              `;
+  }
+
+  gstOutputPage = 1;
+  (function renderGstOutputRows() {
+    const { pageItems, page, totalPages } = paginate(orders, gstOutputPage, REPORT_PAGE_SIZE);
+    gstOutputPage = page;
+    document.getElementById('gstOutputBody').innerHTML = pageItems.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No sales recorded</td></tr>' :
+      pageItems.map(gstOutputRowHtml).join('');
 
     renderPaginationBar(document.getElementById('gstOutputPagination'), {
       page, totalPages, onChange: (p) => { gstOutputPage = p; renderGstOutputRows(); }
@@ -1422,20 +1555,15 @@ async function renderGSTReport(container, cur) {
     const { pageItems, page, totalPages } = paginate(purchases, gstInputPage, REPORT_PAGE_SIZE);
     gstInputPage = page;
     document.getElementById('gstInputBody').innerHTML = pageItems.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No purchases recorded</td></tr>' :
-      pageItems.map(p => `
-                <tr>
-                  <td data-label="Date">${new Date(p.date).toLocaleDateString()}</td>
-                  <td data-label="Supplier">${p.supplierName}</td>
-                  <td data-label="Purchase ID" class="font-mono" style="font-size:11px">${p.id}</td>
-                  <td data-label="Taxable Amt">${cur}${(p.subtotal || p.total).toFixed(2)}</td>
-                  <td data-label="GST Amt" class="font-bold text-info">${cur}${(p.taxAmount || 0).toFixed(2)}</td>
-                </tr>
-              `).join('');
+      pageItems.map(gstInputRowHtml).join('');
 
     renderPaginationBar(document.getElementById('gstInputPagination'), {
       page, totalPages, onChange: (p) => { gstInputPage = p; renderGstInputRows(); }
     });
   })();
+
+  wireTableExport('gst-output', gstOutputTableEl, 'Output GST (Sales)', () => orders.map(gstOutputRowHtml).join(''));
+  wireTableExport('gst-input', gstInputTableEl, 'Input GST (Purchases)', () => purchases.map(gstInputRowHtml).join(''));
 }
 
 async function renderStaffIncentiveReport(container, cur) {
@@ -1450,6 +1578,7 @@ async function renderStaffIncentiveReport(container, cur) {
       orderCount: sIncs.length
     };
   }).sort((a, b) => b.totalEarned - a.totalEarned);
+  const canExportStaff = await hasPermission('reports:export');
 
   container.innerHTML = `
     <div class="grid-2 mb-24">
@@ -1470,12 +1599,40 @@ async function renderStaffIncentiveReport(container, cur) {
     </div>
 
     <div class="card mb-24">
-      <div class="font-bold mb-16">Staff Earnings Summary</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold">Staff Earnings Summary</div>
+        ${canExportStaff ? tableExportButtonsHtml('staff-summary') : ''}
+      </div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Staff Member</th><th>Role</th><th>Orders</th><th>Comm %</th><th>Total Earnings</th></tr></thead>
-          <tbody>
-            ${processed.map(s => `
+          <tbody id="staffSummaryBody">
+            ${processed.map(staffSummaryRowHtml).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold">Detailed Incentive Logs</div>
+        ${canExportStaff ? tableExportButtonsHtml('staff-incentive-log') : ''}
+      </div>
+      <div class="table-wrap">
+        <table class="responsive-table table-sm">
+          <thead><tr><th>Date</th><th>Staff</th><th>Order ID</th><th>Total</th><th>Incentive</th></tr></thead>
+          <tbody id="staffIncentiveLogBody"></tbody>
+        </table>
+      </div>
+      <div id="staffIncentiveLogPagination"></div>
+    </div>
+  `;
+
+  const staffSummaryTableEl = document.getElementById('staffSummaryBody').closest('table');
+  const staffLogTableEl = document.getElementById('staffIncentiveLogBody').closest('table');
+
+  function staffSummaryRowHtml(s) {
+    return `
               <tr>
                 <td data-label="Staff Member">
                   <div style="text-align:left">
@@ -1488,30 +1645,11 @@ async function renderStaffIncentiveReport(container, cur) {
                 <td data-label="Comm %" class="text-accent font-bold">${s.commissionRate || 0}%</td>
                 <td data-label="Total Earnings" class="text-success font-bold" style="font-size:16px">${cur}${s.totalEarned.toFixed(2)}</td>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
+            `;
+  }
 
-    <div class="card">
-      <div class="font-bold mb-16">Detailed Incentive Logs</div>
-      <div class="table-wrap">
-        <table class="responsive-table table-sm">
-          <thead><tr><th>Date</th><th>Staff</th><th>Order ID</th><th>Total</th><th>Incentive</th></tr></thead>
-          <tbody id="staffIncentiveLogBody"></tbody>
-        </table>
-      </div>
-      <div id="staffIncentiveLogPagination"></div>
-    </div>
-  `;
-
-  const incentivesSorted = incentives.slice().reverse();
-  staffIncentiveLogPage = 1;
-  (function renderIncentiveLogRows() {
-    const { pageItems, page, totalPages } = paginate(incentivesSorted, staffIncentiveLogPage, REPORT_PAGE_SIZE);
-    staffIncentiveLogPage = page;
-    document.getElementById('staffIncentiveLogBody').innerHTML = pageItems.map(i => `
+  function incentiveLogRowHtml(i) {
+    return `
               <tr>
                 <td data-label="Date" style="font-size:11px">${new Date(i.date).toLocaleDateString()}</td>
                 <td data-label="Staff">${i.staffName}</td>
@@ -1519,12 +1657,23 @@ async function renderStaffIncentiveReport(container, cur) {
                 <td data-label="Total">${cur}${i.orderTotal.toFixed(2)}</td>
                 <td data-label="Incentive" class="font-bold text-success">+${cur}${i.amount.toFixed(2)}</td>
               </tr>
-            `).join('');
+            `;
+  }
+
+  const incentivesSorted = incentives.slice().reverse();
+  staffIncentiveLogPage = 1;
+  (function renderIncentiveLogRows() {
+    const { pageItems, page, totalPages } = paginate(incentivesSorted, staffIncentiveLogPage, REPORT_PAGE_SIZE);
+    staffIncentiveLogPage = page;
+    document.getElementById('staffIncentiveLogBody').innerHTML = pageItems.map(incentiveLogRowHtml).join('');
 
     renderPaginationBar(document.getElementById('staffIncentiveLogPagination'), {
       page, totalPages, onChange: (p) => { staffIncentiveLogPage = p; renderIncentiveLogRows(); }
     });
   })();
+
+  wireTableExport('staff-summary', staffSummaryTableEl, 'Staff Earnings Summary', () => processed.map(staffSummaryRowHtml).join(''));
+  wireTableExport('staff-incentive-log', staffLogTableEl, 'Detailed Incentive Logs', () => incentivesSorted.map(incentiveLogRowHtml).join(''));
 }
 
 async function renderRegisterReport(container, cur) {
@@ -1543,12 +1692,16 @@ async function renderRegisterReport(container, cur) {
   shifts.sort((a, b) => new Date(b.openedAt) - new Date(a.openedAt));
 
   registerReportPage = 1;
+  const canExportReg = await hasPermission('reports:export');
 
   container.innerHTML = `
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
         <div class="font-bold" style="font-size:18px"><i class="fa-solid fa-cash-register mr-8 text-success"></i> Register & Shift History</div>
-        <div class="text-muted" style="font-size:12px">${shifts.length} Shifts Recorded</div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="text-muted" style="font-size:12px">${shifts.length} Shifts Recorded</div>
+          ${canExportReg ? tableExportButtonsHtml('register') : ''}
+        </div>
       </div>
 
       <div class="table-wrap">
@@ -1571,13 +1724,7 @@ async function renderRegisterReport(container, cur) {
     </div>
   `;
 
-  function renderShiftRows() {
-    const { pageItems, page, totalPages } = paginate(shifts, registerReportPage, REPORT_PAGE_SIZE);
-    registerReportPage = page;
-    const tbody = document.getElementById('registerReportBody');
-    if (!tbody) return;
-    tbody.innerHTML = pageItems.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:40px;opacity:0.5">No shift history found for this branch.</td></tr>' :
-      pageItems.map(s => {
+  function shiftRowHtml(s) {
                 const branchName = branches.find(b => b.id === s.branchId)?.name || 'Branch';
                 const regName = registers.find(r => r.id === s.registerId)?.name || s.registerId || 'Main Terminal';
                 const openDate = new Date(s.openedAt);
@@ -1642,7 +1789,17 @@ async function renderRegisterReport(container, cur) {
                     </td>
                   </tr>
                 `;
-      }).join('');
+  }
+
+  const registerTableEl = container.querySelector('table.responsive-table');
+
+  function renderShiftRows() {
+    const { pageItems, page, totalPages } = paginate(shifts, registerReportPage, REPORT_PAGE_SIZE);
+    registerReportPage = page;
+    const tbody = document.getElementById('registerReportBody');
+    if (!tbody) return;
+    tbody.innerHTML = pageItems.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:40px;opacity:0.5">No shift history found for this branch.</td></tr>' :
+      pageItems.map(shiftRowHtml).join('');
 
     tbody.querySelectorAll('.view-shift-report-btn').forEach(btn => {
       btn.onclick = () => openShiftSummaryModal(btn.dataset.id, cur, shifts, registers);
@@ -1654,6 +1811,7 @@ async function renderRegisterReport(container, cur) {
   }
 
   renderShiftRows();
+  wireTableExport('register', registerTableEl, 'Register & Shift History', () => shifts.map(shiftRowHtml).join(''));
 }
 
 function openShiftSummaryModal(shiftId, cur, allShifts, registers = []) {
@@ -1748,22 +1906,10 @@ async function renderLowStockReport(container, cur) {
   const products = await getProducts(currentBranchFilter);
   const lowStockThreshold = 10;
   const lowStockItems = products.filter(p => (p.stock || 0) <= lowStockThreshold);
+  const canExportLow = await hasPermission('reports:export');
 
-  container.innerHTML = `
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <div class="font-bold" style="font-size:16px">
-          <i class="fa-solid fa-triangle-exclamation mr-8 text-danger"></i> Low Stock Alert
-        </div>
-        <span class="badge badge-danger">${lowStockItems.length} Items Needing Restock</span>
-      </div>
-      
-      <div class="table-wrap">
-        <table class="responsive-table">
-          <thead><tr><th>Product</th><th>Category</th><th>Current Stock</th><th>Status</th></tr></thead>
-          <tbody>
-            ${lowStockItems.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:40px;opacity:0.5">All items are sufficiently stocked! ✅</td></tr>' :
-      lowStockItems.map(p => `
+  function lowStockRowHtml(p) {
+    return `
                 <tr>
                   <td data-label="Product">
                     <div style="display:flex;align-items:center;gap:12px;justify-content:flex-start">
@@ -1789,12 +1935,34 @@ async function renderLowStockReport(container, cur) {
                     </div>
                   </td>
                 </tr>
-              `).join('')}
+              `;
+  }
+
+  container.innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold" style="font-size:16px">
+          <i class="fa-solid fa-triangle-exclamation mr-8 text-danger"></i> Low Stock Alert
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="badge badge-danger">${lowStockItems.length} Items Needing Restock</span>
+          ${canExportLow ? tableExportButtonsHtml('low-stock') : ''}
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Product</th><th>Category</th><th>Current Stock</th><th>Status</th></tr></thead>
+          <tbody id="lowStockBody">
+            ${lowStockItems.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:40px;opacity:0.5">All items are sufficiently stocked! ✅</td></tr>' :
+      lowStockItems.map(lowStockRowHtml).join('')}
           </tbody>
         </table>
       </div>
     </div>
   `;
+
+  wireTableExport('low-stock', document.getElementById('lowStockBody').closest('table'), 'Low Stock Alert', () => lowStockItems.map(lowStockRowHtml).join(''));
 }
 
 async function renderReturnsReport(container, cur) {
@@ -1806,7 +1974,10 @@ async function renderReturnsReport(container, cur) {
 
   container.innerHTML = `
     <div class="card">
-      <div class="font-bold mb-16"><i class="fa-solid fa-rotate-left mr-8 text-danger"></i> Returns History (Sales & Procurement)</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold"><i class="fa-solid fa-rotate-left mr-8 text-danger"></i> Returns History (Sales & Procurement)</div>
+        ${canExport ? tableExportButtonsHtml('returns') : ''}
+      </div>
       <div class="table-wrap">
         <table class="responsive-table">
           <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Return Items</th><th>Total Value</th><th>Method</th><th>Reason</th><th>Actions</th></tr></thead>
@@ -1817,13 +1988,8 @@ async function renderReturnsReport(container, cur) {
     </div>
   `;
 
-  function renderReturnRows() {
-    const { pageItems, page, totalPages } = paginate(returnsSorted, returnsReportPage, REPORT_PAGE_SIZE);
-    returnsReportPage = page;
-    const tbody = document.getElementById('returnsReportBody');
-    if (!tbody) return;
-    tbody.innerHTML = pageItems.length === 0 ? '<tr><td colspan="8" style="text-align:center;padding:40px;opacity:0.5">No returns logged yet</td></tr>' :
-      pageItems.map(r => `
+  function returnRowHtml(r) {
+    return `
                 <tr>
                   <td data-label="Date" style="font-size:11px">${new Date(r.date).toLocaleString()}</td>
                   <td data-label="Type"><span class="badge badge-${r.type === 'sales' ? 'accent' : 'primary'}">${r.type.toUpperCase()}</span></td>
@@ -1840,7 +2006,18 @@ async function renderReturnsReport(container, cur) {
                     ` : '<span class="text-muted" style="font-size:10px">Locked</span>'}
                   </td>
                 </tr>
-              `).join('');
+              `;
+  }
+
+  const returnsTableEl = container.querySelector('table.responsive-table');
+
+  function renderReturnRows() {
+    const { pageItems, page, totalPages } = paginate(returnsSorted, returnsReportPage, REPORT_PAGE_SIZE);
+    returnsReportPage = page;
+    const tbody = document.getElementById('returnsReportBody');
+    if (!tbody) return;
+    tbody.innerHTML = pageItems.length === 0 ? '<tr><td colspan="8" style="text-align:center;padding:40px;opacity:0.5">No returns logged yet</td></tr>' :
+      pageItems.map(returnRowHtml).join('');
 
     tbody.querySelectorAll('.print-return-btn').forEach(btn => {
       btn.onclick = async () => {
@@ -1858,6 +2035,7 @@ async function renderReturnsReport(container, cur) {
   }
 
   renderReturnRows();
+  wireTableExport('returns', returnsTableEl, 'Returns History', () => returnsSorted.map(returnRowHtml).join(''));
 }
 
 // Keep existing chart functions but update variable management
@@ -1963,14 +2141,18 @@ function renderProcurementChart(data) {
 let chartInstance = null;
 let procurementChart = null;
 
-function renderLoginActivityReport(container, cur) {
+async function renderLoginActivityReport(container, cur) {
+  const canExportLogin = await hasPermission('reports:export');
   container.innerHTML = `
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
         <div class="font-bold" style="font-size:18px"><i class="fa-solid fa-shield-halved mr-8 text-primary"></i> Login Activity & System Audit</div>
-        <button class="btn btn-ghost btn-sm" id="refresh-login-logs">
-          <i class="fa-solid fa-sync-alt mr-4"></i> Refresh Logs
-        </button>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${canExportLogin ? tableExportButtonsHtml('login-activity') : ''}
+          <button class="btn btn-ghost btn-sm" id="refresh-login-logs">
+            <i class="fa-solid fa-sync-alt mr-4"></i> Refresh Logs
+          </button>
+        </div>
       </div>
       <div class="table-wrap">
         <table class="responsive-table">
@@ -1993,14 +2175,10 @@ function renderLoginActivityReport(container, cur) {
     </div>
   `;
 
+  const loginLogsTableEl = document.getElementById('login-logs-body').closest('table');
   let allLogs = [];
 
-  function renderLogsPage() {
-    const tableBody = document.getElementById('login-logs-body');
-    const { pageItems, page, totalPages } = paginate(allLogs, loginActivityPage, REPORT_PAGE_SIZE);
-    loginActivityPage = page;
-
-    tableBody.innerHTML = pageItems.map(log => {
+  function loginLogRowHtml(log) {
       const date = new Date(log.timestamp);
       const isMobile = log.deviceType === 'Mobile/Tablet';
       return `
@@ -2038,7 +2216,14 @@ function renderLoginActivityReport(container, cur) {
           </td>
         </tr>
       `;
-    }).join('');
+  }
+
+  function renderLogsPage() {
+    const tableBody = document.getElementById('login-logs-body');
+    const { pageItems, page, totalPages } = paginate(allLogs, loginActivityPage, REPORT_PAGE_SIZE);
+    loginActivityPage = page;
+
+    tableBody.innerHTML = pageItems.map(loginLogRowHtml).join('');
 
     renderPaginationBar(document.getElementById('loginLogsPagination'), {
       page, totalPages, onChange: (p) => { loginActivityPage = p; renderLogsPage(); }
@@ -2070,6 +2255,7 @@ function renderLoginActivityReport(container, cur) {
 
   loadLogs();
   document.getElementById('refresh-login-logs').onclick = loadLogs;
+  wireTableExport('login-activity', loginLogsTableEl, 'Login Activity & System Audit', () => allLogs.map(loginLogRowHtml).join(''));
 }
 
 async function exportPurchaseRegisterJson(purchases) {
