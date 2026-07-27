@@ -910,6 +910,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
       <div class="receipt-header">
         ${settings.showLogoOnReceipt && settings.storeLogo ? `<img src="${settings.storeLogo}" style="max-width:80px; max-height:80px; object-fit:contain; margin-bottom:6px" />` : ''}
         <div class="receipt-store-name">${storeName}</div>
+        ${settings.storeNameSubtitle ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-top:1px">(${settings.storeNameSubtitle})</div>` : ''}
         <div style="font-size:10.5px;opacity:0.8;margin-top:4px;white-space:normal;word-wrap:break-word">${settings.storeAddress || ''}</div>
         ${(settings.storePhone || settings.gstNumber) ? `
         <div class="receipt-row" style="font-size:9.5px; opacity:0.7; text-align:left; flex-wrap:wrap">
@@ -1205,6 +1206,7 @@ export function renderOrderReturnsReceipt(order, allReturns, settings, cur) {
         ${settings.showLogoOnReceipt && settings.storeLogo ? `<img src="${settings.storeLogo}" style="max-width:70px; max-height:70px; object-fit:contain; margin-bottom:6px" />` : ''}
         <div style="background:var(--danger); color:white; padding:4px; font-weight:bold; margin-bottom:6px; border-radius:4px">REFUND VOUCHER</div>
         <div class="receipt-store-name">${settings.storeName || 'Store'}</div>
+        ${settings.storeNameSubtitle ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-top:1px">(${settings.storeNameSubtitle})</div>` : ''}
         <div style="font-size:12px;opacity:0.8">${settings.storeAddress || ''}</div>
         ${settings.gstNumber ? `<div style="font-size:11px;opacity:0.7">GST NO : ${settings.gstNumber}</div>` : ''}
         <div class="receipt-row" style="font-size:11px; opacity:0.7; text-align:left;">
@@ -1265,6 +1267,7 @@ export function renderRefundReceipt(ret, settings, cur) {
         ${settings.showLogoOnReceipt && settings.storeLogo ? `<img src="${settings.storeLogo}" style="max-width:70px; max-height:70px; object-fit:contain; margin-bottom:6px" />` : ''}
         <div style="background:var(--danger); color:white; padding:4px; font-weight:bold; margin-bottom:6px; border-radius:4px">REFUND VOUCHER</div>
         <div class="receipt-store-name">${settings.storeName || 'Store'}</div>
+        ${settings.storeNameSubtitle ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-top:1px">(${settings.storeNameSubtitle})</div>` : ''}
         <div style="font-size:12px;opacity:0.8">${settings.storeAddress || ''}</div>
         ${settings.gstNumber ? `<div style="font-size:11px;opacity:0.7">GST NO : ${settings.gstNumber}</div>` : ''}
         <div class="receipt-row" style="font-size:11px; opacity:0.7; text-align:left;">

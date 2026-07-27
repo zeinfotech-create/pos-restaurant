@@ -1448,14 +1448,90 @@ async function renderSupplierReport(container, cur) {
   wireTableExport('suppliers', supplierTableEl, 'Supplier Procurement Analysis', () => processed.map(supplierRowHtml).join(''));
 }
 
+// Per-item net taxable value + tax, honoring item-level discount and
+// inclusive/exclusive tax type — same math already used by exportGSTR1Json's
+// HSN aggregation below, extracted so the on-screen HSN/rate-wise summaries
+// use the exact same numbers as the JSON export, not a second guess at it.
+function computeSalesItemTax(item) {
+  const itemTax = item.finalTax || 0;
+  const lineTotal = item.price * item.qty;
+  const discountTotal = item.itemDiscountType === 'pct'
+    ? (lineTotal * (item.itemDiscount || 0) / 100)
+    : ((item.itemDiscount || 0) * item.qty);
+  const discountedTotal = Math.max(0, lineTotal - discountTotal);
+  let taxValueNet = discountedTotal;
+  if (item.taxType === 'inclusive') {
+    taxValueNet = discountedTotal - itemTax;
+  }
+  return { taxValueNet, itemTax };
+}
+
+// GSTR-1's "HSN-wise summary" (Table 12) — every sold line item bucketed by
+// its own HSN code, since a single order can mix multiple HSN codes/rates.
+function computeHsnWiseSummary(orders) {
+  const map = {};
+  orders.forEach(o => {
+    (o.items || []).forEach(item => {
+      const code = item.hsnCode || 'N/A';
+      const rate = item.taxRate || 0;
+      const key = `${code}__${rate}`;
+      if (!map[key]) map[key] = { hsnCode: code, desc: item.name, rate, qty: 0, taxable: 0, tax: 0 };
+      const { taxValueNet, itemTax } = computeSalesItemTax(item);
+      map[key].qty += item.qty;
+      map[key].taxable += taxValueNet;
+      map[key].tax += itemTax;
+    });
+  });
+  return Object.values(map).sort((a, b) => a.hsnCode.localeCompare(b.hsnCode));
+}
+
+// GSTR-3B's "rate-wise summary" (Table 3.1) — consolidated by tax slab
+// (5%/12%/18%/28%) regardless of HSN, which is what's actually filed there.
+function computeRateWiseSummary(orders) {
+  const map = {};
+  orders.forEach(o => {
+    (o.items || []).forEach(item => {
+      const rate = item.taxRate || 0;
+      if (!map[rate]) map[rate] = { rate, taxable: 0, tax: 0 };
+      const { taxValueNet, itemTax } = computeSalesItemTax(item);
+      map[rate].taxable += taxValueNet;
+      map[rate].tax += itemTax;
+    });
+  });
+  return Object.values(map).sort((a, b) => a.rate - b.rate);
+}
+
+// Purchases aren't itemized with per-line HSN/rate in this app (one taxRate
+// per purchase order), so input-side detail can only go down to rate-wise,
+// not HSN-wise — still exactly what's needed for ITC reconciliation by slab.
+function computePurchaseRateWiseSummary(purchases) {
+  const map = {};
+  purchases.forEach(p => {
+    const rate = p.taxRate || 0;
+    if (!map[rate]) map[rate] = { rate, taxable: 0, tax: 0, count: 0 };
+    map[rate].taxable += (p.subtotal || p.total || 0);
+    map[rate].tax += (p.taxAmount || 0);
+    map[rate].count += 1;
+  });
+  return Object.values(map).sort((a, b) => a.rate - b.rate);
+}
+
 async function renderGSTReport(container, cur) {
   const orders = (await getOrders(currentBranchFilter, currentStartDate, currentEndDate)).filter(o => o.status !== 'cancelled');
   const purchases = await getPurchases(currentBranchFilter, currentStartDate, currentEndDate);
 
   const outputGST = orders.reduce((sum, o) => sum + (o.tax || 0), 0);
   const inputGST = purchases.reduce((sum, p) => sum + (p.taxAmount || 0), 0);
+  const outputTaxable = orders.reduce((sum, o) => sum + (o.subtotal || 0), 0);
+  const inputTaxable = purchases.reduce((sum, p) => sum + (p.subtotal || p.total || 0), 0);
   const netPayable = outputGST - inputGST;
   const canExportGst = await hasPermission('reports:export');
+  const settings = await getSettings();
+  const periodLabel = `${new Date(currentStartDate).toLocaleDateString('en-GB')} to ${new Date(currentEndDate).toLocaleDateString('en-GB')}`;
+
+  const hsnSummary = computeHsnWiseSummary(orders);
+  const rateSummarySales = computeRateWiseSummary(orders);
+  const rateSummaryPurchases = computePurchaseRateWiseSummary(purchases);
 
   container.innerHTML = `
     <!-- Net Summary Card -->
@@ -1474,23 +1550,147 @@ async function renderGSTReport(container, cur) {
       </div>
     </div>
 
+    <!-- GST Summary (auditor hand-off sheet) -->
+    <div class="card mb-24">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <div class="font-bold" style="font-size:16px"><i class="fa-solid fa-file-invoice mr-8 text-accent"></i> GST Summary</div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:4px">One-page summary for your auditor — period: ${periodLabel}.</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${canExportGst ? tableExportButtonsHtml('gst-summary') : ''}
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="responsive-table" id="gstSummaryTable">
+          <thead><tr><th>Particulars</th><th>Amount</th></tr></thead>
+          <tbody>
+            <tr><td data-label="Particulars">Period</td><td data-label="Amount">${periodLabel}</td></tr>
+            <tr><td data-label="Particulars">GSTIN</td><td data-label="Amount">${settings.gstNumber || 'Not Provided'}</td></tr>
+            <tr><td data-label="Particulars">Total Taxable Value — Outward Supplies (Sales)</td><td data-label="Amount">${cur}${outputTaxable.toFixed(2)}</td></tr>
+            <tr><td data-label="Particulars">Total Output GST (Tax Collected on Sales)</td><td data-label="Amount" class="font-bold text-accent">${cur}${outputGST.toFixed(2)}</td></tr>
+            <tr><td data-label="Particulars">Total Taxable Value — Inward Supplies (Purchases)</td><td data-label="Amount">${cur}${inputTaxable.toFixed(2)}</td></tr>
+            <tr><td data-label="Particulars">Total Input GST (Input Tax Credit)</td><td data-label="Amount" class="font-bold text-info">${cur}${inputGST.toFixed(2)}</td></tr>
+            <tr><td data-label="Particulars" class="font-bold">${netPayable >= 0 ? 'Net GST Payable to Govt' : 'Excess Input Tax Credit (c/f)'}</td><td data-label="Amount" class="font-bold" style="color:${netPayable >= 0 ? 'var(--success)' : 'var(--danger)'}">${cur}${Math.abs(netPayable).toFixed(2)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- HSN-wise Summary (Sales) — GSTR-1 Table 12 style -->
+    <div class="card mb-24">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <div class="font-bold" style="font-size:16px"><i class="fa-solid fa-barcode mr-8 text-accent"></i> HSN-wise Summary (Sales)</div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:4px">Every sold item bucketed by HSN code — matches GSTR-1's HSN summary table.</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${canExportGst ? tableExportButtonsHtml('gst-hsn-summary') : ''}
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="responsive-table" id="gstHsnSummaryTable">
+          <thead><tr><th>HSN Code</th><th>Description</th><th>Qty</th><th>Taxable Value</th><th>Rate</th><th>CGST</th><th>SGST</th><th>Total Tax</th></tr></thead>
+          <tbody>
+            ${hsnSummary.length === 0 ? '<tr><td colspan="8" style="text-align:center;padding:20px;opacity:0.5">No sales recorded</td></tr>' : hsnSummary.map(h => `
+              <tr>
+                <td data-label="HSN Code" class="font-mono">${h.hsnCode}</td>
+                <td data-label="Description">${h.desc || ''}</td>
+                <td data-label="Qty">${h.qty}</td>
+                <td data-label="Taxable Value">${cur}${h.taxable.toFixed(2)}</td>
+                <td data-label="Rate">${h.rate}%</td>
+                <td data-label="CGST">${cur}${(h.tax / 2).toFixed(2)}</td>
+                <td data-label="SGST">${cur}${(h.tax / 2).toFixed(2)}</td>
+                <td data-label="Total Tax" class="font-bold text-accent">${cur}${h.tax.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Rate-wise Tax Summary (Sales) — GSTR-3B Table 3.1 style -->
+    <div class="card mb-24">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <div class="font-bold" style="font-size:16px"><i class="fa-solid fa-percent mr-8 text-accent"></i> Rate-wise Tax Summary (Sales)</div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:4px">Consolidated by tax slab — matches GSTR-3B's outward tax liability table.</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${canExportGst ? tableExportButtonsHtml('gst-rate-summary-sales') : ''}
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="responsive-table" id="gstRateSummarySalesTable">
+          <thead><tr><th>Tax Rate</th><th>Taxable Value</th><th>CGST</th><th>SGST</th><th>Total Tax</th></tr></thead>
+          <tbody>
+            ${rateSummarySales.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No sales recorded</td></tr>' : rateSummarySales.map(r => `
+              <tr>
+                <td data-label="Tax Rate">${r.rate}%</td>
+                <td data-label="Taxable Value">${cur}${r.taxable.toFixed(2)}</td>
+                <td data-label="CGST">${cur}${(r.tax / 2).toFixed(2)}</td>
+                <td data-label="SGST">${cur}${(r.tax / 2).toFixed(2)}</td>
+                <td data-label="Total Tax" class="font-bold text-accent">${cur}${r.tax.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Rate-wise Tax Summary (Purchases) — for ITC reconciliation by slab -->
+    <div class="card mb-24">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <div class="font-bold" style="font-size:16px"><i class="fa-solid fa-percent mr-8 text-info"></i> Rate-wise Tax Summary (Purchases)</div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:4px">Consolidated by tax slab for Input Tax Credit reconciliation.</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${canExportGst ? tableExportButtonsHtml('gst-rate-summary-purchases') : ''}
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="responsive-table" id="gstRateSummaryPurchasesTable">
+          <thead><tr><th>Tax Rate</th><th>Taxable Value</th><th>CGST</th><th>SGST</th><th>Total Tax</th><th>No. of Purchases</th></tr></thead>
+          <tbody>
+            ${rateSummaryPurchases.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:20px;opacity:0.5">No purchases recorded</td></tr>' : rateSummaryPurchases.map(r => `
+              <tr>
+                <td data-label="Tax Rate">${r.rate}%</td>
+                <td data-label="Taxable Value">${cur}${r.taxable.toFixed(2)}</td>
+                <td data-label="CGST">${cur}${(r.tax / 2).toFixed(2)}</td>
+                <td data-label="SGST">${cur}${(r.tax / 2).toFixed(2)}</td>
+                <td data-label="Total Tax" class="font-bold text-info">${cur}${r.tax.toFixed(2)}</td>
+                <td data-label="No. of Purchases">${r.count}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Sales GST Section (Output) -->
     <div class="card mb-24">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <div class="font-bold" style="font-size:16px"><i class="fa-solid fa-arrow-up-right-from-square mr-8 text-accent"></i> Output GST (Sales)</div>
+        <div class="font-bold" style="font-size:16px"><i class="fa-solid fa-arrow-up-right-from-square mr-8 text-accent"></i> Output GST (Sales) — Invoice-wise Detail</div>
         <div style="display:flex;align-items:center;gap:8px">
           ${canExportGst ? tableExportButtonsHtml('gst-output') : ''}
           ${canExportGst ? `
+            <button class="btn btn-primary btn-sm" id="exportTaxInvoicesBtn" title="One formatted tax invoice per sale, for handing to your auditor">
+              <i class="fa-solid fa-file-invoice-dollar"></i> Export Tax Invoices (PDF)
+            </button>
+          ` : ''}
+          <!-- GSTR-1 JSON button hidden for now, per user request 2026-07-27 -->
+          ${false && canExportGst ? `
             <button class="btn btn-primary btn-sm" id="exportSalesGstBtn">
               <i class="fa-solid fa-download"></i> GSTR-1 JSON (Sales)
             </button>
           ` : ''}
         </div>
       </div>
-      
+
       <div class="table-wrap">
         <table class="responsive-table">
-          <thead><tr><th>Date</th><th>Customer</th><th>Invoice ID</th><th>Taxable Amt</th><th>GST Amt</th></tr></thead>
+          <thead><tr><th>Date</th><th>Customer</th><th>Invoice ID</th><th>Taxable Amt</th><th>CGST</th><th>SGST</th><th>Total GST</th></tr></thead>
           <tbody id="gstOutputBody"></tbody>
         </table>
       </div>
@@ -1501,12 +1701,13 @@ async function renderGSTReport(container, cur) {
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <div>
-          <div class="font-bold" style="font-size:16px"><i class="fa-solid fa-arrow-down-left-and-arrow-up-right-to-center mr-8 text-info"></i> Input GST (Purchases)</div>
+          <div class="font-bold" style="font-size:16px"><i class="fa-solid fa-arrow-down-left-and-arrow-up-right-to-center mr-8 text-info"></i> Input GST (Purchases) — Invoice-wise Detail</div>
           <p style="font-size:11px;color:var(--text-muted);margin-top:4px">For GSTR-2B reconciliation and Input Tax Credit audit.</p>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           ${canExportGst ? tableExportButtonsHtml('gst-input') : ''}
-          ${canExportGst ? `
+          <!-- GSTR-2B Register JSON button hidden for now, per user request 2026-07-27 -->
+          ${false && canExportGst ? `
             <button class="btn btn-ghost btn-sm" id="exportPurchaseGstBtn" style="border:1px solid var(--border)">
               <i class="fa-solid fa-download"></i> GSTR-2B Register JSON
             </button>
@@ -1516,7 +1717,7 @@ async function renderGSTReport(container, cur) {
 
       <div class="table-wrap">
         <table class="responsive-table">
-          <thead><tr><th>Date</th><th>Supplier</th><th>Purchase ID</th><th>Taxable Amt</th><th>GST Amt</th></tr></thead>
+          <thead><tr><th>Date</th><th>Supplier</th><th>Purchase ID</th><th>Taxable Amt</th><th>CGST</th><th>SGST</th><th>Total GST</th></tr></thead>
           <tbody id="gstInputBody"></tbody>
         </table>
       </div>
@@ -1527,32 +1728,53 @@ async function renderGSTReport(container, cur) {
   const salesExportBtn = document.getElementById('exportSalesGstBtn');
   if (salesExportBtn) salesExportBtn.onclick = async () => await exportGSTR1Json(orders);
 
+  const taxInvoicesBtn = document.getElementById('exportTaxInvoicesBtn');
+  if (taxInvoicesBtn) taxInvoicesBtn.onclick = async () => await exportTaxInvoicesPDF(orders, settings, periodLabel, cur);
+
   const purchaseExportBtn = document.getElementById('exportPurchaseGstBtn');
   if (purchaseExportBtn) purchaseExportBtn.onclick = async () => await exportPurchaseRegisterJson(purchases);
+
+  const gstSummaryTableEl = document.getElementById('gstSummaryTable');
+  wireTableExport('gst-summary', gstSummaryTableEl, 'GST Summary', null);
+
+  const gstHsnSummaryTableEl = document.getElementById('gstHsnSummaryTable');
+  wireTableExport('gst-hsn-summary', gstHsnSummaryTableEl, 'HSN-wise Summary (Sales)', null);
+
+  const gstRateSummarySalesTableEl = document.getElementById('gstRateSummarySalesTable');
+  wireTableExport('gst-rate-summary-sales', gstRateSummarySalesTableEl, 'Rate-wise Tax Summary (Sales)', null);
+
+  const gstRateSummaryPurchasesTableEl = document.getElementById('gstRateSummaryPurchasesTable');
+  wireTableExport('gst-rate-summary-purchases', gstRateSummaryPurchasesTableEl, 'Rate-wise Tax Summary (Purchases)', null);
 
   const gstOutputTableEl = document.getElementById('gstOutputBody').closest('table');
   const gstInputTableEl = document.getElementById('gstInputBody').closest('table');
 
   function gstOutputRowHtml(o) {
+    const gstAmt = o.tax || 0;
     return `
                 <tr>
                   <td data-label="Date">${new Date(o.date).toLocaleDateString()}</td>
                   <td data-label="Customer">${o.customer?.name || 'Walk-in'}</td>
                   <td data-label="Invoice ID" class="font-mono" style="font-size:11px">${o.id}</td>
                   <td data-label="Taxable Amt">${cur}${(o.subtotal || 0).toFixed(2)}</td>
-                  <td data-label="GST Amt" class="font-bold text-accent">${cur}${(o.tax || 0).toFixed(2)}</td>
+                  <td data-label="CGST">${cur}${(gstAmt / 2).toFixed(2)}</td>
+                  <td data-label="SGST">${cur}${(gstAmt / 2).toFixed(2)}</td>
+                  <td data-label="Total GST" class="font-bold text-accent">${cur}${gstAmt.toFixed(2)}</td>
                 </tr>
               `;
   }
 
   function gstInputRowHtml(p) {
+    const gstAmt = p.taxAmount || 0;
     return `
                 <tr>
                   <td data-label="Date">${new Date(p.date).toLocaleDateString()}</td>
                   <td data-label="Supplier">${p.supplierName}</td>
                   <td data-label="Purchase ID" class="font-mono" style="font-size:11px">${p.id}</td>
                   <td data-label="Taxable Amt">${cur}${(p.subtotal || p.total).toFixed(2)}</td>
-                  <td data-label="GST Amt" class="font-bold text-info">${cur}${(p.taxAmount || 0).toFixed(2)}</td>
+                  <td data-label="CGST">${cur}${(gstAmt / 2).toFixed(2)}</td>
+                  <td data-label="SGST">${cur}${(gstAmt / 2).toFixed(2)}</td>
+                  <td data-label="Total GST" class="font-bold text-info">${cur}${gstAmt.toFixed(2)}</td>
                 </tr>
               `;
   }
@@ -1561,7 +1783,7 @@ async function renderGSTReport(container, cur) {
   (function renderGstOutputRows() {
     const { pageItems, page, totalPages } = paginate(orders, gstOutputPage, REPORT_PAGE_SIZE);
     gstOutputPage = page;
-    document.getElementById('gstOutputBody').innerHTML = pageItems.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No sales recorded</td></tr>' :
+    document.getElementById('gstOutputBody').innerHTML = pageItems.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:20px;opacity:0.5">No sales recorded</td></tr>' :
       pageItems.map(gstOutputRowHtml).join('');
 
     renderPaginationBar(document.getElementById('gstOutputPagination'), {
@@ -1573,7 +1795,7 @@ async function renderGSTReport(container, cur) {
   (function renderGstInputRows() {
     const { pageItems, page, totalPages } = paginate(purchases, gstInputPage, REPORT_PAGE_SIZE);
     gstInputPage = page;
-    document.getElementById('gstInputBody').innerHTML = pageItems.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No purchases recorded</td></tr>' :
+    document.getElementById('gstInputBody').innerHTML = pageItems.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:20px;opacity:0.5">No purchases recorded</td></tr>' :
       pageItems.map(gstInputRowHtml).join('');
 
     renderPaginationBar(document.getElementById('gstInputPagination'), {
@@ -2277,6 +2499,134 @@ async function renderLoginActivityReport(container, cur) {
   wireTableExport('login-activity', loginLogsTableEl, 'Login Activity & System Audit', () => allLogs.map(loginLogRowHtml).join(''));
 }
 
+// Renders one order as a classic Indian retail tax-invoice block (seller
+// header with GSTIN/phone, INVOICE title, Sl.No/Particulars/HSN/Qty/Rate/
+// Amount item table, CGST+SGST+Grand Total, signature line) — matches the
+// physical printed-bill format the user wants to hand their auditor, with an
+// HSN column added per-line. Deliberately self-contained inline styles (no
+// dependency on the app's theme stylesheet) since this needs to look the
+// same regardless of on-screen theme, same reasoning as the PDF table
+// print-friendly override above.
+function buildTaxInvoiceHtml(order, settings, cur) {
+  // Prefer the CURRENT settings over the order's own storeName snapshot —
+  // unlike a checkout receipt (which intentionally freezes the store name as
+  // it was at sale time), this document is generated NOW for the auditor, so
+  // it should reflect the business's present name/logo, not whatever a much
+  // older order happened to capture (e.g. a placeholder name from before the
+  // store was properly set up in Settings).
+  const storeName = settings.storeName || order.storeName || 'Store';
+  // Settings-driven subtitle (e.g. "Group") rendered on its own smaller line
+  // below the main store name — a dedicated Settings field (General tab,
+  // Settings.js) rather than parsed out of storeName, so this same
+  // subtitle is available consistently everywhere the store name is shown
+  // (this invoice, receipts, etc.), not re-derived ad hoc per place.
+  const storeNameSub = (settings.storeNameSubtitle || '').trim() || null;
+  const dateStr = new Date(order.date).toLocaleDateString('en-GB');
+  const customerName = order.customer?.name || 'Walk-in Customer';
+  const rate = order.taxRate || 0;
+  const halfRate = (rate / 2).toFixed(1);
+  const gstAmt = order.tax || 0;
+  const halfGst = (gstAmt / 2).toFixed(2);
+
+  const itemRows = (order.items && order.items.length) ? order.items.map((item, idx) => `
+    <tr>
+      <td style="padding:6px 8px; border-right:1px solid #ccc;">${idx + 1}</td>
+      <td style="padding:6px 8px; border-right:1px solid #ccc;">${item.name}${item.variantName ? ` (${item.variantName})` : ''}</td>
+      <td style="padding:6px 8px; border-right:1px solid #ccc;">${item.hsnCode || '-'}</td>
+      <td style="padding:6px 8px; text-align:right; border-right:1px solid #ccc;">${item.qty}</td>
+      <td style="padding:6px 8px; text-align:right; border-right:1px solid #ccc;">${(item.price || 0).toFixed(2)}</td>
+      <td style="padding:6px 8px; text-align:right;">${((item.price || 0) * item.qty).toFixed(2)}</td>
+    </tr>
+  `).join('') : `<tr><td colspan="6" style="padding:10px; text-align:center; color:#999">No items recorded</td></tr>`;
+
+  return `
+    <div class="tax-invoice-block" style="border:2px solid #333; border-radius:6px; padding:16px; margin:0 auto 24px; page-break-after:always; font-family:Arial,Helvetica,sans-serif; color:#111; background:#fff; max-width:720px;">
+      <div style="text-align:center; border:1px solid #999; border-radius:24px; padding:10px 14px 8px; margin-bottom:10px; position:relative;">
+        <div style="position:absolute; left:14px; top:10px; font-size:10px; font-weight:bold;">GSTIN : ${settings.gstNumber || 'Not Provided'}</div>
+        <div style="position:absolute; right:14px; top:10px; font-size:10px; font-weight:bold;">Cell : ${settings.storePhone || ''}</div>
+        <div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-top:16px;">
+          ${settings.storeLogo ? `<img src="${settings.storeLogo}" style="width:42px; height:42px; object-fit:contain; border-radius:50%; flex-shrink:0;" />` : ''}
+          <div>
+            <div style="font-size:22px; font-weight:800; letter-spacing:0.5px; line-height:1.15;">${storeName}</div>
+            ${storeNameSub ? `<div style="font-size:13px; font-weight:600; letter-spacing:0.5px; color:#444; line-height:1.1;">(${storeNameSub})</div>` : ''}
+          </div>
+        </div>
+        <div style="font-size:11px; margin-top:3px; color:#333;">${settings.storeAddress || ''}</div>
+      </div>
+      <div style="text-align:center; font-weight:bold; font-size:14px; letter-spacing:2px; border-bottom:2px solid #333; padding-bottom:6px; margin-bottom:10px;">INVOICE</div>
+      <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+        <span>No. ${order.id}</span>
+        <span>Date: ${dateStr}</span>
+      </div>
+      <div style="font-size:12px; margin-bottom:10px;">To. ${customerName}</div>
+      <table style="width:100%; border-collapse:collapse; font-size:12px;">
+        <thead>
+          <tr style="border-top:1px solid #333; border-bottom:1px solid #333; background:#f5f5f5;">
+            <th style="padding:6px 8px; text-align:left; border-right:1px solid #333; width:7%;">Sl.No</th>
+            <th style="padding:6px 8px; text-align:left; border-right:1px solid #333;">Particulars</th>
+            <th style="padding:6px 8px; text-align:left; border-right:1px solid #333; width:12%;">HSN</th>
+            <th style="padding:6px 8px; text-align:right; border-right:1px solid #333; width:8%;">Qty</th>
+            <th style="padding:6px 8px; text-align:right; border-right:1px solid #333; width:13%;">Rate</th>
+            <th style="padding:6px 8px; text-align:right; width:14%;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>${itemRows}</tbody>
+      </table>
+      <table style="width:100%; border-collapse:collapse; font-size:12px; border-top:1px solid #333;">
+        <tr>
+          <td style="padding:6px 8px; text-align:right; border-right:1px solid #333;" colspan="5">CGST ${halfRate}%</td>
+          <td style="padding:6px 8px; text-align:right;">${cur}${halfGst}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px; text-align:right; border-right:1px solid #333; border-top:1px solid #ddd;" colspan="5">SGST ${halfRate}%</td>
+          <td style="padding:6px 8px; text-align:right; border-top:1px solid #ddd;">${cur}${halfGst}</td>
+        </tr>
+        <tr style="font-weight:bold; border-top:2px solid #333;">
+          <td style="padding:8px; text-align:right; border-right:1px solid #333;" colspan="5">GRAND TOTAL</td>
+          <td style="padding:8px; text-align:right;">${cur}${(order.total || 0).toFixed(2)}</td>
+        </tr>
+      </table>
+      <div style="font-size:10px; margin-top:8px; color:#666;">E.&amp;O.E.</div>
+      <div style="display:flex; justify-content:flex-end; margin-top:36px; font-size:12px;">
+        <div style="text-align:center;">
+          <div style="font-weight:bold;">For: ${storeName}</div>
+          <div style="margin-top:34px; border-top:1px solid #333; padding-top:2px; min-width:120px;">Signature</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Assembles one formatted Tax Invoice per order (buildTaxInvoiceHtml above)
+// into a single multi-page PDF — an "auditor packet" of individual bills for
+// the period, as opposed to the aggregate HSN/rate-wise summary reports.
+// Reuses the same silent-save-to-Downloads path as exportSingleTablePDF, but
+// the invoice HTML is fully self-contained (inline styles only), so unlike
+// that function it doesn't need the app's theme stylesheet inlined at all.
+async function exportTaxInvoicesPDF(orders, settings, periodLabel, cur) {
+  if (orders.length === 0) {
+    showToast('No invoices to export for this period', 'warning');
+    return;
+  }
+  const invoiceBlocks = orders.map(o => buildTaxInvoiceHtml(o, settings, cur)).join('');
+  const fullHtml = `<html><head><title>Tax Invoices - ${periodLabel}</title></head><body style="background:#fff; margin:0; padding:16px;">${invoiceBlocks}</body></html>`;
+
+  const isElectron = /Electron/i.test(navigator.userAgent);
+  if (isElectron && window.electronAPI?.exportReportPdfSilent) {
+    const res = await window.electronAPI.exportReportPdfSilent({ html: fullHtml, filename: `Tax_Invoices_${periodLabel.replace(/\s+/g, '_')}` });
+    if (res?.success) {
+      showToast(`Saved ${orders.length} invoice(s) to Downloads: ${res.path.split(/[\\/]/).pop()}`, 'success');
+    } else {
+      showToast('PDF export failed: ' + (res?.error || 'unknown error'), 'error');
+    }
+    return;
+  }
+
+  openModal({ title: `Tax Invoices — ${periodLabel}`, body: fullHtml, footer: '', hideClose: true });
+  window.addEventListener('afterprint', () => closeModal(), { once: true });
+  setTimeout(() => window.print(), 200);
+}
+
 async function exportPurchaseRegisterJson(purchases) {
   const register = {
     reportType: "GSTR_PURCHASE_REGISTER",
@@ -2317,7 +2667,7 @@ async function exportPurchaseRegisterJson(purchases) {
 async function exportGSTR1Json(orders) {
   const settings = await getSettings();
   const gstr1 = {
-    gstin: settings.gstin || "NOT_PROVIDED", 
+    gstin: settings.gstNumber || "NOT_PROVIDED", 
     fp: new Date().toLocaleString('en-IN', { month: '2-digit', year: 'numeric' }).replace('/', ''),
     gt: orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0),
     cur_gt: orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0),

@@ -273,6 +273,11 @@ export async function renderSettings(container) {
                 <input class="form-input" id="sStoreName" value="${s.storeName}" placeholder="My Store" />
               </div>
               <div class="form-group">
+                <label class="form-label">Store Name Subtitle (optional)</label>
+                <input class="form-input" id="sStoreNameSubtitle" value="${s.storeNameSubtitle || ''}" placeholder="e.g. Group" />
+                <p style="font-size:11px; color:var(--text-muted); margin-top:4px">Shown on its own smaller line under the store name — on receipts, tax invoices, and anywhere else the store name is printed.</p>
+              </div>
+              <div class="form-group">
                 <label class="form-label">Store Address</label>
                 <input class="form-input" id="sStoreAddress" value="${s.storeAddress || ''}" placeholder="123 Main Street, City" />
               </div>
@@ -784,6 +789,7 @@ export async function renderSettings(container) {
     
     await handleSave('General', {
       storeName,
+      storeNameSubtitle: container.querySelector('#sStoreNameSubtitle')?.value.trim() || '',
       storeAddress: container.querySelector('#sStoreAddress').value.trim(),
       storePhone: container.querySelector('#sStorePhone').value.trim(),
       gstNumber: container.querySelector('#sGstNumber').value.trim(),

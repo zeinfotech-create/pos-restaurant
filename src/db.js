@@ -307,6 +307,7 @@ export const KEYS = {
 
 const DEFAULT_SETTINGS = {
   storeName: 'My Store',
+  storeNameSubtitle: '',
   storeAddress: '123 Main Street, City',
   currency: '\u20B9',
   availableTaxes: [],
