@@ -2,7 +2,11 @@
 // ============================================================
 
 const DB_NAME = 'zepos_db';
-const DB_VERSION = 3;
+// Must always be higher than any version this database has ever been opened
+// at on a real device (IndexedDB versions only ever go up, never down —
+// opening with a lower version than what's already on disk throws immediately
+// and the whole app fails to initialize, before onboarding can even render).
+const DB_VERSION = 5;
 
 class DbService {
   constructor() {
@@ -11,8 +15,20 @@ class DbService {
 
   async init() {
     if (this.db && !this._closed) return;
+    // Multiple callers (initStore(), various ensureOpen() calls, etc.) can
+    // all hit init() around app startup before any of them has set this.db
+    // yet — without caching the in-flight promise, each one would open its
+    // OWN separate indexedDB connection. The orphaned extra connection(s)
+    // still get an onversionchange handler closing over `this`, so when
+    // something later changes the DB version (e.g. resetDatabase()), that
+    // stale handler fires and calls this.db.close() against whatever this.db
+    // has since been reassigned to (or null) — crashing with "Cannot read
+    // properties of null (reading 'close')". Caching the promise ensures
+    // only one real connection is ever opened per DbService instance.
+    if (this._initPromise) return this._initPromise;
+
     this._closed = false;
-    return new Promise((resolve, reject) => {
+    this._initPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onupgradeneeded = (e) => {
@@ -36,16 +52,21 @@ class DbService {
       };
 
       request.onsuccess = async (e) => {
-        this.db = e.target.result;
-        
-        // Handle concurrent version changes (e.g. from other tabs)
-        this.db.onversionchange = () => {
-          this._closed = true;
-          this.db.close();
+        const conn = e.target.result;
+        this.db = conn;
+
+        // Handle concurrent version changes (e.g. from other tabs, or our
+        // own resetDatabase() deleting this exact database). Captures `conn`
+        // directly instead of reading this.db, so it always closes the
+        // connection it actually belongs to, even if this.db has since been
+        // reassigned or cleared by something else.
+        conn.onversionchange = () => {
+          if (this.db === conn) this._closed = true;
+          conn.close();
           alert('Database updated in another tab. Please reload.');
           location.reload();
         };
-        this.db.onclose = () => { this._closed = true; };
+        conn.onclose = () => { if (this.db === conn) this._closed = true; };
 
         await this.performMigration();
         await this.cleanupTypeMismatches();
@@ -56,7 +77,9 @@ class DbService {
         console.error('IndexedDB error:', e.target.error);
         reject(e.target.error);
       };
-    });
+    }).finally(() => { this._initPromise = null; });
+
+    return this._initPromise;
   }
 
   async performMigration() {
@@ -155,6 +178,35 @@ class DbService {
 
   async ensureOpen() {
     if (!this.db || this._closed) await this.init();
+  }
+
+  /**
+   * Wipes this device's local IndexedDB entirely and reopens a fresh,
+   * empty database. Used by completeInstallation() so every onboarding
+   * run starts from a clean slate instead of writing new admin/branch/
+   * settings data on top of whatever was left over from a previous
+   * install (e.g. a prior onboarding attempt, or leftover data from
+   * before an uninstall/reinstall on the same machine/profile).
+   */
+  async resetDatabase() {
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+    }
+    this._closed = false;
+
+    await new Promise((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(DB_NAME);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+      // Deliberately NOT resolving here: onblocked means some other still-open
+      // connection is delaying the actual delete, not that it failed. Resolving
+      // early would let init() below race ahead and reopen the OLD database
+      // before it's really gone — onsuccess still fires once it unblocks.
+      request.onblocked = () => console.warn('[IndexedDB] resetDatabase blocked by another open connection, waiting...');
+    });
+
+    await this.init();
   }
 
   async getAll(store) {
@@ -2350,6 +2402,11 @@ export async function deleteAppointment(id) {
 }
 
 export async function completeInstallation({ businessName, businessAddress, businessType, adminName, adminPassword, adminPin, email, loadSampleData, branchId: providedBranchId, adminId: providedAdminId }) {
+  // Every onboarding run starts from a clean local database — otherwise the
+  // fresh admin/branch/settings written below would land on top of whatever
+  // IndexedDB still had from a previous install on this machine/profile.
+  await db.resetDatabase();
+
   const settings = await getSettings();
   settings.storeName = businessName || 'My Store';
   settings.storeAddress = businessAddress || 'Main Branch';

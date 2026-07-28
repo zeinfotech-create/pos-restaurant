@@ -231,6 +231,41 @@ const server = http.createServer(async (req, res) => {
         }
     }
 
+    // Standalone Reset: called once at the START of onboarding, right before
+    // completeInstallation() runs client-side. Standalone/Electron installs
+    // always register under the fixed licenseKey 'LOCAL_EXE' + branchId 'b1'
+    // (there's only ever one business per local install, so these aren't
+    // randomized per-install) — but that means completeInstallation()'s own
+    // resetDatabase() only wiped this terminal's IndexedDB, while this exact
+    // same hub tenant's OLD data (products, old branch name, etc.) stayed put
+    // in the local Mongo hub. Without this, a "fresh" reinstall would still
+    // have its very first sync pull that same old hub data straight back
+    // into the newly-emptied IndexedDB, silently reintroducing anything the
+    // previous install ever pushed here (sample products included) even when
+    // this install's own onboarding declined them.
+    if (req.url === '/api/standalone-reset' && req.method === 'POST') {
+        try {
+            const licenseKey = 'LOCAL_EXE';
+            const skip = new Set(['admins', 'upgrade_keys']); // platform-level, not per-install business data
+            const results = {};
+            for (const [store, Model] of Object.entries(ModelMap)) {
+                if (skip.has(store)) continue;
+                try {
+                    const r = await DBManager.delete(Model, store, { licenseKey });
+                    results[store] = r.deletedCount || 0;
+                } catch (err) {
+                    results[store] = { error: err.message };
+                }
+            }
+            console.log('[Server] Standalone hub reset before fresh onboarding:', results);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true, results }));
+        } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+    }
+
     // Standalone Registration: Called after onboarding to persist the admin
     // (+ branch + register) in the local Mongo hub — so other LAN devices
     // linking to this shop can see them, AND so login can still

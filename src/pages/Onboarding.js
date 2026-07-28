@@ -99,7 +99,12 @@ function showFullLoader(text, isFinal = false) {
   if (!loader) return;
   loader.innerHTML = `
     <div class="onboarding-loader-overlay">
-      <div class="loader-vibrant"></div>
+      <div class="loader-scanner">
+        <div class="loader-barcode">
+          <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div class="loader-scan-line"></div>
+      </div>
       <div class="loader-text">${text}</div>
     </div>
   `;
@@ -210,6 +215,22 @@ async function finishStandaloneSetup() {
 
   setTimeout(async () => {
     try {
+      // 0. Wipe this install's prior data on the local Mongo hub FIRST.
+      //    Standalone/Electron always registers under the same fixed
+      //    licenseKey ('LOCAL_EXE') + branchId ('b1') — completeInstallation()'s
+      //    resetDatabase() below only clears this terminal's IndexedDB, so
+      //    without this, the very first post-install sync would pull the
+      //    OLD hub data (old products, old branch name) straight back into
+      //    the freshly-emptied IndexedDB, regardless of what's chosen below.
+      //    Non-fatal: if the hub isn't reachable yet, local install still proceeds.
+      try {
+        const resetRes = await fetch('http://localhost:3030/api/standalone-reset', { method: 'POST' });
+        if (!resetRes.ok) throw new Error(`HTTP ${resetRes.status}`);
+        console.log('[Onboarding] Local hub tenant data reset before fresh install.');
+      } catch (resetErr) {
+        console.warn('[Onboarding] Could not reset local hub before install (non-fatal):', resetErr.message);
+      }
+
       // 1. Complete local IndexedDB installation — the phone number IS the
       //    login username (no separate "Admin" identity to remember).
       const { user, register } = await completeInstallation({

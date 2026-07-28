@@ -903,8 +903,14 @@ class SyncEngine {
     }
 
     async reRegister() {
-        if (!this.isConnected) return;
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
         const settings = await getSettings();
+
+        // The awaited getSettings() call above gives the event loop a chance
+        // to run — this.ws can be closed/reassigned by a disconnect/reconnect
+        // that happens in that gap, so re-check right before sending instead
+        // of trusting the check made before the await.
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
         console.log('SyncEngine: Sending REGISTRATION to Hub...');
         this.ws.send(JSON.stringify({
@@ -917,7 +923,7 @@ class SyncEngine {
         }));
     }
 
-    async requestAdbStatus() { if (this.isConnected) this.ws.send(JSON.stringify({ type: 'get_adb_status' })); }
+    async requestAdbStatus() { if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'get_adb_status' })); }
 }
 
 export const syncEngine = new SyncEngine();

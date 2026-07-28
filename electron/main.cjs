@@ -8,6 +8,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
+const net = require('net');
 const crypto = require('crypto');
 const { machineIdSync } = require('node-machine-id');
 const LICENSE_PUBLIC_KEY = require('./licensePublicKey.cjs');
@@ -25,6 +26,7 @@ if (process.env.CI) {
 
 let mainWindow = null;
 let serverProcess = null;
+let mongodProcess = null;
 let tray = null;
 let splashWindow = null;
 
@@ -85,6 +87,92 @@ function getNodeExe() {
   return 'node';
 }
 
+function getMongodExe() {
+  if (isDev) {
+    const devBundled = path.join(__dirname, '..', 'mongodb-portable', 'mongod.exe');
+    if (fs.existsSync(devBundled)) return devBundled;
+    return null;
+  }
+  const resMongod = path.join(process.resourcesPath, 'mongodb-portable', 'mongod.exe');
+  if (fs.existsSync(resMongod)) return resMongod;
+  return null;
+}
+
+// ─── MongoDB (bundled, portable, embedded) ─────────────────
+// This app ships its own mongod.exe (same "no separate install" philosophy
+// as the bundled portable node.exe above) so a fresh machine works out of
+// the box with no manual MongoDB installation step. It's spawned as a plain
+// child process against a per-user data directory — not installed as a
+// Windows service — so it needs no admin rights and can't collide with
+// anything already registered on the system.
+function isPortOpen(port, host = '127.0.0.1') {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ port, host });
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('error', () => { socket.destroy(); resolve(false); });
+    socket.setTimeout(1000, () => { socket.destroy(); resolve(false); });
+  });
+}
+
+function spawnMongod(mongodExe, dbPath, userData) {
+  console.log('[Mongo] Launching with mongod:', mongodExe);
+  console.log('[Mongo] dbPath:', dbPath);
+
+  fs.mkdirSync(dbPath, { recursive: true });
+
+  const proc = spawn(mongodExe, [
+    '--dbpath', dbPath,
+    '--port', '27017',
+    '--bind_ip', '127.0.0.1', // never accept connections beyond this machine
+    '--quiet',
+  ], {
+    cwd: path.dirname(mongodExe),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.on('data', d => console.log('[Mongo]', d.toString().trim()));
+  proc.stderr.on('data', d => console.error('[Mongo ERR]', d.toString().trim()));
+  proc.on('error', err => {
+    console.error('[Mongo SPAWN ERROR]', err.code, err.message);
+    try { fs.appendFileSync(path.join(userData, 'startServer_debug.log'), '\nMONGO SPAWN ERROR: ' + err.message); } catch (e) {}
+  });
+  proc.on('close', code => console.log(`[Mongo] Exited (${code})`));
+  return proc;
+}
+
+// Waits for port 27017 to accept connections, then calls back — used both
+// after spawning our own bundled mongod, and (if something is already
+// listening, e.g. a real MongoDB the user separately installed, such as on
+// this project's own dev machine) as the sole check before skipping our own
+// spawn entirely, so this never tries to double-bind the port.
+function waitForMongo(cb, attempts = 0) {
+  if (attempts > 30) { cb(false); return; }
+  isPortOpen(27017).then(open => {
+    if (open) { cb(true); return; }
+    setTimeout(() => waitForMongo(cb, attempts + 1), 1000);
+  });
+}
+
+async function startMongo(cb) {
+  const alreadyRunning = await isPortOpen(27017);
+  if (alreadyRunning) {
+    console.log('[Mongo] Something is already listening on 27017 — using it instead of spawning our own.');
+    cb(true);
+    return;
+  }
+
+  const mongodExe = getMongodExe();
+  if (!mongodExe) {
+    console.error('[Mongo] No bundled mongod.exe found and nothing is already listening on 27017.');
+    cb(false);
+    return;
+  }
+
+  const userData = app.getPath('userData');
+  const dbPath = path.join(userData, 'mongodb-data');
+  mongodProcess = spawnMongod(mongodExe, dbPath, userData);
+  waitForMongo(cb);
+}
+
 // ─── Splash Screen ────────────────────────────────────────
 function createSplash() {
   splashWindow = new BrowserWindow({
@@ -115,9 +203,19 @@ function spawnServer(script, serverCwd, userData) {
   // hosted web/cloud version. This applies regardless of Lifetime activation.
   console.log('[Server] Electron desktop build — forcing MONGODB_MODE=local');
 
+  // shell:true was here before, but on Windows it routes the spawn through
+  // `cmd.exe /c <command>`, which naively splits the command string on the
+  // FIRST space with no auto-quoting — breaking silently (exits cleanly,
+  // no 'error' event, nothing logged) the moment nodeExe's path contains a
+  // space, which it always does for any real per-machine install under
+  // "C:\Program Files\<product name>\..." (confirmed: this exact path only
+  // ever gets exercised by a genuinely installed build, never by dev mode,
+  // which is why this went unnoticed until the first real installer test).
+  // Node's spawn() correctly handles spaced paths and args natively without
+  // a shell — including the bare 'node' PATH-lookup fallback in getNodeExe()
+  // — so shell:true was never actually needed here.
   const proc = spawn(nodeExe, [script], {
     cwd: serverCwd,
-    shell: true,
     env: {
       ...process.env,
       WWEBJS_AUTH_PATH: path.join(userData, '.wwebjs_auth'),
@@ -306,10 +404,20 @@ app.whenReady().then(() => {
   if (!process.env.CI) {
     createSplash();
     createTray();
-    startServer();
-    waitForServer((ok) => { createMainWindow(); });
+    // Mongo must be accepting connections before the sync server tries to
+    // connect to it, so this gates startServer() rather than running in parallel.
+    startMongo((mongoOk) => {
+      if (!mongoOk) {
+        if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
+        dialog.showErrorBox('Database Error', 'Could not start the bundled database (MongoDB). Please reinstall the app, or contact support if the problem continues.');
+        app.quit();
+        return;
+      }
+      startServer();
+      waitForServer((ok) => { createMainWindow(); });
+    });
   } else {
-    // In CI, skip splash, tray, and server entirely.
+    // In CI, skip splash, tray, mongo, and server entirely.
     // The server requires Postgres which isn't running, and spawn errors could show a native blocking dialog.
     createMainWindow();
   }
@@ -319,6 +427,7 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !tray) 
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow(); });
 app.on('before-quit', () => {
   if (serverProcess) { serverProcess.kill('SIGTERM'); serverProcess = null; }
+  if (mongodProcess) { mongodProcess.kill('SIGTERM'); mongodProcess = null; }
   if (tray) tray.destroy();
 });
 

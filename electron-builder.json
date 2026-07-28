@@ -16,7 +16,8 @@
   "files": [
     "dist/**/*",
     "electron/**/*",
-    "!electron/icon.png"
+    "!electron/icon.png",
+    "!electron/vc_redist.x64.exe"
   ],
 
   "extraResources": [
@@ -38,8 +39,26 @@
       ]
     },
     {
+      "from": "server/node_modules/",
+      "to": "server/node_modules/",
+      "filter": [
+        "**/*",
+        "!.cache",
+        "!.bin",
+        "!**/*.md",
+        "!**/*.map",
+        "!**/*.ts",
+        "!**/test",
+        "!**/tests"
+      ]
+    },
+    {
       "from": "node-portable/node.exe",
       "to": "node.exe"
+    },
+    {
+      "from": "mongodb-portable/mongod.exe",
+      "to": "mongodb-portable/mongod.exe"
     },
     {
       "from": "electron/icon.png",
@@ -70,6 +89,7 @@
     "shortcutName": "ZeInfoTech POS",
     "deleteAppDataOnUninstall": false,
     "runAfterFinish": true,
-    "unicode": true
+    "unicode": true,
+    "include": "electron/installer.nsh"
   }
 }

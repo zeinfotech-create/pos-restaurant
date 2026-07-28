@@ -58,5 +58,9 @@ server/backups/
 # Portable Node.js binary (large, re-downloadable, not source code)
 node-portable/
 
+# Portable MongoDB binary + VC++ redistributable installer (same reasoning)
+mongodb-portable/
+electron/vc_redist.x64.exe
+
 # Old debugging screenshots from earlier development sessions
 docs/brain/
