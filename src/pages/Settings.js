@@ -2,7 +2,7 @@
 // Settings.js
 // ============================================================
 
-import { getSettings, getGlobalSettings, saveSettings, isIndustryImported, importIndustryProducts, mergeDuplicateProducts, getSessionTheme, updateSettings, getOrders, updateOrder, getCurrentUser, getCurrentBranch, getBusinessFeatures, hasPermission, verifyLocalUser, read, KEYS, getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory } from '../db.js';
+import { getSettings, getGlobalSettings, saveSettings, isIndustryImported, importIndustryProducts, mergeDuplicateProducts, getSessionTheme, updateSettings, getOrders, updateOrder, getCurrentUser, getCurrentBranch, saveBranch, getBusinessFeatures, hasPermission, verifyLocalUser, read, KEYS, getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { reloadSettings, store } from '../store.js';
 import { openModal, closeModal, showConfirm, showAlert } from '../components/Modal.js';
@@ -786,15 +786,18 @@ export async function renderSettings(container) {
   container.querySelector('#saveGeneralBtn')?.addEventListener('click', async () => {
     const storeName = container.querySelector('#sStoreName')?.value.trim();
     if (!storeName) return showToast('Store name is required', 'error');
-    
+    const storeAddress = container.querySelector('#sStoreAddress').value.trim();
+    const storePhone = container.querySelector('#sStorePhone').value.trim();
+    const storeLogo = container.querySelector('#sStoreLogoBase64')?.value || '';
+
     await handleSave('General', {
       storeName,
       storeNameSubtitle: container.querySelector('#sStoreNameSubtitle')?.value.trim() || '',
-      storeAddress: container.querySelector('#sStoreAddress').value.trim(),
-      storePhone: container.querySelector('#sStorePhone').value.trim(),
+      storeAddress,
+      storePhone,
       gstNumber: container.querySelector('#sGstNumber').value.trim(),
       upiId: container.querySelector('#sUpiId').value.trim(),
-      storeLogo: container.querySelector('#sStoreLogoBase64')?.value || '',
+      storeLogo,
       showLogoOnReceipt: container.querySelector('#sShowLogoOnReceipt')?.checked || false,
       printBarcodeOnReceipt: container.querySelector('#sPrintBarcodeOnReceipt')?.checked || false,
       receiptFooter: container.querySelector('#sReceiptFooter').value.trim(),
@@ -807,6 +810,25 @@ export async function renderSettings(container) {
       roundOffEnabled: container.querySelector('#sRoundOffEnabled')?.checked || false,
       autoPrintReceipt: document.getElementById('sAutoPrintReceipt')?.checked || false
     });
+
+    // Keep the current branch's own record in sync with what was just saved
+    // here — Branches.js already syncs branch -> Settings when a branch is
+    // edited there, but that's one-way; without this, the sidebar/topbar
+    // (which read store.branch.name, not settings.storeName) look "stuck" on
+    // whatever name onboarding first set, no matter what gets typed here.
+    const currentBranch = await getCurrentBranch();
+    if (currentBranch) {
+      await saveBranch({
+        ...currentBranch,
+        name: storeName,
+        address: storeAddress,
+        phone: storePhone,
+        ...(storeLogo ? { image: storeLogo } : {})
+      });
+      store.branch = { ...store.branch, name: storeName, address: storeAddress, phone: storePhone };
+      if (typeof window.renderSidebar === 'function') await window.renderSidebar();
+      if (typeof window.renderTopbar === 'function') await window.renderTopbar();
+    }
   });
 
   // 2. Industry Settings

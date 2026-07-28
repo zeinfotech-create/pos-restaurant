@@ -2793,11 +2793,16 @@ table {
   transform: translateX(0) !important;
 }
 
-/* Mobile Adjustments for Side Panel */
+/* Mobile Adjustments for Side Panel — width still shrinks to fill the
+   screen, but corners stay rounded (matching desktop) instead of going
+   flat: the panel doesn't always reach true edge-to-edge (justify-content:
+   flex-end can still leave a visible backdrop gap on the left on
+   in-between widths), and a hard 0 there reads as a sharp, unfinished
+   corner against that visible backdrop rather than a deliberate full-bleed sheet. */
 @media (max-width: 768px) {
   .side-panel .modal {
     max-width: 100vw;
-    border-radius: 0;
+    border-radius: 20px 0 0 20px;
   }
 }
 

@@ -1622,6 +1622,7 @@ window.logout = () => {
 window.showToast = showToast;
 window.navigate = appNavigate;
 window.renderSidebar = renderSidebar;
+window.renderTopbar = renderTopbar;
 window.closeModal = closeModal;
 window.openCartDrawer = openCartDrawer;
 window.closeCartDrawer = closeCartDrawer;

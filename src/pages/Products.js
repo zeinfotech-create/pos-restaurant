@@ -749,6 +749,14 @@ async function openProductForm(product, container, cur) {
     }
     vList.innerHTML = `
       <div class="variant-list">
+        <div class="variant-row">
+          <span style="flex:2; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Variant Name</span>
+          <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Cost</span>
+          <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Price</span>
+          <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Stock</span>
+          <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Min</span>
+          <span style="width:36px"></span>
+        </div>
         ${variants.map((v, i) => `
           <div class="variant-row">
             <input class="form-input" style="flex:2" placeholder="Variant Name" value="${v.name || ''}" data-idx="${i}" data-key="name" />
