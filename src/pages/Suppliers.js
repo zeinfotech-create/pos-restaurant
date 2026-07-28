@@ -72,7 +72,7 @@ export async function renderSuppliers(container, subPage) {
         <button class="btn btn-ghost hide-desktop" id="mobileFilterToggle" style="border:1px solid var(--border)">
           <i class="fa-solid fa-filter mr-8"></i> Filters
         </button>
-        ${hasPermission('products:manage') ? `
+        ${await hasPermission('products:manage') ? `
           <button class="btn btn-primary" id="addSupBtn"><i class="fa-solid fa-plus"></i> Add Supplier</button>
         ` : ''}
       </div>

@@ -1998,18 +1998,30 @@ export async function getPurchasesMonthly() {
   return Object.entries(months).map(([label, total]) => ({ label, total }));
 }
 
+export const DEFAULT_LOW_STOCK_THRESHOLD = 10;
+
+/**
+ * Single source of truth for "is this stock level low" — every low-stock
+ * badge/filter/report in the app must call this instead of hardcoding a
+ * plain `stock > 10` check, otherwise a product with its own `minStock` set
+ * shows a different status on different screens (Dashboard/POS said "low",
+ * Products/Catalog/Reports said "in stock", because they ignored minStock).
+ */
+export function getStockStatus(stock, minStock) {
+  const s = Number(stock) || 0;
+  const threshold = (minStock != null && minStock > 0) ? minStock : DEFAULT_LOW_STOCK_THRESHOLD;
+  if (s <= 0) return 'out';
+  if (s <= threshold) return 'low';
+  return 'in';
+}
+
 export async function getLowStockProducts(branchId = null) {
-  const DEFAULT_LOW_STOCK_THRESHOLD = 10;
   const products = await getProducts(branchId);
   return products.filter(p => {
     if (p.variants && p.variants.length > 0) {
-      return p.variants.some(v => {
-        const threshold = (v.minStock != null && v.minStock > 0) ? v.minStock : DEFAULT_LOW_STOCK_THRESHOLD;
-        return (v.stock || 0) <= threshold;
-      });
+      return p.variants.some(v => getStockStatus(v.stock, v.minStock) !== 'in');
     }
-    const threshold = (p.minStock != null && p.minStock > 0) ? p.minStock : DEFAULT_LOW_STOCK_THRESHOLD;
-    return (p.stock || 0) <= threshold;
+    return getStockStatus(p.stock, p.minStock) !== 'in';
   });
 }
 

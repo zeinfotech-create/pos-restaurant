@@ -1,4 +1,4 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getMonthlySales, getPaymentBreakdown, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getMonthlySales, getPaymentBreakdown, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
@@ -2145,8 +2145,7 @@ function openShiftSummaryModal(shiftId, cur, allShifts, registers = []) {
 
 async function renderLowStockReport(container, cur) {
   const products = await getProducts(currentBranchFilter);
-  const lowStockThreshold = 10;
-  const lowStockItems = products.filter(p => (p.stock || 0) <= lowStockThreshold);
+  const lowStockItems = products.filter(p => getStockStatus(p.stock, p.minStock) !== 'in');
   const canExportLow = await hasPermission('reports:export');
 
   function lowStockRowHtml(p) {

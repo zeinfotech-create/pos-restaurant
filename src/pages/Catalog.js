@@ -1,4 +1,4 @@
-import { getProducts, getCategories, getSettings, getProductStockAcrossBranches } from '../db.js';
+import { getProducts, getCategories, getSettings, getProductStockAcrossBranches, getStockStatus } from '../db.js';
 import { store } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 
@@ -333,8 +333,9 @@ async function renderGrid(cur) {
   gridArea.innerHTML = `
     <div class="catalog-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px;">
       ${allProducts.map(p => {
-        let stockColor = p.stock > 10 ? 'var(--success)' : (p.stock > 0 ? 'var(--warning)' : 'var(--danger)');
-        let stockText = p.stock > 10 ? 'In Stock' : (p.stock > 0 ? `Low Stock (${parseFloat(Number(p.stock).toFixed(3))})` : 'Out of Stock');
+        const status = getStockStatus(p.stock, p.minStock);
+        let stockColor = status === 'in' ? 'var(--success)' : (status === 'low' ? 'var(--warning)' : 'var(--danger)');
+        let stockText = status === 'in' ? 'In Stock' : (status === 'low' ? `Low Stock (${parseFloat(Number(p.stock).toFixed(3))})` : 'Out of Stock');
         
         let origPriceDisplay = '';
         let finalPriceDisplay = '';
@@ -566,9 +567,10 @@ async function openProductDetailsModal(p, cur) {
   }
 
   const fmtStock = (s) => parseFloat(Number(s).toFixed(3));
-  const stockBadge = p.stock > 10 ? 
-    `<span style="background:rgba(16, 185, 129, 0.1); color:var(--success); border:1px solid var(--success); padding:4px 10px; border-radius:20px; font-size:11px; font-weight:800;">In Stock (${fmtStock(p.stock)})</span>` : 
-    (p.stock > 0 ? `<span style="background:rgba(245, 158, 11, 0.1); color:var(--warning); border:1px solid var(--warning); padding:4px 10px; border-radius:20px; font-size:11px; font-weight:800;">Low Stock (${fmtStock(p.stock)})</span>` : 
+  const pStatus = getStockStatus(p.stock, p.minStock);
+  const stockBadge = pStatus === 'in' ?
+    `<span style="background:rgba(16, 185, 129, 0.1); color:var(--success); border:1px solid var(--success); padding:4px 10px; border-radius:20px; font-size:11px; font-weight:800;">In Stock (${fmtStock(p.stock)})</span>` :
+    (pStatus === 'low' ? `<span style="background:rgba(245, 158, 11, 0.1); color:var(--warning); border:1px solid var(--warning); padding:4px 10px; border-radius:20px; font-size:11px; font-weight:800;">Low Stock (${fmtStock(p.stock)})</span>` :
     `<span style="background:rgba(239, 68, 68, 0.1); color:var(--danger); border:1px solid var(--danger); padding:4px 10px; border-radius:20px; font-size:11px; font-weight:800;">Out of Stock</span>`);
 
   openModal({

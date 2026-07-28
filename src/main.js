@@ -908,7 +908,7 @@ async function renderMobileCart() {
               ? base * (1 + (parseFloat(item.taxRate) || 0) / 100)
               : base;
           })()
-        ).toFixed(2)}<span style="font-size:10px; color:red; font-weight:bold; margin-left:2px">v3</span></div>
+        ).toFixed(2)}</div>
           <button class="remove-btn m-remove-btn" data-id="${item.cartId}" style="width:20px;height:20px;border-radius:4px;border:none;background:rgba(239,68,68,0.12);color:var(--danger);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;transition:background 0.15s">
             <i class="fa-solid fa-xmark"></i>
           </button>

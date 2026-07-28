@@ -24,6 +24,7 @@ export async function renderPurchases(container, subPage) {
   let supplierFilt = 'all';
 
   async function renderRows() {
+    const canManageInventory = await hasPermission('inventory:manage');
     let rawPurchases = await getPurchases(branchId);
     let filtered = await applySessionFilter(rawPurchases, 'date');
     if (searchQ) {
@@ -72,7 +73,7 @@ export async function renderPurchases(container, subPage) {
           <div class="bulk-actions-bar">
             <div class="bulk-actions-info"><i class="fa-solid fa-square-check"></i> ${selectedIds.size} purchases selected</div>
             <div class="flex gap-8">
-              ${await hasPermission('inventory:manage') ? `<button class="btn btn-sm btn-danger" id="bulkDeletePurchBtn"><i class="fa-solid fa-trash"></i> Delete Selected</button>` : ''}
+              ${canManageInventory ? `<button class="btn btn-sm btn-danger" id="bulkDeletePurchBtn"><i class="fa-solid fa-trash"></i> Delete Selected</button>` : ''}
               <button class="btn btn-sm" id="clearPurchSelBtn" style="background:rgba(255,255,255,0.2);color:#fff">Cancel</button>
             </div>
           </div>
@@ -130,7 +131,7 @@ export async function renderPurchases(container, subPage) {
           <td>
             <div style="display:flex;gap:4px">
               <button class="btn btn-ghost btn-sm view-btn" data-id="${p.id}"><i class="fa-solid fa-eye"></i> View</button>
-              ${hasPermission('inventory:manage') ? `
+              ${canManageInventory ? `
                 <button class="btn btn-ghost btn-sm delete-btn" data-id="${p.id}" style="color:var(--danger)"><i class="fa-solid fa-trash-can"></i></button>
               ` : ''}
             </div>

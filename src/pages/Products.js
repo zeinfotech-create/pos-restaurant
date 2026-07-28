@@ -1,10 +1,22 @@
-import { getProducts, addProduct, updateProduct, deleteProduct, getSettings, getBranches, getCurrentUser, hasPermission, logInventoryChange, getInventoryLogs, getCategories, getSubCategories, getProductStockAcrossBranches, getLabelConfig, saveLabelConfig, getExpiringProducts, adjustProductStock } from '../db.js';
+import { getProducts, addProduct, updateProduct, deleteProduct, getSettings, getBranches, getCurrentUser, hasPermission, logInventoryChange, getInventoryLogs, getCategories, getSubCategories, getProductStockAcrossBranches, getLabelConfig, saveLabelConfig, getExpiringProducts, adjustProductStock, getStockStatus } from '../db.js';
 import { store } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { MediaService } from '../services/MediaService.js';
 import { initDateRangePicker, getDefaultRange } from '../utils/dateRangeHelper.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
+
+// Overall status for a product, honoring its own (or its variants') minStock
+// rather than a flat threshold — worst-of-all-variants for variant products,
+// so this stays consistent with the row badge and the Dashboard/POS alerts
+// (all of which must agree on what counts as "low", see db.js's getStockStatus).
+function getProductOverallStatus(p) {
+  if (p.variants && p.variants.length > 0) {
+    const statuses = p.variants.map(v => getStockStatus(v.stock, v.minStock));
+    return statuses.every(s => s === 'out') ? 'out' : (statuses.some(s => s !== 'in') ? 'low' : 'in');
+  }
+  return getStockStatus(p.stock, p.minStock);
+}
 const EMOJIS = [
   // No Image Fallback
   '🖼️', '📦',
@@ -64,6 +76,7 @@ export async function renderProducts(container) {
     window.posFilterStock = null;
   }
   const settings = await getSettings();
+  const canManageProducts = await hasPermission('products:manage');
   container.innerHTML = `
     <div class="page-header">
       <div>
@@ -74,7 +87,7 @@ export async function renderProducts(container) {
         <button class="btn btn-ghost hide-desktop" id="mobileFilterToggle" style="border:1px solid var(--border); border-radius: 10px; height: 42px;">
           <i class="fa-solid fa-filter mr-8"></i> Filters
         </button>
-        ${hasPermission('products:manage') ? `
+        ${canManageProducts ? `
           <div class="import-export-btns">
               <input type="file" id="importInput" accept=".json,.csv" style="display:none" />
               <button class="btn btn-ghost" id="importBtn" title="Import Products" style="border-radius: 10px; height: 42px;">
@@ -280,9 +293,10 @@ async function renderTable(container, cur) {
     filteredProducts = filteredProducts.filter(p => expiringIds.has(String(p.id)));
   } else if (filterStock !== 'All') {
     filteredProducts = filteredProducts.filter(p => {
-      if (filterStock === 'In Stock') return p.stock > 10;
-      if (filterStock === 'Low Stock') return p.stock > 0 && p.stock <= 10;
-      if (filterStock === 'Out of Stock') return p.stock === 0;
+      const status = getProductOverallStatus(p);
+      if (filterStock === 'In Stock') return status === 'in';
+      if (filterStock === 'Low Stock') return status === 'low';
+      if (filterStock === 'Out of Stock') return status === 'out';
       return true;
     });
   }
@@ -320,6 +334,8 @@ async function renderTable(container, cur) {
 
   // Build rows first for async stock lookups if needed, but since getProductStockAcrossBranches is likely async now too
   const canAdjustStock = await hasPermission('inventory:manage');
+  const canEditProduct = await hasPermission('products:manage');
+  const canDeleteProduct = await hasPermission('products:delete');
   const rows = [];
   for (const p of paginatedProducts) {
     const sid = String(p.id);
@@ -337,6 +353,7 @@ async function renderTable(container, cur) {
       stockDisplay = `${parseFloat(totalStock.toFixed(3))} (Total)`;
       priceDisplay = minPrice === maxPrice ? `${cur}${minPrice}` : `${cur}${minPrice} - ${maxPrice}`;
     }
+    const stockStatus = getProductOverallStatus(p);
 
     let branchStockTips = '';
     if (p.sku) {
@@ -379,8 +396,8 @@ async function renderTable(container, cur) {
               </div>
             </td>
             <td data-label="Status">
-              <span class="badge ${p.stock > 10 ? 'badge-success' : p.stock > 0 ? 'badge-warning' : 'badge-danger'}">
-                ${p.stock > 10 ? 'In Stock' : p.stock > 0 ? 'Low Stock' : 'Out of Stock'}
+              <span class="badge ${stockStatus === 'in' ? 'badge-success' : stockStatus === 'low' ? 'badge-warning' : 'badge-danger'}">
+                ${stockStatus === 'in' ? 'In Stock' : stockStatus === 'low' ? 'Low Stock' : 'Out of Stock'}
               </span>
             </td>
             <td>
@@ -388,8 +405,8 @@ async function renderTable(container, cur) {
                 <button class="btn btn-ghost btn-sm history-btn" data-id="${p.id}" title="Stock History"><i class="fa-solid fa-clock-rotate-left"></i></button>
                 ${canAdjustStock ? `<button class="btn btn-ghost btn-sm adjust-stock-btn" data-id="${p.id}" title="Adjust Stock"><i class="fa-solid fa-scale-balanced"></i></button>` : ''}
                 <button class="btn btn-ghost btn-sm print-barcode-btn" data-id="${p.id}" title="Print Barcode" ${!p.barcode ? 'disabled style="opacity:0.4"' : ''}><i class="fa-solid fa-barcode"></i></button>
-                ${hasPermission('products:manage') ? `<button class="btn btn-ghost btn-sm edit-btn" data-id="${p.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>` : ''}
-                ${hasPermission('products:delete') ? `<button class="btn btn-sm delete-btn" style="background:rgba(239,68,68,0.1);color:var(--danger)" data-id="${p.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>` : ''}
+                ${canEditProduct ? `<button class="btn btn-ghost btn-sm edit-btn" data-id="${p.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>` : ''}
+                ${canDeleteProduct ? `<button class="btn btn-sm delete-btn" style="background:rgba(239,68,68,0.1);color:var(--danger)" data-id="${p.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>` : ''}
               </div>
             </td>
           </tr>
@@ -440,6 +457,16 @@ async function renderTable(container, cur) {
     btn.addEventListener('click', async () => {
       const allP = await getProducts(store.branch?.id);
       const p = allP.find(item => item.id == btn.dataset.id);
+      // Re-fetches fresh at click-time rather than trusting the already-rendered
+      // row, so a product deleted elsewhere (another tab, multi-branch sync)
+      // between render and click is caught here instead of silently opening
+      // an empty "Add New Product" form (openProductForm treats a missing
+      // product the same as "no product" = add mode).
+      if (!p) {
+        showToast('This product no longer exists — it may have been deleted elsewhere.', 'error');
+        await renderTable(container, cur);
+        return;
+      }
       await openProductForm(p, container, cur);
     });
   });
