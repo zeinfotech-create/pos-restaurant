@@ -3536,6 +3536,10 @@ table {
     grid-template-columns: 1fr 1fr;
   }
 
+  .grid-5 {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .grid-auto {
     grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
     gap: 10px;
@@ -3667,6 +3671,10 @@ table {
 /* Extra small phones */
 @media (max-width: 375px) {
   .grid-4 {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .grid-5 {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -5643,6 +5651,13 @@ tr.selected-row td {
     margin-bottom: 24px;
 }
 
+.grid-5 {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
 .tab-group {
     display: flex;
     background: var(--bg-elevated);
@@ -5680,14 +5695,14 @@ tr.selected-row td {
 }
 
 @media (max-width: 1024px) {
-    .grid-4 {
+    .grid-4, .grid-5 {
         grid-template-columns: repeat(2, 1fr);
         gap: 16px;
     }
 }
 
 @media (max-width: 600px) {
-    .grid-4 {
+    .grid-4, .grid-5 {
         grid-template-columns: 1fr;
         gap: 12px;
     }
@@ -5781,7 +5796,7 @@ tr.selected-row td {
     animation: fadeIn 0.4s ease-out;
 }
 
-#inventory-log-page .grid-4 {
+#inventory-log-page .grid-4, #inventory-log-page .grid-5 {
     gap: 20px;
 }
 

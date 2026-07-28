@@ -781,6 +781,47 @@ export async function deleteProduct(id) {
   await deleteData('products', id);
 }
 
+/**
+ * Stock Adjustment / Stock-Take: sets a product's (or one of its variants')
+ * stock to a physically-counted quantity and logs the delta with a specific
+ * adjustment reason (damage, theft, expiry, found-extra, count correction),
+ * distinct from the generic "Manual Edit" reason logged by the product edit
+ * form. Re-fetches the product fresh rather than trusting a caller-held
+ * reference, so a stock-take session started a while ago still adjusts
+ * against the product's current stock, not whatever it was when the
+ * session's product list was first loaded.
+ */
+export async function adjustProductStock(productId, variantName, newStock, reason, note) {
+  const products = await getProducts();
+  const product = products.find(p => String(p.id) === String(productId));
+  if (!product) throw new Error('Product not found');
+
+  const branchId = product.branchId || 'b1';
+  const countedStock = Number(newStock);
+  let oldStock;
+
+  if (variantName) {
+    const variant = (product.variants || []).find(v => v.name === variantName);
+    if (!variant) throw new Error('Variant not found');
+    oldStock = Number(variant.stock) || 0;
+    variant.stock = countedStock;
+  } else {
+    oldStock = Number(product.stock) || 0;
+    product.stock = countedStock;
+  }
+
+  const delta = countedStock - oldStock;
+  if (delta === 0) return;
+
+  await updateProduct(product);
+
+  const fullReason = note ? `Stock Adjustment: ${reason} (${note})` : `Stock Adjustment: ${reason}`;
+  await logInventoryChange(
+    productId, variantName || null, delta > 0 ? 'IN' : 'OUT', Math.abs(delta),
+    fullReason, branchId, null, oldStock, countedStock
+  );
+}
+
 export async function getProductStockAcrossBranches(sku) {
   if (!sku) return [];
   const allProducts = await read(KEYS.PRODUCTS) || [];

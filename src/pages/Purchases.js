@@ -430,6 +430,12 @@ export async function openPurchaseForm(container) {
         </div>
       </div>
 
+      <div class="variant-row" style="margin-top:12px; margin-bottom:4px; padding:0 4px">
+        <span style="flex:2; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Product</span>
+        <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Qty</span>
+        <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Cost</span>
+        <span style="width:36px"></span>
+      </div>
       <div id="purchaseItemsList" style="max-height:280px; overflow-y:auto; padding:4px"></div>
 
       <div class="form-grid mt-24 pt-20" style="border-top:1px solid var(--border)">

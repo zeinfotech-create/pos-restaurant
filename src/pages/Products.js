@@ -1,4 +1,4 @@
-import { getProducts, addProduct, updateProduct, deleteProduct, getSettings, getBranches, getCurrentUser, hasPermission, logInventoryChange, getInventoryLogs, getCategories, getSubCategories, getProductStockAcrossBranches, getLabelConfig, saveLabelConfig, getExpiringProducts } from '../db.js';
+import { getProducts, addProduct, updateProduct, deleteProduct, getSettings, getBranches, getCurrentUser, hasPermission, logInventoryChange, getInventoryLogs, getCategories, getSubCategories, getProductStockAcrossBranches, getLabelConfig, saveLabelConfig, getExpiringProducts, adjustProductStock } from '../db.js';
 import { store } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
@@ -319,6 +319,7 @@ async function renderTable(container, cur) {
   const allInPageSelected = paginatedIds.length > 0 && paginatedIds.every(id => selectedIds.has(id));
 
   // Build rows first for async stock lookups if needed, but since getProductStockAcrossBranches is likely async now too
+  const canAdjustStock = await hasPermission('inventory:manage');
   const rows = [];
   for (const p of paginatedProducts) {
     const sid = String(p.id);
@@ -385,6 +386,7 @@ async function renderTable(container, cur) {
             <td>
               <div class="flex gap-8">
                 <button class="btn btn-ghost btn-sm history-btn" data-id="${p.id}" title="Stock History"><i class="fa-solid fa-clock-rotate-left"></i></button>
+                ${canAdjustStock ? `<button class="btn btn-ghost btn-sm adjust-stock-btn" data-id="${p.id}" title="Adjust Stock"><i class="fa-solid fa-scale-balanced"></i></button>` : ''}
                 <button class="btn btn-ghost btn-sm print-barcode-btn" data-id="${p.id}" title="Print Barcode" ${!p.barcode ? 'disabled style="opacity:0.4"' : ''}><i class="fa-solid fa-barcode"></i></button>
                 ${hasPermission('products:manage') ? `<button class="btn btn-ghost btn-sm edit-btn" data-id="${p.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>` : ''}
                 ${hasPermission('products:delete') ? `<button class="btn btn-sm delete-btn" style="background:rgba(239,68,68,0.1);color:var(--danger)" data-id="${p.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>` : ''}
@@ -447,6 +449,14 @@ async function renderTable(container, cur) {
       const allP = await getProducts(store.branch?.id);
       const p = allP.find(item => item.id == btn.dataset.id);
       await openStockHistoryModal(p);
+    });
+  });
+
+  wrap.querySelectorAll('.adjust-stock-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const allP = await getProducts(store.branch?.id);
+      const p = allP.find(item => item.id == btn.dataset.id);
+      await openAdjustStockModal(p, container, cur);
     });
   });
 
@@ -1839,6 +1849,95 @@ async function openLabelModal(product, type) {
     `);
     printWin.document.close();
     }, 150);
+  };
+}
+
+const STOCK_ADJUSTMENT_REASONS = ['Stock Count Correction', 'Damage / Wastage', 'Theft / Loss', 'Expired', 'Found Extra Stock', 'Other'];
+
+async function openAdjustStockModal(product, container, cur) {
+  if (!product) return;
+  const hasVariants = product.variants && product.variants.length > 0;
+
+  const rowsHtml = hasVariants
+    ? product.variants.map((v, idx) => `
+        <div class="form-group" style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+          <div style="flex:1">
+            <div style="font-weight:600">${v.name}</div>
+            <div style="font-size:12px; opacity:0.6">Current: ${v.stock ?? 0}</div>
+          </div>
+          <input type="number" step="any" class="form-input adjust-stock-input" data-variant="${v.name}" style="width:120px" value="${v.stock ?? 0}" />
+        </div>
+      `).join('')
+    : `
+        <div class="form-group" style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+          <div style="flex:1">
+            <div style="font-weight:600">${product.name}</div>
+            <div style="font-size:12px; opacity:0.6">Current: ${product.stock ?? 0}</div>
+          </div>
+          <input type="number" step="any" class="form-input adjust-stock-input" data-variant="" style="width:120px" value="${product.stock ?? 0}" />
+        </div>
+      `;
+
+  const body = `
+    <div style="padding:4px 0">
+      <p style="font-size:13px; opacity:0.7; margin-bottom:16px">Enter the physically-counted quantity for each line — only lines whose value actually changes get logged.</p>
+      ${rowsHtml}
+      <div class="form-group" style="margin-top:16px">
+        <label class="form-label">Reason</label>
+        <select class="form-input" id="adjustReasonSelect">
+          ${STOCK_ADJUSTMENT_REASONS.map(r => `<option value="${r}">${r}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Note (optional)</label>
+        <textarea class="form-input" id="adjustNoteInput" rows="2" placeholder="e.g. counted during weekly stock-take"></textarea>
+      </div>
+    </div>
+  `;
+
+  openModal({
+    title: `<i class="fa-solid fa-scale-balanced" style="color:var(--info)"></i> Adjust Stock`,
+    body,
+    footer: `
+      <button class="btn btn-ghost" id="cancelAdjustBtn">Cancel</button>
+      <button class="btn btn-primary" id="saveAdjustBtn"><i class="fa-solid fa-floppy-disk mr-8"></i> Save Adjustment</button>
+    `
+  });
+
+  document.getElementById('cancelAdjustBtn').onclick = () => closeModal();
+
+  document.getElementById('saveAdjustBtn').onclick = async () => {
+    const saveBtn = document.getElementById('saveAdjustBtn');
+    saveBtn.disabled = true;
+    const reason = document.getElementById('adjustReasonSelect').value;
+    const note = document.getElementById('adjustNoteInput').value.trim();
+
+    try {
+      const inputs = document.querySelectorAll('.adjust-stock-input');
+      let changedCount = 0;
+      for (const input of inputs) {
+        const variantName = input.dataset.variant || null;
+        const newStock = Number(input.value);
+        const currentStock = Number(hasVariants
+          ? (product.variants.find(v => v.name === variantName)?.stock ?? 0)
+          : (product.stock ?? 0));
+        if (newStock === currentStock) continue;
+        await adjustProductStock(product.id, variantName, newStock, reason, note);
+        changedCount++;
+      }
+
+      closeModal();
+      if (changedCount === 0) {
+        showToast('No changes to save', 'info');
+      } else {
+        showToast(`Stock adjusted for ${changedCount} item${changedCount > 1 ? 's' : ''}`, 'success');
+      }
+      await renderTable(container, cur);
+    } catch (err) {
+      console.error('Stock adjustment error:', err);
+      showToast('Error adjusting stock: ' + err.message, 'error');
+      saveBtn.disabled = false;
+    }
   };
 }
 

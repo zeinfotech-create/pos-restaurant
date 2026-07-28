@@ -7,9 +7,54 @@ const { start: defaultStart, end: defaultEnd } = getDefaultRange();
 let filterStartDate = defaultStart;
 let filterEndDate = defaultEnd;
 let logTypeFilter = 'All';
+let logReasonFilter = 'All';
 let logSearchQuery = '';
 let logCurrentPage = 1;
 const LOG_ITEMS_PER_PAGE = 8;
+
+// Groups every free-text `reason` string ever written by logInventoryChange()
+// callers into a small, stable set of categories for filtering/reporting —
+// new callers just need their reason text to start with the right prefix
+// (e.g. 'Stock Adjustment: ...') to be picked up here automatically.
+function categorizeReason(reason) {
+  const r = (reason || '').toLowerCase();
+  if (r.startsWith('stock adjustment')) return 'Adjustment';
+  if (r.includes('purchase')) return 'Purchase';
+  if (r.includes('return')) return 'Return';
+  if (r === 'sale' || r.startsWith('sale')) return 'Sale';
+  return 'Other';
+}
+
+// Adjustment reasons that represent an actual loss of stock (as opposed to
+// "Found Extra Stock" or "Stock Count Correction", which can go either way) —
+// used for the Shrinkage stat so a shop owner can see damage/theft/expiry
+// loss at a glance without having to read every row.
+const SHRINKAGE_REASON_PREFIXES = ['Stock Adjustment: Damage', 'Stock Adjustment: Theft', 'Stock Adjustment: Expired'];
+
+function getReasonBadgeStyle(category, reason) {
+  // Damage/Theft/Expired are the sub-cases that actually matter to a shop
+  // owner (real loss) — call those out in red even though they all share
+  // the parent 'Adjustment' category, rather than lumping them in with the
+  // neutral corrections (Found Extra Stock / Stock Count Correction).
+  if (category === 'Adjustment' && SHRINKAGE_REASON_PREFIXES.some(prefix => (reason || '').startsWith(prefix))) {
+    return { bg: 'rgba(239,68,68,0.12)', color: 'var(--danger)' };
+  }
+  switch (category) {
+    case 'Adjustment': return { bg: 'rgba(245,158,11,0.12)', color: 'var(--accent)' };
+    case 'Purchase': return { bg: 'rgba(16,185,129,0.12)', color: '#10b981' };
+    case 'Return': return { bg: 'rgba(59,130,246,0.12)', color: 'var(--info)' };
+    case 'Sale': return { bg: 'rgba(79,70,229,0.12)', color: 'var(--primary)' };
+    default: return null;
+  }
+}
+
+function renderReasonCell(reason) {
+  if (!reason) return '<span class="text-muted">No reason</span>';
+  const category = categorizeReason(reason);
+  const style = getReasonBadgeStyle(category, reason);
+  if (!style) return reason;
+  return `<span class="badge" style="background:${style.bg}; color:${style.color}; font-size:10px; font-weight:700; white-space:nowrap">${category}</span> <span style="opacity:0.75">${reason}</span>`;
+}
 
 export async function renderInventoryLog(container) {
   const settings = await getSettings();
@@ -38,20 +83,24 @@ export async function renderInventoryLog(container) {
     total: filteredByDate.length,
     stockIn: filteredByDate.filter(l => l.type === 'IN').reduce((sum, l) => sum + (l.qtyChange || 0), 0),
     stockOut: filteredByDate.filter(l => l.type === 'OUT').reduce((sum, l) => sum + (l.qtyChange || 0), 0),
-    pendingSync: filteredByDate.filter(l => !l.isSynced).length
+    pendingSync: filteredByDate.filter(l => !l.isSynced).length,
+    shrinkage: filteredByDate
+      .filter(l => l.type === 'OUT' && SHRINKAGE_REASON_PREFIXES.some(prefix => (l.reason || '').startsWith(prefix)))
+      .reduce((sum, l) => sum + (l.qtyChange || 0), 0)
   };
 
-  // 3. Final Filter (Search + Type)
+  // 3. Final Filter (Search + Type + Reason Category)
   const finalLogs = filteredByDate.filter(l => {
     const p = products.find(prod => String(prod.id) === String(l.productId));
     const pName = p ? p.name.toLowerCase() : 'unknown';
     const reason = (l.reason || '').toLowerCase();
     const logUser = (l.user || 'System').toLowerCase();
-    
+
     const matchesSearch = pName.includes(logSearchQuery.toLowerCase()) || reason.includes(logSearchQuery.toLowerCase()) || logUser.includes(logSearchQuery.toLowerCase());
     const matchesType = logTypeFilter === 'All' || l.type === logTypeFilter;
-    
-    return matchesSearch && matchesType;
+    const matchesReasonCategory = logReasonFilter === 'All' || categorizeReason(l.reason) === logReasonFilter;
+
+    return matchesSearch && matchesType && matchesReasonCategory;
   });
 
   // Pagination (on the fully-filtered set)
@@ -76,7 +125,7 @@ export async function renderInventoryLog(container) {
       </div>
 
 
-      <div class="grid-4 mb-24">
+      <div class="grid-5 mb-24">
         <div class="stat-card">
           <div class="stat-icon" style="background:rgba(79,70,229,0.12); color:var(--primary)">
             <i class="fa-solid fa-clock-rotate-left"></i>
@@ -102,6 +151,15 @@ export async function renderInventoryLog(container) {
           <div class="stat-info">
             <div class="stat-value text-danger">-${stats.stockOut}</div>
             <div class="stat-label">Stock Outward</div>
+          </div>
+        </div>
+        <div class="stat-card" title="Damage + Theft/Loss + Expired adjustments in this period">
+          <div class="stat-icon" style="background:rgba(239,68,68,0.12); color:var(--danger)">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value ${stats.shrinkage > 0 ? 'text-danger' : ''}">${stats.shrinkage}</div>
+            <div class="stat-label">Shrinkage (Loss)</div>
           </div>
         </div>
         <div class="stat-card">
@@ -137,6 +195,13 @@ export async function renderInventoryLog(container) {
               <button class="tab-btn ${logTypeFilter === 'IN' ? 'active' : ''}" data-type="IN" style="font-size:12px; height:100%; flex:1; border-radius:10px">IN</button>
               <button class="tab-btn ${logTypeFilter === 'OUT' ? 'active' : ''}" data-type="OUT" style="font-size:12px; height:100%; flex:1; border-radius:10px">OUT</button>
             </div>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label">Reason</label>
+            <select class="form-input" id="logReasonSelect" style="height:48px">
+              ${['All', 'Sale', 'Purchase', 'Return', 'Adjustment', 'Other'].map(r => `<option value="${r}" ${logReasonFilter === r ? 'selected' : ''}>${r === 'All' ? 'All Reasons' : r}</option>`).join('')}
+            </select>
           </div>
         </div>
       </div>
@@ -239,6 +304,12 @@ export async function renderInventoryLog(container) {
         logCurrentPage = 1;
         await renderInventoryLog(container);
     });
+  });
+
+  document.getElementById('logReasonSelect')?.addEventListener('change', async (e) => {
+    logReasonFilter = e.target.value;
+    logCurrentPage = 1;
+    await renderInventoryLog(container);
   });
 
   productsBtn?.addEventListener('click', () => window.navigate('products'));
@@ -352,7 +423,7 @@ function renderLogRows(logs, products) {
         <td data-label="Movement" style="font-size:13px; font-weight:600">
            ${l.oldStock !== null ? `<span style="opacity:0.6">${l.oldStock}</span> <i class="fa-solid fa-arrow-right mx-8" style="font-size:10px;opacity:0.3"></i> <b class="${typeClass}">${l.newStock}</b>` : `<b class="${typeClass}">${sign}${l.qtyChange}</b>`}
         </td>
-        <td data-label="Reason" style="font-size:12px; max-width:200px">${l.reason || '<span class="text-muted">No reason</span>'}</td>
+        <td data-label="Reason" style="font-size:12px; max-width:200px">${renderReasonCell(l.reason)}</td>
         <td data-label="Performed By">
            <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:500">
              <i class="fa-solid fa-circle-user opacity-30"></i>
@@ -376,7 +447,7 @@ function exportLogsToCSV(logs, products) {
     return;
   }
 
-  const headers = ['Date', 'Time', 'Product', 'Variant', 'Type', 'Qty Change', 'Old Stock', 'New Stock', 'Reason', 'User', 'Reference'];
+  const headers = ['Date', 'Time', 'Product', 'Variant', 'Type', 'Category', 'Qty Change', 'Old Stock', 'New Stock', 'Reason', 'User', 'Reference'];
   const rows = logs.map(l => {
     const p = products.find(prod => String(prod.id) === String(l.productId));
     const pName = p ? p.name : 'Unknown Product';
@@ -387,6 +458,7 @@ function exportLogsToCSV(logs, products) {
       `"${pName.replace(/"/g, '""')}"`,
       `"${(l.variantName || '-').replace(/"/g, '""')}"`,
       l.type,
+      categorizeReason(l.reason),
       l.qtyChange,
       l.oldStock !== null ? l.oldStock : '-',
       l.newStock !== null ? l.newStock : '-',
