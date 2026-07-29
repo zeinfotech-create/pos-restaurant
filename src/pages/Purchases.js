@@ -528,7 +528,12 @@ export async function openPurchaseForm(container) {
     renderItems();
   };
 
-  document.getElementById('completePurchaseBtn').onclick = async () => {
+  const completePurchaseBtn = document.getElementById('completePurchaseBtn');
+  completePurchaseBtn.onclick = async () => {
+    // Guards against a fast double-click saving the same purchase (and
+    // double-crediting its stock) twice — the rest of this handler awaits
+    // several DB calls before closeModal() ever runs.
+    if (completePurchaseBtn.disabled) return;
     if (selectedItems.length === 0) { showToast('Add items to purchase', 'error'); return; }
 
     // Variant rows start at qty 0 (a product can have several variants added
@@ -564,53 +569,58 @@ export async function openPurchaseForm(container) {
     if (amountPaid < 0) { showToast('Amount Paid cannot be negative', 'error'); return; }
     if (amountPaid > total) { showToast(`Amount Paid can't exceed the purchase total (${store.settings.currency || '₹'}${total.toFixed(2)})`, 'error'); return; }
 
-    const newPur = await savePurchase({
-      date: new Date().toISOString(),
-      supplierId,
-      supplierName: sup.name || 'Unknown Supplier',
-      supplierGstin: sup.gstin || '',
-      supplierInvoiceNo: invNo,
-      placeOfSupply: document.getElementById('purPos').value.trim(),
-      items: itemsToProcess,
-      subtotal,
-      taxRate,
-      taxAmount,
-      total,
-      amountPaid,
-      billAttachment,
-      status: 'Completed'
-    });
+    completePurchaseBtn.disabled = true;
+    try {
+      const newPur = await savePurchase({
+        date: new Date().toISOString(),
+        supplierId,
+        supplierName: sup.name || 'Unknown Supplier',
+        supplierGstin: sup.gstin || '',
+        supplierInvoiceNo: invNo,
+        placeOfSupply: document.getElementById('purPos').value.trim(),
+        items: itemsToProcess,
+        subtotal,
+        taxRate,
+        taxAmount,
+        total,
+        amountPaid,
+        billAttachment,
+        status: 'Completed'
+      });
 
-    // Update Stock Logic — mirrors saveOrder()'s deduction in db.js: a
-    // variant's own stock is the source of truth, with product.stock kept
-    // only as a derived sum, so receiving stock against a variant here stays
-    // consistent with what sales and the product-edit form both read.
-    const allProducts = await getProducts();
-    const currentUser = await getCurrentUser();
-    for (const item of itemsToProcess) {
-      const p = allProducts.find(x => String(x.id) === String(item.id));
-      if (p) {
-        let oldStock = 0;
-        if (item.variantName && p.variants) {
-          const v = p.variants.find(v => v.name === item.variantName);
-          if (v) {
-            oldStock = v.stock || 0;
-            v.stock = (v.stock || 0) + item.qty;
-            p.stock = p.variants.reduce((s, vr) => s + (vr.stock || 0), 0);
+      // Update Stock Logic — mirrors saveOrder()'s deduction in db.js: a
+      // variant's own stock is the source of truth, with product.stock kept
+      // only as a derived sum, so receiving stock against a variant here stays
+      // consistent with what sales and the product-edit form both read.
+      const allProducts = await getProducts();
+      const currentUser = await getCurrentUser();
+      for (const item of itemsToProcess) {
+        const p = allProducts.find(x => String(x.id) === String(item.id));
+        if (p) {
+          let oldStock = 0;
+          if (item.variantName && p.variants) {
+            const v = p.variants.find(v => v.name === item.variantName);
+            if (v) {
+              oldStock = v.stock || 0;
+              v.stock = (v.stock || 0) + item.qty;
+              p.stock = p.variants.reduce((s, vr) => s + (vr.stock || 0), 0);
+            }
+          } else {
+            oldStock = p.stock || 0;
+            p.stock = oldStock + item.qty;
           }
-        } else {
-          oldStock = p.stock || 0;
-          p.stock = oldStock + item.qty;
+          await updateProduct(p);
+          await logInventoryChange(p.id, item.variantName || null, 'IN', item.qty, 'Purchase Received', newPur.branchId, newPur.id, oldStock, oldStock + item.qty, currentUser?.name);
         }
-        await updateProduct(p);
-        await logInventoryChange(p.id, item.variantName || null, 'IN', item.qty, 'Purchase Received', newPur.branchId, newPur.id, oldStock, oldStock + item.qty, currentUser?.name);
       }
-    }
 
-    showToast('Purchase completed and stock updated!', 'success');
-    closeModal();
-    const { navigate } = await import('../router.js');
-    await navigate('purchases');
+      showToast('Purchase completed and stock updated!', 'success');
+      closeModal();
+      const { navigate } = await import('../router.js');
+      await navigate('purchases');
+    } finally {
+      completePurchaseBtn.disabled = false;
+    }
   };
 }
 
