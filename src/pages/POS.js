@@ -1114,10 +1114,11 @@ function openAppointmentsModal(cur) {
   });
 }
 
-function openNewAppointmentForm(cur, appoToEdit = null) {
+async function openNewAppointmentForm(cur, appoToEdit = null) {
   const branchId = store.branch?.id || 'b1';
-  const staff = getStaff(branchId);
-  const customers = getCustomers(branchId);
+  const staff = await getStaff(branchId);
+  const customers = await getCustomers(branchId);
+  const products = await getProducts(branchId);
 
   openModal({
     title: appoToEdit ? 'Edit Appointment' : 'Book New Appointment',
@@ -1142,7 +1143,7 @@ function openNewAppointmentForm(cur, appoToEdit = null) {
           <label class="form-label" style="display:flex;align-items:center;gap:8px"><i class="fa-solid fa-scissors text-accent"></i> Service / Treatment</label>
           <select class="form-select" id="apService" style="height:46px;border-radius:12px;border:1px solid var(--border);background:var(--bg-elevated)">
             <option value="">Select a Service...</option>
-            ${getProducts(branchId).map(p => `<option value="${p.id}" ${String(appoToEdit?.serviceId) === String(p.id) ? 'selected' : ''}>${p.emoji || '💇‍♂️'} ${p.name} - \u20B9${p.price}</option>`).join('')}
+            ${products.map(p => `<option value="${p.id}" ${String(appoToEdit?.serviceId) === String(p.id) ? 'selected' : ''}>${p.emoji || '💇‍♂️'} ${p.name} - \u20B9${p.price}</option>`).join('')}
           </select>
         </div>
 
