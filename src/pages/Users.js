@@ -327,6 +327,17 @@ async function openUserForm(user = null) {
   const branches = await getBranches();
   const isEdit = !!user;
 
+  // A user who can reach this form only needs staff:manage — nothing else
+  // stopped them from checking (or "SELECT ALL"-ing) a permission they don't
+  // themselves hold, including on their own account, since hasPermission()
+  // has no hierarchy: it's a flat permissions.includes(action) check with no
+  // enforcement that a grantor can't hand out more than they have. Master/
+  // Super Admin/Admin get unrestricted access by role already (see
+  // hasPermission() in db.js), so only restrict actors who don't.
+  const actingUser = await getCurrentUser();
+  const actorHasFullAccess = actingUser?.role === 'Master' || actingUser?.role === 'Super Admin' || actingUser?.role === 'Admin';
+  const actorOwnPerms = Array.isArray(actingUser?.permissions) ? actingUser.permissions : [];
+
   openModal({
     title: isEdit ? `<i class="fa-solid fa-user-pen mr-8"></i> Edit Staff Access` : `<i class="fa-solid fa-user-plus mr-8"></i> Add New Staff`,
     body: `
@@ -472,8 +483,13 @@ async function openUserForm(user = null) {
                else if (r === 'Manager') isChecked = ['pos:access','pos:discount','pos:custom_price','orders:view','orders:refund','orders:cancel','products:view','products:manage','inventory:view','inventory:manage','customers:view','customers:manage','staff:view','reports:view'].includes(p.id);
                else if (r === 'Staff') isChecked = ['pos:access','orders:view','products:view','inventory:view','customers:view'].includes(p.id);
              }
-             return '<div style="display:flex; align-items:center; gap:10px; padding:4px 0">' +
-                '<input type="checkbox" class="perm-cb" id="perm-' + p.id + '" value="' + p.id + '" ' + (isChecked ? 'checked' : '') + ' style="width:18px; height:18px; cursor:pointer" />' +
+             // A non-full-access actor can't grant a permission they don't
+             // themselves hold — disable it in the UI (the save handler
+             // below is the actual enforcement, this is just so the
+             // checkbox's own state isn't misleading).
+             const actorCanGrant = actorHasFullAccess || actorOwnPerms.includes(p.id);
+             return '<div style="display:flex; align-items:center; gap:10px; padding:4px 0' + (actorCanGrant ? '' : '; opacity:0.45') + '" title="' + (actorCanGrant ? '' : 'You do not have this permission yourself, so you cannot grant it') + '">' +
+                '<input type="checkbox" class="perm-cb" id="perm-' + p.id + '" value="' + p.id + '" ' + (isChecked ? 'checked' : '') + (actorCanGrant ? '' : ' disabled') + ' style="width:18px; height:18px; cursor:pointer" />' +
                 '<label for="perm-' + p.id + '" style="font-size:13px; cursor:pointer; font-weight:500">' + p.label + '</label>' +
               '</div>';
           }).join('')}
@@ -566,7 +582,7 @@ async function openUserForm(user = null) {
   
   if (selectAllBtn) {
     selectAllBtn.onclick = () => {
-      document.querySelectorAll('.perm-cb').forEach(cb => cb.checked = true);
+      document.querySelectorAll('.perm-cb:not(:disabled)').forEach(cb => cb.checked = true);
       if (roleSelect.value !== 'Master') roleSelect.value = 'Custom';
     };
   }
@@ -605,7 +621,20 @@ async function openUserForm(user = null) {
 
     // Get selected branchIds and custom permissions
     const selectedBranches = Array.from(document.querySelectorAll('.branch-cb:checked')).map(cb => cb.value);
-    const selectedPerms = Array.from(document.querySelectorAll('.perm-cb:checked')).map(cb => cb.value);
+    let selectedPerms = Array.from(document.querySelectorAll('.perm-cb:checked')).map(cb => cb.value);
+
+    // The disabled-checkbox styling above is UI-only — a checkbox's own
+    // .checked can still be set programmatically (e.g. "SELECT ALL" before
+    // this fix, or straight devtools), so this is the actual enforcement:
+    // a non-full-access actor can never save a permission set that grants
+    // more than they themselves hold.
+    if (!actorHasFullAccess) {
+      const disallowed = selectedPerms.filter(p => !actorOwnPerms.includes(p));
+      if (disallowed.length > 0) {
+        selectedPerms = selectedPerms.filter(p => actorOwnPerms.includes(p));
+        showToast(`You can't grant permissions you don't have yourself (blocked: ${disallowed.join(', ')})`, 'error');
+      }
+    }
 
     if (!name || !username || (!isEdit && !password)) {
       const missing = [];
