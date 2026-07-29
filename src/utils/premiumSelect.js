@@ -2,6 +2,36 @@
 // premiumSelect.js - Global Custom Dropdown Upgrader
 // ============================================================
 
+// initPremiumSelects() creates one dedicated MutationObserver per <select>
+// (to re-render when its options are dynamically repopulated, e.g. tax
+// rates) but this app re-renders whole page containers via innerHTML on
+// nearly every navigation, discarding the old <select> elements — without
+// ever disconnecting their observers, each navigation back to a page with
+// premium-selects accumulated another live observer + its closure over
+// the now-detached wrapper/dropdown/optionsContainer/labelSpan. One shared
+// observer here watches for removed <select> elements anywhere and
+// disconnects the matching per-select observer instead of adding a second
+// per-instance observer just to detect its own removal.
+const selectObservers = new WeakMap();
+const selectRemovalObserver = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    mutation.removedNodes.forEach(node => {
+      if (node.nodeType !== 1) return;
+      const removedSelects = node.matches?.('select.premium-initialized')
+        ? [node]
+        : (node.querySelectorAll ? Array.from(node.querySelectorAll('select.premium-initialized')) : []);
+      removedSelects.forEach(sel => {
+        const obs = selectObservers.get(sel);
+        if (obs) {
+          obs.disconnect();
+          selectObservers.delete(sel);
+        }
+      });
+    });
+  }
+});
+selectRemovalObserver.observe(document.body, { childList: true, subtree: true });
+
 export function renderPremiumSelectOptions(select, optionsContainer, labelSpan, dropdown) {
   optionsContainer.innerHTML = '';
   
@@ -186,6 +216,7 @@ export function initPremiumSelects() {
         renderPremiumSelectOptions(select, optionsContainer, labelSpan, dropdown);
     });
     observer.observe(select, { childList: true });
+    selectObservers.set(select, observer);
   });
 }
 
