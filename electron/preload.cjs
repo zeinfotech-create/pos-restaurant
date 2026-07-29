@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listBackups: (dirPath) => ipcRenderer.invoke('list-backups', dirPath),
   deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
   detectCloudFolders: () => ipcRenderer.invoke('detect-cloud-folders'),
+  getHubToken: () => ipcRenderer.invoke('get-hub-token'),
   // Lifetime Offline License
   getMachineFingerprint: () => ipcRenderer.invoke('get-machine-fingerprint'),
   verifyLifetimeToken: (token) => ipcRenderer.invoke('verify-lifetime-token', token),

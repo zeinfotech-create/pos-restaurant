@@ -176,6 +176,26 @@ async function connectDB() {
 // HTTP Server + WebSocket Server
 // ============================================================
 
+// Guards the Electron-onboarding-only endpoints below (standalone-reset wipes
+// this hub's tenant data, standalone-register creates its admin user). The
+// server listens on all interfaces so other LAN devices can reach the sync/
+// login endpoints by design, but these two are never legitimately called by
+// anything except this same machine's own Electron app during its own
+// onboarding (see Onboarding.js, which only ever targets localhost:3030) — so
+// without this check, any process able to reach 127.0.0.1:3030 (including JS
+// in an unrelated browser tab on the same PC) could wipe or hijack the shop.
+function checkHubAdminToken(req, res) {
+    const remote = req.socket.remoteAddress || '';
+    const isLoopback = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+    const token = req.headers['x-hub-token'];
+    if (!isLoopback || !process.env.HUB_ADMIN_TOKEN || token !== process.env.HUB_ADMIN_TOKEN) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Forbidden' }));
+        return false;
+    }
+    return true;
+}
+
 async function checkAdminAuth(req, res) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -196,7 +216,7 @@ const server = http.createServer(async (req, res) => {
     // 1. GLOBAL CORS HEADERS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, POST, GET');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Hub-Token');
 
     // Handle OPTIONS preflight
     if (req.method === 'OPTIONS') {
@@ -244,6 +264,7 @@ const server = http.createServer(async (req, res) => {
     // previous install ever pushed here (sample products included) even when
     // this install's own onboarding declined them.
     if (req.url === '/api/standalone-reset' && req.method === 'POST') {
+        if (!checkHubAdminToken(req, res)) return;
         try {
             const licenseKey = 'LOCAL_EXE';
             const skip = new Set(['admins', 'upgrade_keys']); // platform-level, not per-install business data
@@ -272,6 +293,7 @@ const server = http.createServer(async (req, res) => {
     // succeed with a full branch/register list via the HTTP fallback
     // (syncEngine.verifyCredentials) if this terminal's own IndexedDB is ever wiped.
     if (req.url === '/api/standalone-register' && req.method === 'POST') {
+        if (!checkHubAdminToken(req, res)) return;
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', async () => {

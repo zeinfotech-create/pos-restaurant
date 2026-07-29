@@ -224,7 +224,11 @@ async function finishStandaloneSetup() {
       //    the freshly-emptied IndexedDB, regardless of what's chosen below.
       //    Non-fatal: if the hub isn't reachable yet, local install still proceeds.
       try {
-        const resetRes = await fetch('http://localhost:3030/api/standalone-reset', { method: 'POST' });
+        const hubToken = window.electronAPI?.getHubToken ? await window.electronAPI.getHubToken() : null;
+        const resetRes = await fetch('http://localhost:3030/api/standalone-reset', {
+          method: 'POST',
+          headers: hubToken ? { 'X-Hub-Token': hubToken } : {}
+        });
         if (!resetRes.ok) throw new Error(`HTTP ${resetRes.status}`);
         console.log('[Onboarding] Local hub tenant data reset before fresh install.');
       } catch (resetErr) {
@@ -255,9 +259,10 @@ async function finishStandaloneSetup() {
       //    that link to this hub can see the admin. Non-fatal —
       //    IndexedDB remains the source of truth for this terminal's own login.
       try {
+        const hubToken = window.electronAPI?.getHubToken ? await window.electronAPI.getHubToken() : null;
         const hubRes = await fetch('http://localhost:3030/api/standalone-register', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(hubToken ? { 'X-Hub-Token': hubToken } : {}) },
           body: JSON.stringify({
             userId: 'u1',
             username: phone,

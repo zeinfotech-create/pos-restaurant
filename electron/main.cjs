@@ -28,6 +28,13 @@ let mainWindow = null;
 let serverProcess = null;
 let mongodProcess = null;
 let tray = null;
+
+// Per-launch secret shared with the local hub server so its onboarding-only
+// endpoints (standalone-reset/standalone-register) can tell a real request
+// from this app apart from any other local process hitting localhost:3030 —
+// without it, those endpoints wipe/write shop data for anyone who can reach
+// the loopback address, e.g. JS running in an unrelated browser tab.
+const HUB_ADMIN_TOKEN = crypto.randomBytes(24).toString('hex');
 let splashWindow = null;
 
 // Prevent a second launch from opening a duplicate window and spawning a
@@ -223,6 +230,7 @@ function spawnServer(script, serverCwd, userData) {
       // Do NOT override DB_TYPE — let server read its own .env (MongoDB Atlas)
       PORT: '3030',
       MONGODB_MODE: 'local',
+      HUB_ADMIN_TOKEN,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -604,6 +612,10 @@ ipcMain.handle('export-pdf-silent', async (event, { html, filename }) => {
     return { success: false, error: e.message };
   }
 });
+
+// Onboarding needs this to authenticate its one-time hub-reset/register calls
+// to the local server — see HUB_ADMIN_TOKEN above.
+ipcMain.handle('get-hub-token', () => HUB_ADMIN_TOKEN);
 
 // ─── Lifetime Offline License (Item 2) ─────────────────────────────────────
 ipcMain.handle('get-machine-fingerprint', () => {
