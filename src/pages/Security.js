@@ -1,8 +1,40 @@
-import { getSettings, getCurrentUser, getUsers, KEYS, read, write } from '../db.js';
+import { getSettings, getCurrentUser, getUsers, KEYS, read, write, verifyPassword } from '../db.js';
 import { showToast } from '../components/Toast.js';
 
 let isLocked = false;
 let unlockCallback = null;
+
+// Brute-force throttle for PIN entry screens — neither the staff-PIN
+// unlock, its phone-recovery fallback, nor promptModuleLock() had ANY
+// limit on repeated guesses (plain === comparisons, unlimited attempts).
+// Not persisted across a restart — quitting/relaunching Electron is
+// already real friction on a physical till — but stops a same-session
+// rapid-guess attempt against a 4-6 digit PIN.
+const pinAttemptState = new Map(); // key -> { fails, lockedUntil }
+const PIN_MAX_ATTEMPTS = 5;
+const PIN_LOCKOUT_MS = 30000;
+
+function checkPinRateLimit(key) {
+    const state = pinAttemptState.get(key);
+    if (state?.lockedUntil && Date.now() < state.lockedUntil) {
+        return { locked: true, remainingSec: Math.ceil((state.lockedUntil - Date.now()) / 1000) };
+    }
+    return { locked: false };
+}
+
+function recordPinFailure(key) {
+    const state = pinAttemptState.get(key) || { fails: 0, lockedUntil: 0 };
+    state.fails += 1;
+    if (state.fails >= PIN_MAX_ATTEMPTS) {
+        state.lockedUntil = Date.now() + PIN_LOCKOUT_MS;
+        state.fails = 0;
+    }
+    pinAttemptState.set(key, state);
+}
+
+function clearPinAttempts(key) {
+    pinAttemptState.delete(key);
+}
 
 export async function lockApp(callback = null) {
     if (isLocked) return;
@@ -84,6 +116,15 @@ export async function lockApp(callback = null) {
     updateDots();
 
     const checkPin = async () => {
+        const rateLimitKey = mode === 'recovery' ? 'app-lock-recovery' : 'app-lock-pin';
+        const rateLimit = checkPinRateLimit(rateLimitKey);
+        if (rateLimit.locked) {
+            currentPin = '';
+            updateDots();
+            window.showToast(`Too many attempts. Try again in ${rateLimit.remainingSec}s.`, 'error');
+            return;
+        }
+
         const sessionUser = await getCurrentUser();
         const allUsers = await getUsers();
         const freshUser = allUsers.find(u => u.id === sessionUser?.id);
@@ -92,10 +133,12 @@ export async function lockApp(callback = null) {
             const normalize = (v) => (v || '').replace(/\D/g, '');
             const isPhoneValid = freshUser && normalize(currentPin) === normalize(freshUser.username || freshUser.name);
             if (isPhoneValid) {
+                clearPinAttempts(rateLimitKey);
                 unlockApp();
                 return;
             }
             if (currentPin.length >= 10) {
+                recordPinFailure(rateLimitKey);
                 currentPin = '';
                 updateDots();
                 const card = lockOverlay.querySelector('.lock-card');
@@ -110,11 +153,13 @@ export async function lockApp(callback = null) {
         const isStaffValid = freshUser && currentPin === freshUser.pin;
 
         if (isStaffValid) {
+            clearPinAttempts(rateLimitKey);
             unlockApp();
         } else {
             // Check against current user's PIN length or default to 4
             const maxExpected = freshUser?.pin?.length || 4;
             if (currentPin.length >= maxExpected) {
+                recordPinFailure(rateLimitKey);
                 currentPin = '';
                 updateDots();
                 const card = lockOverlay.querySelector('.lock-card');
@@ -260,14 +305,27 @@ export function promptModuleLock(correctPin, onVerified, title = 'Security Lock'
 
     updateDots();
 
-    const checkPin = () => {
-        if (currentPin === correctPin) {
+    const checkPin = async () => {
+        const rateLimit = checkPinRateLimit('module-lock');
+        if (rateLimit.locked) {
+            currentPin = '';
+            updateDots();
+            window.showToast(`Too many attempts. Try again in ${rateLimit.remainingSec}s.`, 'error');
+            return;
+        }
+
+        // verifyPassword() handles both a hashed correctPin (the normal case
+        // now that Settings.js hashes the master PIN before saving) and a
+        // legacy plaintext one transparently, same as user password login.
+        if (await verifyPassword(currentPin, correctPin)) {
+            clearPinAttempts('module-lock');
             lockOverlay.classList.add('fade-out');
             setTimeout(() => {
                 lockOverlay.remove();
                 if (onVerified) onVerified();
             }, 300);
         } else {
+            recordPinFailure('module-lock');
             currentPin = '';
             updateDots();
             const card = lockOverlay.querySelector('.lock-card');

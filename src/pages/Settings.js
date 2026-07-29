@@ -2,7 +2,7 @@
 // Settings.js
 // ============================================================
 
-import { getSettings, getGlobalSettings, saveSettings, isIndustryImported, importIndustryProducts, mergeDuplicateProducts, getSessionTheme, updateSettings, getOrders, updateOrder, getCurrentUser, getCurrentBranch, saveBranch, getBusinessFeatures, hasPermission, verifyLocalUser, read, KEYS, getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory } from '../db.js';
+import { getSettings, getGlobalSettings, saveSettings, isIndustryImported, importIndustryProducts, mergeDuplicateProducts, getSessionTheme, updateSettings, getOrders, updateOrder, getCurrentUser, getCurrentBranch, saveBranch, getBusinessFeatures, hasPermission, verifyLocalUser, read, KEYS, getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory, hashPassword } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { reloadSettings, store } from '../store.js';
 import { openModal, closeModal, showConfirm, showAlert } from '../components/Modal.js';
@@ -491,17 +491,17 @@ export async function renderSettings(container) {
               <div id="masterPinContainer" style="display: ${s.settingsLockEnabled ? 'block' : 'none'}; margin-top: 16px;">
                 <label class="form-label">Master Security PIN (4-6 digits)</label>
                 <div style="position:relative">
-                  <input type="password" class="form-input" id="sMasterPin" value="${s.masterPin || ''}" 
-                    placeholder="Enter 4-6 digit PIN" maxlength="6" inputmode="numeric" 
+                  <input type="password" class="form-input" id="sMasterPin" value=""
+                    placeholder="${s.masterPin ? 'Leave blank to keep current PIN' : 'Enter 4-6 digit PIN'}" maxlength="6" inputmode="numeric"
                     oninput="this.value=this.value.replace(/[^0-9]/g,'')"
                     style="letter-spacing:4px; font-weight:800" />
-                  <button type="button" class="btn-icon" style="position:absolute; right:10px; top:50%; transform:translateY(-50%)" 
+                  <button type="button" class="btn-icon" style="position:absolute; right:10px; top:50%; transform:translateY(-50%)"
                     onclick="const input = document.getElementById('sMasterPin'); input.type = input.type === 'password' ? 'text' : 'password'; this.querySelector('i').className = input.type === 'password' ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';">
                     <i class="fa-solid fa-eye"></i>
                   </button>
                 </div>
-                <p style="font-size:11px; color:var(--text-muted); margin-top:6px">This PIN will be required to unlock this Settings module. 
-                  ${s.masterPin ? `<span style="color:var(--success); font-weight:700">(Current: ${s.masterPin})</span>` : ''}
+                <p style="font-size:11px; color:var(--text-muted); margin-top:6px">This PIN will be required to unlock this Settings module.
+                  ${s.masterPin ? `<span style="color:var(--success); font-weight:700">(A PIN is currently set)</span>` : ''}
                 </p>
               </div>
             </div>
@@ -868,16 +868,22 @@ export async function renderSettings(container) {
   // 3. Security Settings
   document.getElementById('saveSecurityBtn')?.addEventListener('click', async () => {
     const lockEnabled = document.getElementById('sSettingsLockEnabled')?.checked || false;
+    // Blank means "keep the current PIN" (the field is never pre-filled with
+    // it anymore — see the render above) — only validate/replace it when the
+    // user actually typed a new one.
     const pin = document.getElementById('sMasterPin')?.value?.trim() || '';
-    
-    if (lockEnabled && (pin.length < 4 || pin.length > 6)) {
+
+    if (lockEnabled && !pin && !s.masterPin) {
+      return showToast('Master PIN must be 4 to 6 digits!', 'error');
+    }
+    if (pin && (pin.length < 4 || pin.length > 6)) {
       return showToast('Master PIN must be 4 to 6 digits!', 'error');
     }
 
     await handleSave('Security', {
       autoLockMinutes: parseInt(document.getElementById('sAutoLock').value) || 0,
       settingsLockEnabled: lockEnabled,
-      masterPin: pin
+      ...(pin ? { masterPin: await hashPassword(pin) } : {})
     });
   });
 
