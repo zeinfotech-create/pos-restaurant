@@ -2008,9 +2008,10 @@ async function openStockHistoryModal(product) {
   }
 
   const isVariant = product.variants && product.variants.length > 0;
-  const stockStr = isVariant 
+  const stockStr = isVariant
     ? `${product.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0)} (Total across ${product.variants.length} variants)`
     : `${product.stock}`;
+  const historyStatus = getProductOverallStatus(product);
 
   openModal({
     title: `<i class="fa-solid fa-clock-rotate-left" style="color:var(--info)"></i> Stock History`,
@@ -2021,7 +2022,7 @@ async function openStockHistoryModal(product) {
         </div>
         <div>
           <div class="font-bold" style="font-size:16px">${product.name}</div>
-          <div style="font-size:12px;opacity:0.7">Current Stock: <b class="${product.stock > 10 ? 'text-success' : product.stock > 0 ? 'text-warning' : 'text-danger'}">${stockStr}</b></div>
+          <div style="font-size:12px;opacity:0.7">Current Stock: <b class="${historyStatus === 'in' ? 'text-success' : historyStatus === 'low' ? 'text-warning' : 'text-danger'}">${stockStr}</b></div>
         </div>
       </div>
       

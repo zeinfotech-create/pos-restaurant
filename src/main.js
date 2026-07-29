@@ -824,6 +824,8 @@ async function renderMobileCart() {
   const totalItems = store.cart.reduce((s, i) => s + i.qty, 0);
   const features = await getBusinessFeatures();
   const customers = await getCustomers(store.branch?.id);
+  const canCustomPrice = await hasPermission('pos:custom_price');
+  const canDiscount = await hasPermission('pos:discount');
 
   inner.innerHTML = `
     <div class="cart-header">
@@ -917,8 +919,8 @@ async function renderMobileCart() {
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
             <div>
               <label style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase">Price (${cur})</label>
-              <input class="form-input" id="m-ie-price-${item.cartId}" type="number" min="0" step="0.01" value="${item.price}" 
-                ${!hasPermission('pos:custom_price') ? 'disabled style="opacity:0.6"' : ''}
+              <input class="form-input" id="m-ie-price-${item.cartId}" type="number" min="0" step="0.01" value="${item.price}"
+                ${!canCustomPrice ? 'disabled style="opacity:0.6"' : ''}
                 style="height:38px;font-size:14px" />
             </div>
             <div>
@@ -927,7 +929,7 @@ async function renderMobileCart() {
             </div>
             <div>
               <label style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase">Discount</label>
-              <div style="display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden; ${!hasPermission('pos:discount') ? 'opacity:0.6; pointer-events:none' : ''}">
+              <div style="display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden; ${!canDiscount ? 'opacity:0.6; pointer-events:none' : ''}">
                 <input class="form-input" id="m-ie-discount-${item.cartId}" type="number" min="0" step="0.01"
                   value="${item._discountRaw ?? item.itemDiscount ?? 0}"
                   style="height:38px;font-size:14px;border:none;flex:1;min-width:0" />
@@ -1007,8 +1009,8 @@ async function renderMobileCart() {
               <button class="btn btn-ghost btn-sm" id="mToggleDiscountBtn" style="height:32px;width:32px;padding:0;flex-shrink:0"><i class="fa-solid fa-xmark"></i></button>
             </div>
           ` : `
-            <button class="btn btn-ghost btn-sm" id="mToggleDiscountBtn" 
-              ${!hasPermission('pos:discount') ? 'disabled style="display:none"' : ''}
+            <button class="btn btn-ghost btn-sm" id="mToggleDiscountBtn"
+              ${!canDiscount ? 'disabled style="display:none"' : ''}
               style="border:1px dashed var(--primary); color:var(--primary); width:100%; justify-content:center; font-size:12px; padding:4px">
               <i class="fa-solid fa-tag"></i> Add Discount
             </button>
