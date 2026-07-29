@@ -241,9 +241,14 @@ export function getCartTotals() {
         finalAmount = rounded;
     }
     
-    // Proportional tax reconciliation after total discount
+    // Proportional tax reconciliation after total discount — clamped to 0 so
+    // a discount larger than the cart's gross total (a typo'd flat amount,
+    // or an oversized coupon) can't drive the scaled tax negative. finalAmount
+    // above already floors the charged total at 0; without this clamp the
+    // *displayed* tax breakdown (shown on the customer-facing display) could
+    // still show a nonsensical "Tax: -₹4.88" next to "Total: ₹0.00".
     const totalDiscount = store.discount;
-    const taxScale = grossTotal > 0 ? (grossTotal - totalDiscount) / grossTotal : 1;
+    const taxScale = grossTotal > 0 ? Math.max(0, (grossTotal - totalDiscount) / grossTotal) : 1;
     const reconciledItemTax = reconciledTax * taxScale;
 
     // Scale grouped taxes (post-discount, for compat)

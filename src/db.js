@@ -1263,6 +1263,45 @@ export async function saveReturn(ret) {
 
       parent.status = totalReturnedQty >= originalTotalQty ? 'returned' : 'partial-return';
       await updateData('orders', parent);
+
+      // Refunded amount as a fraction of the original sale — used to claw
+      // back both staff commission and loyalty tier progress proportionally,
+      // so a full/partial refund can't leave a customer stuck at a higher
+      // loyalty tier than their real net spend justifies, or leave a staff
+      // member paid commission on revenue that no longer exists.
+      const refundFraction = parent.total > 0 ? Math.min(1, (ret.total || 0) / parent.total) : 0;
+
+      if (parent.staff && refundFraction > 0) {
+        const commissionRate = parseFloat(parent.staff.commissionRate) || 0;
+        if (commissionRate > 0) {
+          const clawback = (ret.total || 0) * commissionRate / 100;
+          await saveStaffIncentive({
+            staffId: parent.staff.id,
+            staffName: parent.staff.name,
+            orderId: parent.id,
+            orderTotal: -(ret.total || 0),
+            commissionRate,
+            amount: -parseFloat(clawback.toFixed(2)),
+            branchId: ret.branchId || parent.branchId,
+            note: `Commission reversed for return ${ret.id}`
+          });
+        }
+      }
+
+      if (parent.customer?.id && refundFraction > 0) {
+        const custId = parent.customer.id;
+        const pointsToClaw = parent.awardedPoints ? Math.round(parent.awardedPoints * refundFraction) : 0;
+        const updatedCust = await db.update(KEYS.CUSTOMERS, custId, async (cust) => {
+          cust.totalSpent = Math.max(0, (cust.totalSpent || 0) - (ret.total || 0));
+          if (pointsToClaw > 0) {
+            cust.loyaltyPoints = Math.max(0, (cust.loyaltyPoints || 0) - pointsToClaw);
+          }
+          return cust;
+        });
+        if (updatedCust && pointsToClaw > 0) {
+          await addLoyaltyTransaction(custId, 'Adjust', -pointsToClaw, ret.orderId, `Reversed for return ${ret.id}`);
+        }
+      }
     }
   } else if (ret.type === 'purchase' && ret.purchaseId) {
     const purchases = await getPurchases();
