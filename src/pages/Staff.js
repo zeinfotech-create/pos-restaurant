@@ -69,7 +69,7 @@ export async function renderStaff(container) {
             <tbody id="staffTableBody">
               ${paginatedStaff.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.5">No staff members added yet</td></tr>' :
         paginatedStaff.map(s => {
-          const incentives = getStaffIncentives(branchId).filter(i => i.staffId === s.id);
+          const incentives = incentivesData.filter(i => i.staffId === s.id);
           const mtdEarnings = incentives.reduce((sum, i) => sum + i.amount, 0);
           return `
             <tr class="${selectedIds.has(String(s.id)) ? 'selected' : ''}" data-id="${s.id}">
