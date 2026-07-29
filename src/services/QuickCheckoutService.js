@@ -95,6 +95,11 @@ export async function openQuickCheckout(onSuccess = null) {
     let activeIndex = 0;
     let usePoints = false;
     let checkoutMode = 'paid'; // 'paid' or 'unpaid'
+    // Guards handleConfirm() against re-entrancy — it's reachable from three
+    // triggers (Enter key, a method-card click, and the confirm button), any
+    // of which firing twice in quick succession would run confirmOrder()
+    // concurrently and save/deduct-stock for the same sale twice.
+    let isConfirming = false;
 
     function renderQuickCheckout() {
         const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
@@ -639,6 +644,8 @@ export async function openQuickCheckout(onSuccess = null) {
     }
 
     async function handleConfirm() {
+        if (isConfirming) return;
+
         const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
         const netPayable = Math.max(0, total - redeemedPoints);
         const outstanding = Math.max(0, netPayable - totalPaid);
@@ -677,7 +684,12 @@ export async function openQuickCheckout(onSuccess = null) {
             creditUsed: 0
         });
 
-        await confirmOrder(validPayments, getCartTotals(), settings, cur, confirmData());
+        isConfirming = true;
+        try {
+            await confirmOrder(validPayments, getCartTotals(), settings, cur, confirmData());
+        } finally {
+            isConfirming = false;
+        }
         if (qcHandler) window.removeEventListener('keydown', qcHandler);
         closeModal();
         if (onSuccess) onSuccess();
