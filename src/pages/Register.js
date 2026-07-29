@@ -13,6 +13,7 @@ import {
 } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 export async function renderRegister(container) {
   // Show loading skeleton
@@ -228,7 +229,7 @@ export async function renderRegister(container) {
                         <td data-label="Type">
                           <span class="badge ${t.type === 'In' ? 'badge-success' : 'badge-danger'}" style="zoom:0.9">${t.type}</span>
                         </td>
-                        <td data-label="Reason" class="font-medium" style="font-size:13px">${t.reason}</td>
+                        <td data-label="Reason" class="font-medium" style="font-size:13px">${escapeHtml(t.reason)}</td>
                         <td data-label="Amount" style="text-align:right" class="font-bold ${t.type === 'In' ? 'text-success' : 'text-danger'}">
                           ${t.type === 'In' ? '+' : '-'}${cur}${(t.amount || 0).toFixed(2)}
                         </td>
@@ -634,7 +635,7 @@ function openShiftDetailsModal(shiftId, cur, allShifts) {
                 <div class="flex items-center justify-between" style="padding:8px 10px;background:var(--bg-elevated);border-radius:var(--radius-sm);font-size:12px">
                   <div>
                     <span class="badge ${t.type === 'In' ? 'badge-success' : 'badge-danger'}" style="zoom:0.75;margin-right:6px">${t.type}</span>
-                    <span>${t.reason}</span>
+                    <span>${escapeHtml(t.reason)}</span>
                     <div style="font-size:10px;opacity:0.5">${new Date(t.timestamp).toLocaleString()}</div>
                   </div>
                   <span class="font-bold ${t.type === 'In' ? 'text-success' : 'text-danger'}">${t.type === 'In' ? '+' : '-'}${cur}${(t.amount || 0).toFixed(2)}</span>
@@ -648,7 +649,7 @@ function openShiftDetailsModal(shiftId, cur, allShifts) {
         ${shift.notes ? `
           <div>
             <h4 class="font-bold mb-4" style="font-size:13px">Closing Notes</h4>
-            <div style="font-size:12px;opacity:0.8;background:var(--bg-elevated);padding:10px;border-radius:var(--radius-sm)">${shift.notes}</div>
+            <div style="font-size:12px;opacity:0.8;background:var(--bg-elevated);padding:10px;border-radius:var(--radius-sm)">${escapeHtml(shift.notes)}</div>
           </div>
         ` : ''}
       </div>

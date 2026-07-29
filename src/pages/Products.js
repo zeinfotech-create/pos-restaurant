@@ -5,6 +5,7 @@ import { showToast } from '../components/Toast.js';
 import { MediaService } from '../services/MediaService.js';
 import { initDateRangePicker, getDefaultRange } from '../utils/dateRangeHelper.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 // Overall status for a product, honoring its own (or its variants') minStock
 // rather than a flat threshold — worst-of-all-variants for variant products,
@@ -2002,8 +2003,8 @@ async function openStockHistoryModal(product) {
     return `
       <tr>
         <td data-label="Date" style="white-space:nowrap;font-size:11px;opacity:0.8">${dateStr}</td>
-        <td data-label="Variant">${log.variantName ? `<span class="badge badge-primary" style="font-size:10px">${log.variantName}</span>` : '<span style="opacity:0.5;font-size:11px">Base</span>'}</td>
-        <td data-label="Reason" style="font-size:12px">${log.reason}</td>
+        <td data-label="Variant">${log.variantName ? `<span class="badge badge-primary" style="font-size:10px">${escapeHtml(log.variantName)}</span>` : '<span style="opacity:0.5;font-size:11px">Base</span>'}</td>
+        <td data-label="Reason" style="font-size:12px">${escapeHtml(log.reason)}</td>
         <td data-label="Stock Shift" style="font-size:12px; white-space:nowrap">
            ${log.oldStock !== null ? `<span style="opacity:0.6">${log.oldStock}</span> <i class="fa-solid fa-arrow-right mx-4" style="font-size:9px;opacity:0.4"></i> <b class="${typeClass}">${log.newStock}</b>` : `<b class="${typeClass}">${sign}${log.qtyChange}</b>`}
         </td>

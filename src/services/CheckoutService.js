@@ -8,6 +8,7 @@ import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { syncEngine } from './syncEngine.js';
 import { resolveMethodConfig } from './QuickCheckoutService.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 import JsBarcode from 'jsbarcode';
 
 /**
@@ -1333,7 +1334,7 @@ export function renderRefundReceipt(ret, settings, cur) {
           <span>Refund Method:</span>
           <span class="font-bold">${ret.refundMethod || 'Cash'}</span>
         </div>
-        <div style="font-size:10px; opacity:0.8">Reason: ${ret.reason || 'Not specified'}</div>
+        <div style="font-size:10px; opacity:0.8">Reason: ${escapeHtml(ret.reason || 'Not specified')}</div>
       </div>
 
       <div class="receipt-divider"></div>

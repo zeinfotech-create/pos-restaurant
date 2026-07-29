@@ -2,6 +2,7 @@ import { getInventoryLogs, getProducts, getSettings } from '../db.js';
 import { store } from '../store.js';
 import { initDateRangePicker, getDefaultRange } from '../utils/dateRangeHelper.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 const { start: defaultStart, end: defaultEnd } = getDefaultRange();
 let filterStartDate = defaultStart;
@@ -52,8 +53,8 @@ function renderReasonCell(reason) {
   if (!reason) return '<span class="text-muted">No reason</span>';
   const category = categorizeReason(reason);
   const style = getReasonBadgeStyle(category, reason);
-  if (!style) return reason;
-  return `<span class="badge" style="background:${style.bg}; color:${style.color}; font-size:10px; font-weight:700; white-space:nowrap">${category}</span> <span style="opacity:0.75">${reason}</span>`;
+  if (!style) return escapeHtml(reason);
+  return `<span class="badge" style="background:${style.bg}; color:${style.color}; font-size:10px; font-weight:700; white-space:nowrap">${category}</span> <span style="opacity:0.75">${escapeHtml(reason)}</span>`;
 }
 
 export async function renderInventoryLog(container) {

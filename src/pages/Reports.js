@@ -5,6 +5,7 @@ import { store } from '../store.js';
 import { navigate } from '../router.js';
 import { Chart, registerables } from 'chart.js';
 import { paginate, renderPaginationBar } from '../utils/pagination.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 Chart.register(...registerables);
 
 let currentBranchFilter = store.branch?.id || '';
@@ -2153,7 +2154,7 @@ function openShiftSummaryModal(shiftId, cur, allShifts, registers = []) {
           ${shift.notes ? `
             <div class="card" style="background:rgba(255,255,255,0.02)">
               <div style="font-size:11px;opacity:0.5;margin-bottom:4px">Closing Notes</div>
-              <div style="font-size:13px;font-style:italic">${shift.notes}</div>
+              <div style="font-size:13px;font-style:italic">${escapeHtml(shift.notes)}</div>
             </div>
           ` : ''}
         </div>
@@ -2279,7 +2280,7 @@ async function renderReturnsReport(container, cur) {
                   </td>
                   <td data-label="Total Value" class="font-bold text-danger">${cur}${r.total.toFixed(2)}</td>
                   <td data-label="Method"><span class="badge badge-warning">${r.refundMethod || 'Cash'}</span></td>
-                  <td data-label="Reason" style="font-size:11px;opacity:0.8">${r.reason}</td>
+                  <td data-label="Reason" style="font-size:11px;opacity:0.8">${escapeHtml(r.reason)}</td>
                   <td data-label="Actions">
                     ${canExport ? `
                       <button class="btn btn-ghost btn-sm print-return-btn" data-id="${r.id}"><i class="fa-solid fa-print"></i></button>
