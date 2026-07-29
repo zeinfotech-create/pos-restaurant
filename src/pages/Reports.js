@@ -1,4 +1,4 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getMonthlySales, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getMonthlySales, getSuppliers, getPurchases, getPurchasesMonthly, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
@@ -548,7 +548,7 @@ async function renderSalesReport(container, cur) {
   })();
 
   renderSalesChart(last7);
-  renderPaymentChart(allOrders, cur);
+  renderPaymentChart(validOrders, salesReturns, cur);
 
   wireTableExport('top-products', topProductsTableEl, 'Top Performing Products', () => topProducts.map((p, i) => topProductRowHtml(p, i)).join(''));
   wireTableExport('daily-sales', dailySalesTableEl, 'Daily Sales & Profit', () => dailyBreakdown.map(dailySalesRowHtml).join(''));
@@ -753,7 +753,11 @@ async function renderPurchaseReport(container, cur) {
   const purchases = await getPurchases(currentBranchFilter, currentStartDate, currentEndDate);
   const purchasesSorted = purchases.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
   const monthly = await getPurchasesMonthly(currentBranchFilter);
-  const totalSpend = purchases.reduce((s, p) => s + p.total, 0);
+  // Net out returned value (purchase.total is never mutated by a return —
+  // see getPurchaseReturnedTotals()'s comment in db.js) so a fully-returned
+  // purchase doesn't keep inflating this range's total procurement spend.
+  const returnedTotals = await getPurchaseReturnedTotals();
+  const totalSpend = purchases.reduce((s, p) => s + Math.max(0, (p.total || 0) - (returnedTotals[p.id] || 0)), 0);
   const canExportPurch = await hasPermission('reports:export');
 
   container.innerHTML = `
@@ -960,8 +964,13 @@ async function renderOutstandingReport(container, cur) {
     if (!creditMap[cid]) {
       creditMap[cid] = { name: o.customer?.name || 'Unknown Customer', phone: o.customer?.phone || 'N/A', totalOutstanding: 0, orderCount: 0, lastOrderDate: o.date, orders: [] };
     }
+    // Same formula Orders.js's payOrder() balance-due check uses — a credit
+    // order can also carry redeemed loyalty points and/or store credit
+    // applied at checkout, both of which already reduced what the customer
+    // still owes; counting only `payments` overstated every such customer's
+    // outstanding balance by exactly the redeemed/credit amount.
     const paid = (o.payments || []).reduce((s, p) => s + p.amount, 0);
-    const balance = o.total - paid;
+    const balance = o.total - (o.redeemedPoints || 0) - (o.creditUsed || 0) - paid;
     creditMap[cid].totalOutstanding += balance;
     creditMap[cid].orderCount++;
     creditMap[cid].orders.push({ id: o.id, dailyNumber: o.dailyNumber, date: o.date, total: o.total, balance });
@@ -1203,8 +1212,18 @@ async function openPurchaseReturnModal(purchase, cur) {
     `).join('');
   }
 
+  // Purchase.total is tax-inclusive (subtotal + subtotal*taxRate/100, a
+  // single order-level rate — see Purchases.js's completePurchaseBtn), so a
+  // returned quantity's value must apply that same rate to stay directly
+  // comparable/subtractable from purchase.total elsewhere (Purchases.js's
+  // outstanding calc, getSupplierOutstandingReport/getPurchasesMonthly in
+  // db.js) — without it, the return silently understated the value being
+  // credited back by the tax portion.
+  const taxRate = parseFloat(purchase.taxRate) || 0;
+  const withTax = (base) => base * (1 + taxRate / 100);
+
   function updateModal() {
-    const totalReturn = returnedItems.reduce((sum, item) => sum + (item.returnQty * (item.price || item.cost || 0)), 0);
+    const totalReturn = returnedItems.reduce((sum, item) => sum + withTax(item.returnQty * (item.price || item.cost || 0)), 0);
     const body = `
       <div style="padding:10px">
         <div class="mb-16 text-muted" style="font-size:13px">Select quantities to return to supplier. Stock will be automatically deducted.</div>
@@ -1260,7 +1279,7 @@ async function openPurchaseReturnModal(purchase, cur) {
             const val = parseInt(e.target.value) || 0;
             const max = parseInt(e.target.max);
             returnedItems[idx].returnQty = Math.min(val, max);
-            const totalReturn = returnedItems.reduce((sum, item) => sum + (item.returnQty * (item.price || item.cost || 0)), 0);
+            const totalReturn = returnedItems.reduce((sum, item) => sum + withTax(item.returnQty * (item.price || item.cost || 0)), 0);
             const totalEl = document.querySelector('.text-danger[style*="font-size:20px"]');
             if (totalEl) totalEl.innerText = `${cur}${totalReturn.toFixed(2)}`;
           };
@@ -1281,7 +1300,7 @@ async function openPurchaseReturnModal(purchase, cur) {
             return;
           }
 
-          const totalReturn = itemsToReturn.reduce((sum, item) => sum + (item.qty * (item.price || item.cost || 0)), 0);
+          const totalReturn = itemsToReturn.reduce((sum, item) => sum + withTax(item.qty * (item.price || item.cost || 0)), 0);
           const reason = document.getElementById('returnReason').value || 'Not specified';
 
           const db = await import('../db.js');
@@ -1388,13 +1407,17 @@ async function renderCustomerReport(container, cur) {
 async function renderSupplierReport(container, cur) {
   const suppliers = await getSuppliers(currentBranchFilter);
   const purchases = await getPurchases(currentBranchFilter, currentStartDate, currentEndDate);
+  // Net out returned value so a fully-returned purchase doesn't keep
+  // inflating a supplier's lifetime spend total (see getPurchaseReturnedTotals()
+  // in db.js — purchase.total is never mutated by a return).
+  const returnedTotals = await getPurchaseReturnedTotals();
 
   const processed = suppliers.map(s => {
     const supPurchases = purchases.filter(p => p.supplierId === s.id);
     return {
       ...s,
       orderCount: supPurchases.length,
-      totalSpend: supPurchases.reduce((sum, p) => sum + p.total, 0)
+      totalSpend: supPurchases.reduce((sum, p) => sum + Math.max(0, (p.total || 0) - (returnedTotals[p.id] || 0)), 0)
     };
   }).sort((a, b) => b.totalSpend - a.totalSpend);
 
@@ -1912,7 +1935,7 @@ async function renderStaffIncentiveReport(container, cur) {
                 <td data-label="Staff">${escapeHtml(i.staffName)}</td>
                 <td data-label="Order ID" style="font-size:11px;opacity:0.7">${i.orderId}</td>
                 <td data-label="Total">${cur}${i.orderTotal.toFixed(2)}</td>
-                <td data-label="Incentive" class="font-bold text-success">+${cur}${i.amount.toFixed(2)}</td>
+                <td data-label="Incentive" class="font-bold ${i.amount < 0 ? 'text-danger' : 'text-success'}">${i.amount < 0 ? '-' : '+'}${cur}${Math.abs(i.amount).toFixed(2)}</td>
               </tr>
             `;
   }
@@ -2349,7 +2372,7 @@ function renderSalesChart(data) {
   });
 }
 
-function renderPaymentChart(orders, cur) {
+function renderPaymentChart(orders, returns, cur) {
   const ctx = document.getElementById('paymentChart');
   if (!ctx) return;
   const methods = {};
@@ -2358,10 +2381,32 @@ function renderPaymentChart(orders, cur) {
       o.payments.forEach(p => {
         methods[p.method] = (methods[p.method] || 0) + p.amount;
       });
+      // Redeemed loyalty points reduce the amount actually collected via a
+      // payment method (CheckoutService.js always computes payments as
+      // `total - redeemedPoints`), so without its own bucket here the
+      // redeemed value silently vanished from the chart instead of
+      // appearing anywhere, even though the "Net Sales" card counts it
+      // as part of the order's full total.
+      if (o.redeemedPoints) {
+        methods['Loyalty Points'] = (methods['Loyalty Points'] || 0) + o.redeemedPoints;
+      }
     } else {
       methods[o.paymentMethod] = (methods[o.paymentMethod] || 0) + o.total;
     }
   });
+  // Net sales returns out of whichever method they were refunded against —
+  // matches the "Net Sales" stat card just above this chart (grossTotal -
+  // returnsTotal); without this, the chart's slices summed to the
+  // pre-return gross total while the card next to it showed the post-return
+  // net, visibly disagreeing on the same screen.
+  (returns || []).forEach(r => {
+    const method = r.refundMethod || 'Cash';
+    methods[method] = (methods[method] || 0) - (r.total || 0);
+  });
+  // Drop any bucket that nets to ~0 or negative (e.g. a refund larger than
+  // that method's own bucket after a payment-method rename) rather than
+  // rendering a confusing negative pie slice.
+  Object.keys(methods).forEach(k => { if (methods[k] <= 0.005) delete methods[k]; });
   const colors = ['#4f46e5', '#10b981', '#f59e0b', '#3b82f6', '#ef4444'];
   new Chart(ctx, {
     type: 'doughnut',

@@ -1206,6 +1206,37 @@ export async function saveReturn(ret) {
     }
   }
 
+  // Same over-return race this function already guards against for sales
+  // returns above — purchase returns had no equivalent check at all, so two
+  // windows opened on the same purchase (each seeing the same stale
+  // "available to return" quantity) could both submit a full return,
+  // driving stock negative for goods that were only ever received once.
+  if (ret.type === 'purchase' && ret.purchaseId) {
+    const purchases = await getPurchases();
+    const parentPurchase = purchases.find(p => p.id === ret.purchaseId);
+    if (parentPurchase) {
+      const lineKey = (id, variantName) => `${id}::${variantName || ''}`;
+      const existingReturns = (await getReturns()).filter(r => r.purchaseId === ret.purchaseId && r.id !== ret.id);
+      const alreadyReturnedByItem = {};
+      existingReturns.forEach(r => {
+        r.items.forEach(item => {
+          const key = lineKey(item.id, item.variantName);
+          alreadyReturnedByItem[key] = (alreadyReturnedByItem[key] || 0) + item.qty;
+        });
+      });
+      for (const item of ret.items) {
+        const key = lineKey(item.id, item.variantName);
+        const originalItem = (parentPurchase.items || []).find(oi => lineKey(oi.id, oi.variantName) === key);
+        const originalQty = originalItem ? originalItem.qty : 0;
+        const alreadyReturned = alreadyReturnedByItem[key] || 0;
+        const available = originalQty - alreadyReturned;
+        if (item.qty > available + 0.001) {
+          throw new Error(`Cannot return ${item.qty} of "${item.name}" — only ${Math.max(0, available).toFixed(3)} available to return.`);
+        }
+      }
+    }
+  }
+
   await updateData('returns', ret);
 
   // If it's a sales return, adjust shift sales
@@ -2113,20 +2144,40 @@ export async function getVehicleDeliveryReport(branchId = null, startDate = null
 // Groups purchases with an unpaid balance (total - amountPaid > 0) by supplier — money the
 // shop still owes, not to be confused with the customer-side "Credit Hub" (money owed TO
 // the shop from credit sales).
+// A purchase return reduces what's actually owed to the supplier, but
+// (matching the same convention sales returns already use against
+// order.total — see saveReturn()) the purchase record's own `.total` is
+// never mutated. Every calculation that treats `.total` as "amount owed/
+// spent" must net out matching returns itself, via this shared helper, or
+// it silently keeps counting fully-returned purchases at their original
+// value forever.
+export async function getPurchaseReturnedTotals() {
+  const allReturns = await getReturns();
+  const totals = {};
+  allReturns.forEach(r => {
+    if (r.type === 'purchase' && r.purchaseId) {
+      totals[r.purchaseId] = (totals[r.purchaseId] || 0) + (r.total || 0);
+    }
+  });
+  return totals;
+}
+
 export async function getSupplierOutstandingReport(branchId = null, startDate = null, endDate = null) {
   const allPurchases = await getPurchases(branchId, startDate, endDate);
+  const returnedTotals = await getPurchaseReturnedTotals();
 
   const supplierMap = {};
   allPurchases.forEach(p => {
-    const outstanding = Math.max(0, (p.total || 0) - (p.amountPaid || 0));
+    const netTotal = Math.max(0, (p.total || 0) - (returnedTotals[p.id] || 0));
+    const outstanding = Math.max(0, netTotal - (p.amountPaid || 0));
     if (outstanding <= 0.01) return;
     const key = p.supplierId || p.supplierName || 'unknown';
     if (!supplierMap[key]) supplierMap[key] = { supplierName: p.supplierName || 'Unknown Supplier', purchaseCount: 0, totalPurchased: 0, totalPaid: 0, outstanding: 0, purchases: [] };
     supplierMap[key].purchaseCount += 1;
-    supplierMap[key].totalPurchased += p.total || 0;
+    supplierMap[key].totalPurchased += netTotal;
     supplierMap[key].totalPaid += p.amountPaid || 0;
     supplierMap[key].outstanding += outstanding;
-    supplierMap[key].purchases.push({ id: p.id, date: p.date, supplierInvoiceNo: p.supplierInvoiceNo, total: p.total || 0, amountPaid: p.amountPaid || 0, outstanding });
+    supplierMap[key].purchases.push({ id: p.id, date: p.date, supplierInvoiceNo: p.supplierInvoiceNo, total: netTotal, amountPaid: p.amountPaid || 0, outstanding });
   });
 
   return Object.values(supplierMap).sort((a, b) => b.outstanding - a.outstanding);
@@ -2134,11 +2185,13 @@ export async function getSupplierOutstandingReport(branchId = null, startDate = 
 
 export async function getPurchasesMonthly() {
   const purchases = await getPurchases();
+  const returnedTotals = await getPurchaseReturnedTotals();
   const months = {};
   purchases.forEach(p => {
     const d = new Date(p.date);
     const m = d.toLocaleString('en', { month: 'short', year: 'numeric' });
-    months[m] = (months[m] || 0) + (p.total || 0);
+    const netTotal = Math.max(0, (p.total || 0) - (returnedTotals[p.id] || 0));
+    months[m] = (months[m] || 0) + netTotal;
   });
   return Object.entries(months).map(([label, total]) => ({ label, total }));
 }

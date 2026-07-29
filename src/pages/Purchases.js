@@ -1,4 +1,4 @@
-import { getPurchases, getSuppliers, getProducts, savePurchase, updateProduct, getCurrentBranch, getCurrentUser, deletePurchase, hasPermission, logInventoryChange } from '../db.js';
+import { getPurchases, getSuppliers, getProducts, savePurchase, updateProduct, getCurrentBranch, getCurrentUser, deletePurchase, hasPermission, logInventoryChange, getPurchaseReturnedTotals } from '../db.js';
 import { store } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
@@ -169,9 +169,9 @@ export async function renderPurchases(container, subPage) {
     });
 
     tbody.querySelectorAll('.view-btn').forEach(btn => {
-      btn.onclick = () => {
+      btn.onclick = async () => {
         const p = filtered.find(x => x.id === btn.dataset.id);
-        viewPurchaseDetails(p);
+        await viewPurchaseDetails(p);
       };
     });
 
@@ -642,9 +642,18 @@ export async function openPurchaseForm(container) {
   };
 }
 
-function viewPurchaseDetails(purchase) {
+async function viewPurchaseDetails(purchase) {
   const amountPaid = purchase.amountPaid || 0;
-  const outstanding = Math.max(0, purchase.total - amountPaid);
+  // A purchase return reduces what's actually owed to the supplier, but
+  // (matching the same convention sales returns use against order.total)
+  // purchase.total itself is never mutated — net returned value out of it
+  // here, the same way getSupplierOutstandingReport()/getPurchasesMonthly()
+  // in db.js now do, or "Outstanding" would keep counting a fully-returned
+  // purchase as still owed in full forever.
+  const returnedTotals = await getPurchaseReturnedTotals();
+  const returnedTotal = returnedTotals[purchase.id] || 0;
+  const netTotal = Math.max(0, purchase.total - returnedTotal);
+  const outstanding = Math.max(0, netTotal - amountPaid);
 
   openModal({
     title: `Purchase Details: ${purchase.id || 'N/A'}`,
@@ -692,6 +701,12 @@ function viewPurchaseDetails(purchase) {
               <td colspan="3" style="text-align:right"><strong>Total Amount:</strong></td>
               <td class="font-bold text-accent" style="font-size:16px">\u20B9${purchase.total.toFixed(2)}</td>
             </tr>
+            ${returnedTotal > 0 ? `
+              <tr>
+                <td colspan="3" style="text-align:right">Returned to Supplier:</td>
+                <td class="font-bold text-danger">-\u20B9${returnedTotal.toFixed(2)}</td>
+              </tr>
+            ` : ''}
             <tr>
               <td colspan="3" style="text-align:right">Paid to Supplier:</td>
               <td class="font-bold text-success">\u20B9${amountPaid.toFixed(2)}</td>
@@ -728,7 +743,6 @@ function viewPurchaseDetails(purchase) {
     const input = document.getElementById('recordPaymentAmount');
     const amount = parseFloat(input.value) || 0;
     if (amount <= 0) { showToast('Enter a valid payment amount', 'error'); return; }
-    if (amount > outstanding + 0.01) { showToast(`Payment can't exceed the outstanding balance (₹${outstanding.toFixed(2)})`, 'error'); return; }
 
     recordPaymentBtn.disabled = true;
     try {
@@ -740,6 +754,19 @@ function viewPurchaseDetails(purchase) {
       const freshPurchases = await getPurchases();
       const freshPurchase = freshPurchases.find(p => p.id === purchase.id);
       if (!freshPurchase) throw new Error('Purchase record not found.');
+      // The outstanding-balance CAP must also be checked against this same
+      // fresh read, not the `outstanding` closure captured at modal-open
+      // time — otherwise two windows open on the same purchase can each
+      // pass their own stale ceiling check and together overpay past the
+      // purchase total (the write above already uses fresh data so it
+      // doesn't silently discard either payment, but without this the
+      // second payment would still be wrongly *accepted* when it shouldn't be).
+      const freshReturnedTotals = await getPurchaseReturnedTotals();
+      const freshNetTotal = Math.max(0, freshPurchase.total - (freshReturnedTotals[freshPurchase.id] || 0));
+      const freshOutstanding = Math.max(0, freshNetTotal - (freshPurchase.amountPaid || 0));
+      if (amount > freshOutstanding + 0.01) {
+        throw new Error(`Payment can't exceed the outstanding balance (₹${freshOutstanding.toFixed(2)})`);
+      }
       await savePurchase({ ...freshPurchase, amountPaid: (freshPurchase.amountPaid || 0) + amount });
     } catch (err) {
       recordPaymentBtn.disabled = false;
