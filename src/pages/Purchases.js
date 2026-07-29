@@ -345,7 +345,7 @@ export async function openPurchaseForm(container) {
     list.innerHTML = selectedItems.map((item, i) => `
       <div class="variant-row" style="margin-bottom:8px">
         <span style="flex:2">${item.name}</span>
-        <input class="form-input" style="flex:1" type="number" placeholder="Qty" data-idx="${i}" data-key="qty" value="${item.qty}">
+        <input class="form-input" style="flex:1" type="number" min="0" placeholder="Qty" data-idx="${i}" data-key="qty" value="${item.qty}">
         <input class="form-input" style="flex:1" type="number" placeholder="Cost" data-idx="${i}" data-key="cost" value="${item.cost}">
         <button class="btn btn-icon remove-item" data-idx="${i}" style="color:var(--danger)"><i class="fa-solid fa-trash"></i></button>
       </div>
@@ -535,6 +535,13 @@ export async function openPurchaseForm(container) {
     // several DB calls before closeModal() ever runs.
     if (completePurchaseBtn.disabled) return;
     if (selectedItems.length === 0) { showToast('Add items to purchase', 'error'); return; }
+
+    // A typo'd negative qty (the number input only soft-hints min="0" — it
+    // doesn't stop a typed "-3") should never be silently dropped the same
+    // way an untouched variant row (qty 0) is — that's a mistake to fix, not
+    // "this variant wasn't restocked this time".
+    const negativeItem = selectedItems.find(i => i.qty < 0);
+    if (negativeItem) { showToast(`"${negativeItem.name}": quantity can't be negative`, 'error'); return; }
 
     // Variant rows start at qty 0 (a product can have several variants added
     // at once but this purchase may only cover some of them) — drop the ones
