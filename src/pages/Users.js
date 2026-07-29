@@ -365,10 +365,10 @@ async function openUserForm(user = null) {
         </div>
 
         <div class="form-group">
-          <label class="form-label required">Access Password</label>
+          <label class="form-label ${isEdit ? '' : 'required'}">Access Password</label>
           <div class="search-input-wrap">
             <i class="fa-solid fa-key"></i>
-            <input class="form-input" type="password" id="uPass" placeholder="••••••••" value="${user?.password || ''}" style="padding-left:36px" />
+            <input class="form-input" type="password" id="uPass" placeholder="${isEdit ? 'Leave blank to keep current password' : '••••••••'}" value="" style="padding-left:36px" />
           </div>
         </div>
 
@@ -606,13 +606,13 @@ async function openUserForm(user = null) {
     const selectedBranches = Array.from(document.querySelectorAll('.branch-cb:checked')).map(cb => cb.value);
     const selectedPerms = Array.from(document.querySelectorAll('.perm-cb:checked')).map(cb => cb.value);
 
-    if (!name || !username || !password) { 
+    if (!name || !username || (!isEdit && !password)) {
       const missing = [];
       if (!name) missing.push('Full Name');
       if (!username) missing.push('Email/Phone');
-      if (!password) missing.push('Password');
-      showToast(`Missing required fields: ${missing.join(', ')}`, 'error'); 
-      return; 
+      if (!isEdit && !password) missing.push('Password');
+      showToast(`Missing required fields: ${missing.join(', ')}`, 'error');
+      return;
     }
     // This field doubles as a phone-based login (matches onboarding's admin,
     // which logs in with a 10-digit phone number, not an email) or a real
@@ -649,7 +649,10 @@ async function openUserForm(user = null) {
       name,
       username,
       email: document.getElementById('uContactEmail').value.trim(),
-      password,
+      // Blank means "keep the current password" (see the field's placeholder
+      // in edit mode) — spreading an empty string in here would blank out an
+      // existing password on every unrelated edit (role change, photo, etc).
+      ...(password ? { password } : {}),
       image: document.getElementById('uImageBase64').value,
       pin: document.getElementById('uPin').value.trim(),
       role: (user?.role === 'Master' || user?.role === 'Super Admin') ? user.role : document.getElementById('uRole').value,

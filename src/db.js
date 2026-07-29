@@ -1553,6 +1553,12 @@ export async function saveUser(user) {
   }
 
   user.id = user.id || 'U-' + Date.now();
+  // Only hash when a fresh plaintext value came in — the edit form leaves
+  // this field blank (and callers omit it) to mean "keep the current
+  // password", and re-hashing an already-hashed value would corrupt it.
+  if (user.password && !String(user.password).startsWith('sha256:')) {
+    user.password = await hashPassword(user.password);
+  }
   await updateData('users', user);
   return user;
 }
@@ -2529,7 +2535,7 @@ export async function completeInstallation({ businessName, businessAddress, busi
     name: adminName || 'Administrator',
     username: adminName || 'admin', // Use provided adminName
     email: email || '',
-    password: adminPassword || '123',
+    password: await hashPassword(adminPassword || '123'),
     pin: adminPin || '1234',
     role: 'Super Admin',
     branchId: branchId, // Linked to the branch ObjectID
@@ -2629,6 +2635,30 @@ export async function checkElectronInstallState() {
   return false; // No local record — fresh/reset install, onboarding required.
 }
 
+// Passwords are stored as `sha256:<salt>:<hash>` (Web Crypto — the only
+// crypto API available in a renderer/browser context, no Node 'crypto' here).
+// verifyPassword still accepts a bare plaintext `stored` value so accounts
+// created before this existed keep working; a successful match against one
+// of those migrates it to a hash on the spot (see verifyLocalUser below).
+export async function hashPassword(plain) {
+  const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+  const saltHex = Array.from(saltBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(saltHex + plain));
+  const hashHex = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return `sha256:${saltHex}:${hashHex}`;
+}
+
+export async function verifyPassword(plain, stored) {
+  if (!stored || plain == null) return false;
+  if (typeof stored !== 'string' || !stored.startsWith('sha256:')) {
+    return stored === plain; // legacy plaintext record
+  }
+  const [, saltHex, hashHex] = stored.split(':');
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(saltHex + plain));
+  const computedHex = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return computedHex === hashHex;
+}
+
 /**
  * Local credential verification for Standalone mode
  */
@@ -2636,12 +2666,19 @@ export async function verifyLocalUser(username, password) {
   const users = await db.getAll(KEYS.USERS) || [];
   const staff = await db.getAll(KEYS.STAFF) || [];
   const all = [...users, ...staff];
-  
-  const user = all.find(u => (u.email === username || u.username === username) && u.password === password);
-  if (user) {
-    const branches = await getBranches();
-    const registers = await db.getAll(KEYS.REGISTERS) || [];
-    return { success: true, user, branches, registers };
+
+  const candidates = all.filter(u => u.email === username || u.username === username);
+  for (const user of candidates) {
+    if (await verifyPassword(password, user.password)) {
+      // Migrate a legacy plaintext record to a hash now that it's proven correct.
+      if (typeof user.password === 'string' && !user.password.startsWith('sha256:')) {
+        user.password = await hashPassword(password);
+        await updateData(users.includes(user) ? 'users' : 'staff', user);
+      }
+      const branches = await getBranches();
+      const registers = await db.getAll(KEYS.REGISTERS) || [];
+      return { success: true, user, branches, registers };
+    }
   }
   return { success: false, message: 'Invalid local credentials' };
 }

@@ -6,7 +6,7 @@ import './style.css';
 import './dashboard-animations.css';
 import './settings-redesign.css';
 import { navigate, initRouter, getCurrentPage } from './router.js';
-import { getSettings, getBranchRegisters, getSession, getSessionTheme, setSessionTheme, getSidebarCollapsed, setSidebarCollapsed, getBranches, getCurrentShift, closeRegister, openRegister, getCustomers, getBusinessFeatures, deleteData, updateData, saveSession, getDataById, getUsers, hasPermission, getLowStockProducts, getExpiringProducts, getCurrentBranch, getCurrentUser, getCurrentRegisterId } from './db.js';
+import { getSettings, getBranchRegisters, getSession, getSessionTheme, setSessionTheme, getSidebarCollapsed, setSidebarCollapsed, getBranches, getCurrentShift, closeRegister, openRegister, getCustomers, getBusinessFeatures, deleteData, updateData, saveSession, getDataById, getUsers, hasPermission, getLowStockProducts, getExpiringProducts, getCurrentBranch, getCurrentUser, getCurrentRegisterId, hashPassword, verifyPassword } from './db.js';
 import { showToast } from './components/Toast.js';
 import { store, initStore, onCartUpdate, getCartTotals, updateQty, clearCart, setDiscount, removeFromCart, updateCartItem } from './store.js';
 import { openModal, closeModal, showConfirm, showAlert } from './components/Modal.js';
@@ -355,7 +355,7 @@ function openChangePasswordModal() {
     // so this verification must too, or a PIN-only login can never change
     // its own credential here.
     const matchedViaPin = !!freshUser.pin && current === freshUser.pin;
-    const matchedViaPassword = current === freshUser.password || current === freshUser.passwordHash;
+    const matchedViaPassword = (await verifyPassword(current, freshUser.password)) || (await verifyPassword(current, freshUser.passwordHash));
 
     if (!matchedViaPin && !matchedViaPassword) {
       showToast('Current password is incorrect', 'error');
@@ -386,7 +386,8 @@ function openChangePasswordModal() {
       if (matchedViaPin) {
         updatedUser.pin = next;
       } else {
-        updatedUser.password = next;
+        updatedUser.password = await hashPassword(next);
+        delete updatedUser.passwordHash; // superseded by the freshly-hashed password field above
       }
       await updateData('users', updatedUser);
 
