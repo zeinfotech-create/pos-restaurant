@@ -369,17 +369,32 @@ async function openBranchForm(branch = null) {
     removeBtn.style.display = 'none';
   };
 
-  document.getElementById('saveBranchBtn').onclick = async () => {
+  const saveBranchBtn = document.getElementById('saveBranchBtn');
+  saveBranchBtn.onclick = async () => {
+    // saveBranch() enforces the license's maxBranches by counting existing
+    // branches then writing — a classic check-then-act race. Without this
+    // guard, two fast clicks fire two handler calls before either write
+    // resolves, both read the same stale count, both pass the check, and
+    // both save — silently creating one more branch than the license allows.
+    if (saveBranchBtn.disabled) return;
     const name = document.getElementById('bName').value.trim();
     if (!name) { showToast('Name is required', 'error'); return; }
 
-    const savedBranch = await saveBranch({
-      ...branch,
-      name,
-      image: base64Input.value,
-      address: document.getElementById('bAddress').value,
-      phone: document.getElementById('bPhone').value
-    });
+    saveBranchBtn.disabled = true;
+    let savedBranch;
+    try {
+      savedBranch = await saveBranch({
+        ...branch,
+        name,
+        image: base64Input.value,
+        address: document.getElementById('bAddress').value,
+        phone: document.getElementById('bPhone').value
+      });
+    } catch (err) {
+      saveBranchBtn.disabled = false;
+      showToast(err.message || 'Failed to save branch.', 'error');
+      return;
+    }
 
     // getCurrentBranch()/store.branch both ultimately come from a COPY of
     // the branch embedded in the session record at login time (see
@@ -549,11 +564,23 @@ async function openAddRegisterModal(branch) {
     };
   });
 
-  document.getElementById('confirmAddRegBtn').onclick = async () => {
+  const confirmAddRegBtn = document.getElementById('confirmAddRegBtn');
+  confirmAddRegBtn.onclick = async () => {
+    // Same TOCTOU race as saveBranch()/saveUser() — saveBranchRegister()
+    // enforces maxRegistersPerBranch by counting then writing, so a fast
+    // double-click can create one more register than the license allows.
+    if (confirmAddRegBtn.disabled) return;
     const name = nameInput.value.trim();
     if (!name) { showToast('Name is required', 'error'); return; }
 
-    await saveBranchRegister({ branchId: branch.id, name });
+    confirmAddRegBtn.disabled = true;
+    try {
+      await saveBranchRegister({ branchId: branch.id, name });
+    } catch (err) {
+      confirmAddRegBtn.disabled = false;
+      showToast(err.message || 'Failed to add register.', 'error');
+      return;
+    }
     showToast('Register added!', 'success');
     closeModal();
     await openRegisterList(branch); // Refresh parent list

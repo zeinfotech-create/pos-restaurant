@@ -614,7 +614,12 @@ async function openUserForm(user = null) {
     document.getElementById('removeUserImgBtn').style.display = 'none';
   };
 
-  document.getElementById('saveUserBtn').onclick = async () => {
+  const saveUserBtn = document.getElementById('saveUserBtn');
+  saveUserBtn.onclick = async () => {
+    // Same TOCTOU race as saveBranch()/saveBranchRegister() — saveUser()
+    // enforces the license's maxUsers by counting then writing, so a fast
+    // double-click can create one more user than the license allows.
+    if (saveUserBtn.disabled) return;
     const name = document.getElementById('uName').value.trim();
     const username = document.getElementById('uUsername').value.trim().toLowerCase();
     const password = document.getElementById('uPass').value.trim();
@@ -674,24 +679,31 @@ async function openUserForm(user = null) {
       }
     }
 
-    await saveUser({
-      ...user,
-      name,
-      username,
-      email: document.getElementById('uContactEmail').value.trim(),
-      // Blank means "keep the current password" (see the field's placeholder
-      // in edit mode) — spreading an empty string in here would blank out an
-      // existing password on every unrelated edit (role change, photo, etc).
-      ...(password ? { password } : {}),
-      image: document.getElementById('uImageBase64').value,
-      pin: document.getElementById('uPin').value.trim(),
-      role: (user?.role === 'Master' || user?.role === 'Super Admin') ? user.role : document.getElementById('uRole').value,
-      isActive: (user?.role === 'Master' || user?.role === 'Super Admin' || user?.role === 'Admin' || document.getElementById('uRole').value === 'Admin') ? true : document.getElementById('uIsActive').checked,
-      sessionFilterEnabled: (user?.role === 'Master' || user?.role === 'Super Admin' || user?.role === 'Admin' || document.getElementById('uRole').value === 'Admin') ? false : (document.getElementById('uSessionFilterEnabled')?.checked || false),
-      permissions: selectedPerms,
-      branchIds: selectedBranches,
-      branchId: selectedBranches[0] || 'default' // Backward compatibility
-    });
+    saveUserBtn.disabled = true;
+    try {
+      await saveUser({
+        ...user,
+        name,
+        username,
+        email: document.getElementById('uContactEmail').value.trim(),
+        // Blank means "keep the current password" (see the field's placeholder
+        // in edit mode) — spreading an empty string in here would blank out an
+        // existing password on every unrelated edit (role change, photo, etc).
+        ...(password ? { password } : {}),
+        image: document.getElementById('uImageBase64').value,
+        pin: document.getElementById('uPin').value.trim(),
+        role: (user?.role === 'Master' || user?.role === 'Super Admin') ? user.role : document.getElementById('uRole').value,
+        isActive: (user?.role === 'Master' || user?.role === 'Super Admin' || user?.role === 'Admin' || document.getElementById('uRole').value === 'Admin') ? true : document.getElementById('uIsActive').checked,
+        sessionFilterEnabled: (user?.role === 'Master' || user?.role === 'Super Admin' || user?.role === 'Admin' || document.getElementById('uRole').value === 'Admin') ? false : (document.getElementById('uSessionFilterEnabled')?.checked || false),
+        permissions: selectedPerms,
+        branchIds: selectedBranches,
+        branchId: selectedBranches[0] || 'default' // Backward compatibility
+      });
+    } catch (err) {
+      saveUserBtn.disabled = false;
+      showToast(err.message || 'Failed to save user.', 'error');
+      return;
+    }
 
     showToast('User saved!', 'success');
     closeModal();
