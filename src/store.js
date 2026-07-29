@@ -193,10 +193,21 @@ export function getCartTotals() {
         totalOriginalPrice += preTaxBase * itemQty;
 
         const baseLineTotal = itemPrice * itemQty;
-        const discountTotal = item.itemDiscountType === 'pct' 
-            ? (baseLineTotal * (item.itemDiscount || 0) / 100) 
+        const discountTotal = item.itemDiscountType === 'pct'
+            ? (baseLineTotal * (item.itemDiscount || 0) / 100)
             : ((item.itemDiscount || 0) * itemQty);
-        totalItemDiscounts += discountTotal;
+        // discountTotal itself stays on the item's own price basis (tax-
+        // inclusive if the item is) — it's subtracted from baseLineTotal
+        // just below to get the actual post-discount selling price, which
+        // must not change. But the amount summed here for DISPLAY (the
+        // "Discount" line on receipts/cart summary) needs to be on the same
+        // tax-EXCLUSIVE basis as `subtotal`, or Subtotal−Discount+Tax won't
+        // reconstruct Total for an inclusive-tax item with any item-level
+        // discount (proven algebraically: for an inclusive item, the
+        // tax-exclusive-equivalent of a raw tax-inclusive discount D is
+        // exactly D/(1+rate/100), regardless of whether D came from a %
+        // or a flat ₹ discount type).
+        totalItemDiscounts += item.taxType === 'inclusive' ? discountTotal / (1 + rate / 100) : discountTotal;
 
         const discountedTotal = Math.max(0, baseLineTotal - discountTotal);
         let itemTax = 0;

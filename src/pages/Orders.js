@@ -453,7 +453,10 @@ async function openReturnModal(order, cur) {
 
     function updateModal() {
       // Item discount can be a flat per-unit ₹ amount or a % of the line — matches
-      // store.js's getCartTotals() discountTotal formula.
+      // store.js's getCartTotals() discountTotal formula. Raw basis (same
+      // currency as item.price, i.e. tax-inclusive if the item is) — used
+      // below for perUnitItemDiscount/itemNetBase, which must stay on that
+      // same basis to correctly represent the actual money for that unit.
       const itemDiscountTotal = (i) => {
         const lineTotal = (parseFloat(i.price) || 0) * (parseFloat(i.qty) || 0);
         return i.itemDiscountType === 'pct'
@@ -461,8 +464,20 @@ async function openReturnModal(order, cur) {
           : ((parseFloat(i.itemDiscount) || 0) * (parseFloat(i.qty) || 0));
       };
 
+      // Tax-exclusive-equivalent version — matches store.js's getCartTotals()
+      // adjustment to totalItemDiscounts (order.discount/order.subtotal are
+      // both expressed on this same tax-exclusive basis). Used ONLY for
+      // isolating the order-level-only discount below; must NOT be used for
+      // perUnitItemDiscount, which needs the raw, same-basis-as-item.price
+      // version above instead.
+      const itemDiscountTotalExclusive = (i) => {
+        const raw = itemDiscountTotal(i);
+        const rate = parseFloat(i.taxRate) || 0;
+        return i.taxType === 'inclusive' ? raw / (1 + rate / 100) : raw;
+      };
+
       // Calculate refund including its share of the discount and exact tax
-      const totalItemDiscounts = order.items.reduce((s, i) => s + itemDiscountTotal(i), 0);
+      const totalItemDiscounts = order.items.reduce((s, i) => s + itemDiscountTotalExclusive(i), 0);
       const globalOnlyDiscount = Math.max(0, (order.discount || 0) - totalItemDiscounts);
       const netOrderSubtotal = Math.max(1, (order.subtotal || 1) - totalItemDiscounts);
 

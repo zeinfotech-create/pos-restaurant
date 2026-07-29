@@ -96,4 +96,55 @@ describe('Store State and Cart Engine', () => {
     expect(totals.orderDiscount).toBe(10);
     expect(totals.total).toBe(90); // 100 subtotal - 10 flat discount
   });
+
+  // Receipts/cart summary print Subtotal, Discount and Tax as separate lines
+  // that must add up to Total (Subtotal − Discount + Tax = Total). For an
+  // inclusive-tax item, item.price already contains the tax, so a raw
+  // discount taken off that tax-inclusive price is itself partly "tax" —
+  // displaying it unadjusted alongside a tax-EXCLUSIVE Subtotal broke that
+  // arithmetic identity by exactly the discount's own tax content. These
+  // cases pin the fix: itemDiscount must be scaled down by 1/(1+rate/100)
+  // for inclusive items so the three printed lines always reconcile,
+  // regardless of whether the discount was configured as a % or a flat ₹.
+  it('reconciles Subtotal - Discount + Tax = Total for an inclusive-tax item with a % item discount', () => {
+    store.settings.roundOffEnabled = false; // isolate the discount/tax basis fix from unrelated rupee rounding
+    const product = { id: 'p1', name: 'Widget', price: 118, stock: 10, unit: 'pcs', taxRate: 18, taxType: 'inclusive', itemDiscountType: 'pct', itemDiscount: 10 };
+    addToCart(product, null, 1);
+
+    const totals = getCartTotals();
+
+    expect(totals.subtotal).toBeCloseTo(100, 2);
+    expect(totals.itemDiscount).toBeCloseTo(10, 2); // 10% of the 100 tax-exclusive base
+    expect(totals.tax).toBeCloseTo(16.2, 2);
+    expect(totals.total).toBeCloseTo(106.2, 2);
+    expect(totals.subtotal - totals.itemDiscount - totals.orderDiscount + totals.tax).toBeCloseTo(totals.total, 2);
+  });
+
+  it('reconciles Subtotal - Discount + Tax = Total for an inclusive-tax item with a flat ₹ item discount', () => {
+    store.settings.roundOffEnabled = false;
+    const product = { id: 'p1', name: 'Widget', price: 118, stock: 10, unit: 'pcs', taxRate: 18, taxType: 'inclusive', itemDiscountType: 'flat', itemDiscount: 10 };
+    addToCart(product, null, 1);
+
+    const totals = getCartTotals();
+
+    expect(totals.subtotal).toBeCloseTo(100, 2);
+    expect(totals.itemDiscount).toBeCloseTo(8.47, 2); // tax-exclusive equivalent of the raw ₹10, i.e. 10/1.18 — rounded to 2dp same as the code's own .toFixed(2)
+    expect(totals.tax).toBeCloseTo(16.47, 2);
+    expect(totals.total).toBeCloseTo(108, 2);
+    expect(totals.subtotal - totals.itemDiscount - totals.orderDiscount + totals.tax).toBeCloseTo(totals.total, 2);
+  });
+
+  it('still reconciles for an exclusive-tax item with a % item discount (regression check)', () => {
+    store.settings.roundOffEnabled = false;
+    const product = { id: 'p1', name: 'Widget', price: 100, stock: 10, unit: 'pcs', taxRate: 18, taxType: 'exclusive', itemDiscountType: 'pct', itemDiscount: 10 };
+    addToCart(product, null, 1);
+
+    const totals = getCartTotals();
+
+    expect(totals.subtotal).toBeCloseTo(100, 2);
+    expect(totals.itemDiscount).toBeCloseTo(10, 2); // exclusive items are unaffected by the fix — already on the right basis
+    expect(totals.tax).toBeCloseTo(16.2, 2);
+    expect(totals.total).toBeCloseTo(106.2, 2);
+    expect(totals.subtotal - totals.itemDiscount - totals.orderDiscount + totals.tax).toBeCloseTo(totals.total, 2);
+  });
 });
