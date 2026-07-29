@@ -1,4 +1,4 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getMonthlySales, getPaymentBreakdown, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getMonthlySales, getPaymentBreakdown, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
@@ -1937,10 +1937,15 @@ async function renderRegisterReport(container, cur) {
   const branches = await getBranches();
   const registers = await getRegisters();
 
-  // Filter shifts by date range
+  // Filter shifts by date range — compare local calendar day (localDateOnly),
+  // not the raw UTC openedAt timestamp against a plain YYYY-MM-DD boundary:
+  // for IST, a shift opened between local midnight and 5:30am is still
+  // UTC-dated the previous day, so it was silently excluded from a report
+  // filtered for the day it actually opened on.
   const shifts = (shiftsRaw || []).filter(s => {
     const isBranchMatch = !currentBranchFilter || s.branchId === currentBranchFilter;
-    const isDateMatch = (!currentStartDate || s.openedAt >= currentStartDate) && (!currentEndDate || s.openedAt <= currentEndDate + 'T23:59:59');
+    const openedDay = localDateOnly(s.openedAt);
+    const isDateMatch = (!currentStartDate || openedDay >= currentStartDate) && (!currentEndDate || openedDay <= currentEndDate);
     return isBranchMatch && isDateMatch;
   });
 
