@@ -16,6 +16,7 @@ class SyncEngine {
         this.pendingRequests = new Map(); // Map<requestId, {resolve, reject}>
         this.isNewInstall = false; // NEW: Flag for gated license creation
         this.broadcastQueue = []; // NEW: Buffer for messages during registration
+        this.pendingSilentBroadcasts = []; // Local edits that arrived while isSilent was true — flushed once it clears
         // No license/activation concept in this build — a completed one-time
         // install is permanently full access. Set immediately (not just after
         // init() resolves) so there's no "Trial/Free" flash on first paint.
@@ -564,17 +565,6 @@ class SyncEngine {
                     case 'delete':
                         await this.handleIncomingUpdate(message);
                         break;
-                    
-                    case 'sync_ack':
-                        console.log(`SyncEngine: 🟢 Received ACK for ${message.store}:${message.id}`);
-                        const currentData = await getDataById(message.store, message.id);
-                        if (currentData) {
-                            await updateData(message.store, { ...currentData, isSynced: true }, true);
-                            window.dispatchEvent(new CustomEvent('sync-incremental-done', { 
-                                detail: { store: message.store, id: message.id } 
-                            }));
-                        }
-                        break;
 
                     case 'error':
                         if (message.code === 'LIMIT_REACHED') {
@@ -794,13 +784,29 @@ class SyncEngine {
     }
 
     async handleIncomingUpdate(message) {
-        const { type, store, data, timestamp } = message;
+        const { type, store, data } = message;
         this.isSilent = true;
         try {
             if (type === 'update') {
                 const local = await getDataById(store, data.id);
-                const isSafeToOverwrite = !local || local.isSynced !== false || (data.updatedAt && local.updatedAt && new Date(data.updatedAt) > new Date(local.updatedAt));
-                if (isSafeToOverwrite && (!local || !local.updatedAt || new Date(timestamp) > new Date(local.updatedAt))) {
+                // Genuine last-write-wins on the record's OWN updatedAt, not
+                // the message envelope's timestamp (which is ~"now" at
+                // receipt time, not when the data was actually changed) —
+                // the previous version treated any already-synced local
+                // record as automatically safe to overwrite regardless of
+                // which side was actually newer, so a replayed/delayed
+                // update carrying stale data could silently stomp a newer
+                // local edit. Only fall back to the isSynced heuristic when
+                // there's no reliable timestamp to compare on both sides.
+                let isSafeToOverwrite;
+                if (!local) {
+                    isSafeToOverwrite = true;
+                } else if (data.updatedAt && local.updatedAt) {
+                    isSafeToOverwrite = new Date(data.updatedAt) >= new Date(local.updatedAt);
+                } else {
+                    isSafeToOverwrite = local.isSynced !== false;
+                }
+                if (isSafeToOverwrite) {
                     const mergedData = { ...data, isSynced: true };
                     // deploymentMode is per-device, never synced from the server copy (see the
                     // same guard in the pos_full_state handler above for why).
@@ -818,6 +824,11 @@ class SyncEngine {
             console.error(`SyncEngine: Failed to apply sync for ${store}`, e);
         } finally {
             this.isSilent = false;
+            if (this.pendingSilentBroadcasts.length > 0) {
+                const pending = this.pendingSilentBroadcasts;
+                this.pendingSilentBroadcasts = [];
+                pending.forEach(p => this.broadcast(p.type, p.store, p.data));
+            }
         }
     }
     
@@ -842,8 +853,17 @@ class SyncEngine {
     }
 
     async broadcast(type, store, data) {
+        // A local edit (storage-change) firing while an incoming sync message
+        // is still being applied (isSilent, see handleIncomingUpdate) used to
+        // just be dropped here — not queued, not retried — silently never
+        // reaching the hub. Queue it instead so it goes out once isSilent
+        // clears, typically milliseconds later.
+        if (this.isSilent) {
+            this.pendingSilentBroadcasts.push({ type, store, data });
+            return;
+        }
         const settings = await getSettings();
-        if (!this.ws || this.isSilent || !settings.isInstalled) return;
+        if (!this.ws || !settings.isInstalled) return;
         const branchId = data?.branchId || settings.branchId || null;
         const syncData = { ...(data || {}) };
         delete syncData.isSynced;
