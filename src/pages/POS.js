@@ -1235,7 +1235,12 @@ function renderSearchSuggestions(matches) {
         </div>
       </div>
       <div class="suggestion-price">\u20B9${(() => {
-        const taxRate = parseFloat(p.taxRate ?? (getSettings().taxRate || 0));
+        // getSettings() is async \u2014 this render function isn't, and awaiting
+        // it here would need every caller updated too, so reuse the already-
+        // loaded store.settings (same pattern used elsewhere in this file)
+        // rather than calling it unawaited, which silently evaluated
+        // (Promise).taxRate as undefined and always fell back to a 0% rate.
+        const taxRate = parseFloat(p.taxRate ?? (store.settings?.taxRate || 0));
         return (p.price * (1 + taxRate/100)).toFixed(2);
       })()}</div>
     </div>
