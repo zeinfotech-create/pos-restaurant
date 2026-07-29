@@ -1218,7 +1218,7 @@ async function setupBackupTab(container) {
 
     const confirmed = await showConfirm({
       title: 'Initialize Restoration?',
-      message: 'This will merge records from the file. We recommend creating a snapshot before proceeding. Continue?',
+      message: 'Each record in the file replaces any existing record with the same ID (records only in the file are added; nothing already here is removed). Records that are newer here than in the file are left untouched. We recommend creating a snapshot before proceeding. Continue?',
       okText: 'Start Restoration'
     });
     if (!confirmed) { fileInput.value = ''; return; }
@@ -1228,7 +1228,10 @@ async function setupBackupTab(container) {
       importBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
       const result = await BackupService.importBackup(file);
       if (result.success) {
-        showToast(`Successfully restored ${result.count} records! ✅`, 'success');
+        const extra = [];
+        if (result.skippedStale) extra.push(`${result.skippedStale} skipped (newer data already here)`);
+        if (result.failed) extra.push(`${result.failed} failed`);
+        showToast(`Restored ${result.count} records!${extra.length ? ' (' + extra.join(', ') + ')' : ''} ✅`, 'success');
         setTimeout(() => location.reload(), 1500);
       }
     } catch (err) {

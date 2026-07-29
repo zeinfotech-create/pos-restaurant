@@ -1,4 +1,4 @@
-import { read, write, updateData, KEYS, getSettings, getGlobalSettings, saveSettings } from '../db.js';
+import { read, write, updateData, getDataById, KEYS, getSettings, getGlobalSettings, saveSettings } from '../db.js';
 
 // Helper for data integrity
 async function generateChecksum(data) {
@@ -84,12 +84,34 @@ export const BackupService = {
                     }, {});
 
                     let count = 0;
+                    let skippedStale = 0;
+                    let failed = 0;
                     for (const entry of foundStores) {
                         for (const record of entry.data) {
                             // Ensure the record has an ID to prevent database errors
-                            if (record && (record.id || record.id === 0)) {
+                            if (!(record && (record.id || record.id === 0))) continue;
+                            try {
+                                // A record fully replaces any existing one sharing its id —
+                                // restoring an old backup would otherwise silently overwrite
+                                // whatever's actually live now with older data. Skip only when
+                                // both sides carry a timestamp to compare; if either is missing
+                                // one, fall back to the previous (overwrite) behavior rather than
+                                // guessing.
+                                const existing = await getDataById(entry.store, record.id);
+                                if (existing?.updatedAt && record.updatedAt && new Date(existing.updatedAt) > new Date(record.updatedAt)) {
+                                    skippedStale++;
+                                    continue;
+                                }
                                 await updateData(entry.store, record, true); // Silent update for speed
                                 count++;
+                            } catch (err) {
+                                // One malformed record shouldn't abort the whole restore — the
+                                // records already written above this point stay written either
+                                // way (there's no cross-store transaction to roll them back
+                                // through), so best-effort + a visible failure count is more
+                                // honest than pretending an all-or-nothing restore happened.
+                                failed++;
+                                console.error(`[BackupService] Failed to import ${entry.store} record ${record.id}:`, err);
                             }
                         }
                     }
@@ -101,12 +123,14 @@ export const BackupService = {
                         date: new Date().toISOString(),
                         filename: file.name,
                         count: count,
-                        stats: stats
+                        stats: stats,
+                        skippedStale,
+                        failed
                     });
                     if (history.length > 20) history.shift();
                     await write(KEYS.IMPORT_HISTORY, history);
 
-                    resolve({ success: true, count, stats });
+                    resolve({ success: true, count, stats, skippedStale, failed });
                 } catch (err) {
                     console.error('[BackupService] Import failed:', err);
                     reject(err);
