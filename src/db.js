@@ -113,7 +113,21 @@ class DbService {
 
     // Also migrate cart from store.js
     const cart = localStorage.getItem('pos_cart');
-    if (cart) await this.put(KEYS.SESSION, { id: 'pos_cart', data: JSON.parse(cart) });
+    if (cart) {
+      try {
+        await this.put(KEYS.SESSION, { id: 'pos_cart', data: JSON.parse(cart) });
+      } catch (e) {
+        // Unlike every other key above, this one wasn't guarded — a single
+        // corrupted/truncated localStorage value (e.g. an interrupted write)
+        // threw here uncaught inside the DB-open request's onsuccess handler,
+        // so the surrounding init() Promise never resolved OR rejected and
+        // the whole app hung on first launch after upgrading from a
+        // pre-IndexedDB build. This only ever runs once (migration is gated
+        // by the 'done' flag above), so losing an unrecoverable cart on a
+        // corrupted value is an acceptable trade for not bricking the app.
+        console.warn('[IndexedDB] Failed to migrate pos_cart:', e);
+      }
+    }
 
     await this.put('internal_migration', { id: 'done', timestamp: new Date().toISOString() });
     console.log('[IndexedDB] Migration complete!');
@@ -197,13 +211,25 @@ class DbService {
 
     await new Promise((resolve, reject) => {
       const request = indexedDB.deleteDatabase(DB_NAME);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
+      let blockedTimeout = null;
+      request.onsuccess = () => { if (blockedTimeout) clearTimeout(blockedTimeout); resolve(); };
+      request.onerror = () => { if (blockedTimeout) clearTimeout(blockedTimeout); reject(request.error); };
       // Deliberately NOT resolving here: onblocked means some other still-open
       // connection is delaying the actual delete, not that it failed. Resolving
       // early would let init() below race ahead and reopen the OLD database
       // before it's really gone — onsuccess still fires once it unblocks.
-      request.onblocked = () => console.warn('[IndexedDB] resetDatabase blocked by another open connection, waiting...');
+      // But if it never unblocks (a genuinely stuck/leaked connection), this
+      // used to wait forever with no way to retry short of restarting the
+      // whole app — give it a reasonable window, then fail with an
+      // actionable message instead of hanging onboarding indefinitely.
+      request.onblocked = () => {
+        console.warn('[IndexedDB] resetDatabase blocked by another open connection, waiting...');
+        if (!blockedTimeout) {
+          blockedTimeout = setTimeout(() => {
+            reject(new Error('Could not reset the local database — another window of this app may still be open. Please close any other windows and try again.'));
+          }, 8000);
+        }
+      };
     });
 
     await this.init();
@@ -1938,15 +1964,20 @@ export async function getTopProducts(branchId = null, startDate = null, endDate 
       productMap[item.name].profit += profit;
     });
   });
-  // Subtract returns
+  // Subtract returns — always ensure the product's entry exists first (like
+  // getDailySalesBreakdown's ensureDay pattern below), not gated on it
+  // already existing from an order in THIS same window. A product sold last
+  // month and returned this month has its return correctly date-filtered
+  // into `returns`, but was previously silently dropped here because
+  // there was no matching order in range to net it against — overstating
+  // this window's qty/revenue/profit for that product.
   returns.forEach(ret => {
     ret.items.forEach(item => {
-      if (productMap[item.name]) {
-        const { revenue, profit } = computeItemRevenueAndProfit(item);
-        productMap[item.name].qty -= item.qty;
-        productMap[item.name].revenue -= revenue;
-        productMap[item.name].profit -= profit;
-      }
+      if (!productMap[item.name]) productMap[item.name] = { name: item.name, qty: 0, revenue: 0, emoji: item.emoji, profit: 0 };
+      const { revenue, profit } = computeItemRevenueAndProfit(item);
+      productMap[item.name].qty -= item.qty;
+      productMap[item.name].revenue -= revenue;
+      productMap[item.name].profit -= profit;
     });
   });
   return Object.values(productMap).sort((a, b) => b.qty - a.qty).slice(0, 5);
@@ -2104,14 +2135,17 @@ export async function getCategorySales(branchId = null, startDate = null, endDat
       catMap[cat].revenue += (item.price * item.qty);
     });
   });
-  // Subtract returns
+  // Subtract returns — same fix as getTopProducts above: ensure the
+  // category's entry exists before subtracting instead of gating on it
+  // already existing from an order in this same window, so a return whose
+  // original sale falls outside this date range still nets correctly
+  // instead of being silently dropped.
   returns.forEach(ret => {
     ret.items.forEach(item => {
       const cat = item.category || 'Uncategorized';
-      if (catMap[cat]) {
-        catMap[cat].qty -= item.qty;
-        catMap[cat].revenue -= (item.price * item.qty);
-      }
+      if (!catMap[cat]) catMap[cat] = { category: cat, qty: 0, revenue: 0 };
+      catMap[cat].qty -= item.qty;
+      catMap[cat].revenue -= (item.price * item.qty);
     });
   });
   return Object.values(catMap).sort((a, b) => b.revenue - a.revenue);
@@ -2353,7 +2387,11 @@ export async function addShiftTransaction(branchId, type, amount, reason, regist
 
 export async function getBranchRegisters(branchId = null) {
   let data = await db.getAll(KEYS.REGISTERS) || [];
-  if (branchId) return data.filter(r => r.branchId === branchId);
+  // Same (branchId || 'b1') fallback getProducts/getCustomers/getSuppliers/
+  // getOrders/getStaffIncentives already use — without it, a legacy/imported
+  // register record missing its own branchId would silently vanish from
+  // this view (while still showing up wherever that fallback is applied).
+  if (branchId) return data.filter(r => (r.branchId || 'b1') === branchId);
   return data;
 }
 
@@ -2388,7 +2426,7 @@ export async function deleteBranchRegister(id) {
 
 export async function getStaff(branchId = null) {
   const staff = await db.getAll(KEYS.STAFF) || [];
-  if (branchId) return staff.filter(s => s.branchId === branchId);
+  if (branchId) return staff.filter(s => (s.branchId || 'b1') === branchId);
   return staff;
 }
 
