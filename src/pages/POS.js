@@ -495,7 +495,11 @@ async function renderProductGrid(append = false) {
     const isPctDiscount = p.itemDiscountType === 'pct';
     const discountAmt = isPctDiscount ? (p.price * (Number(p.itemDiscount) || 0) / 100) : (Number(p.itemDiscount) || 0);
     const basePrice = p.price - discountAmt;
-    const finalPrice = basePrice * (1 + taxRate/100);
+    // p.price already contains tax for an inclusive-tax item (the default
+    // tax type for new products) — adding tax on top again double-counted
+    // it here, showing a tile price up to (taxRate)% higher than what the
+    // cart/receipt actually charges for that same product.
+    const finalPrice = p.taxType === 'inclusive' ? basePrice : basePrice * (1 + taxRate/100);
 
     return `
       <div class="product-card ${isOutOfStock ? 'out-of-stock' : ''}" data-id="${p.id}" style="position:relative">
@@ -1266,7 +1270,9 @@ function renderSearchSuggestions(matches) {
         // rather than calling it unawaited, which silently evaluated
         // (Promise).taxRate as undefined and always fell back to a 0% rate.
         const taxRate = parseFloat(p.taxRate ?? (store.settings?.taxRate || 0));
-        return (p.price * (1 + taxRate/100)).toFixed(2);
+        // p.price already contains tax for an inclusive-tax item (the
+        // default tax type) — adding tax again double-counted it here.
+        return (p.taxType === 'inclusive' ? p.price : p.price * (1 + taxRate/100)).toFixed(2);
       })()}</div>
     </div>
   `).join('');

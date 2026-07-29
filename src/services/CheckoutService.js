@@ -445,7 +445,29 @@ export async function openCheckout() {
             if (invalidRow) return showToast('Please select a Payment Type for all payment rows.', 'error');
         }
 
-        const validPayments = isUnpaid ? [] : payments.filter(p => p.amount > 0.01);
+        let validPayments = isUnpaid ? [] : payments.filter(p => p.amount > 0.01).map(p => ({ ...p }));
+
+        // The cashier may type a tendered amount larger than what's owed
+        // (e.g. a ₹500 note against a ₹380 bill) specifically to see
+        // "Change Due" — intentional UX. But the SAVED payment record must
+        // only reflect the ₹380 actually retained, not the full ₹500
+        // handed over, or shift.collections/cashSales get inflated by the
+        // change amount (a cashier who counts the drawer correctly then
+        // shows a phantom "shortage" at close-out), and if the over-typed
+        // row happens to be Store Credit, the customer's real balance gets
+        // permanently over-debited by the excess.
+        if (!isUnpaid) {
+          const owed = Math.max(0, total - redeemedPoints);
+          let excess = validPayments.reduce((s, p) => s + p.amount, 0) - owed;
+          if (excess > 0.001) {
+            for (let i = validPayments.length - 1; i >= 0 && excess > 0.001; i--) {
+              const reduceBy = Math.min(validPayments[i].amount, excess);
+              validPayments[i].amount = parseFloat((validPayments[i].amount - reduceBy).toFixed(2));
+              excess -= reduceBy;
+            }
+            validPayments = validPayments.filter(p => p.amount > 0.01);
+          }
+        }
 
         const confirmData = () => ({
             isCredit: isUnpaid,

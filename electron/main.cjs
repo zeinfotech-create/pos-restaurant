@@ -364,9 +364,18 @@ function createMainWindow() {
     mainWindow.maximize();
   });
 
+  let isClosing = false;
   mainWindow.on('close', (e) => {
     if (mainWindow) {
       e.preventDefault();
+      // A second close attempt (impatient double-click on X, or Alt+F4
+      // pressed twice) while the first close is still running the 5s
+      // teardown window would otherwise re-send 'app-closing' and kick off
+      // a second concurrent runAutoBackup(true) — two backups writing to
+      // the same second-precision timestamped filename can race/clobber
+      // each other. Only the first close attempt actually triggers it.
+      if (isClosing) return;
+      isClosing = true;
       mainWindow.webContents.send('app-closing');
       setTimeout(() => { if (mainWindow) mainWindow.destroy(); }, 5000);
     }

@@ -1412,7 +1412,10 @@ async function openLabelModal(product, type) {
   const settings = await getSettings();
   const cur = settings.currency || '\u20B9';
   const taxRate = parseFloat(product.taxRate ?? (settings.taxRate || 0));
-  const priceWithTax = (product.price * (1 + taxRate/100)).toFixed(2);
+  // product.price already contains tax for an inclusive-tax item (the
+  // default tax type for new products) — adding tax again here double-
+  // counted it on the printed label's default price.
+  const priceWithTax = (product.taxType === 'inclusive' ? product.price : product.price * (1 + taxRate/100)).toFixed(2);
   const defaultStoreName = settings.storeName || 'My Store';
 
   let savedConfig = await getLabelConfig() || {};

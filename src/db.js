@@ -1327,10 +1327,14 @@ export async function saveReturn(ret) {
           if (pointsToClaw > 0) {
             cust.loyaltyPoints = Math.max(0, (cust.loyaltyPoints || 0) - pointsToClaw);
           }
+          cust.updatedAt = new Date().toISOString();
           return cust;
         });
-        if (updatedCust && pointsToClaw > 0) {
-          await addLoyaltyTransaction(custId, 'Adjust', -pointsToClaw, ret.orderId, `Reversed for return ${ret.id}`);
+        if (updatedCust) {
+          dispatchCustomerSync(updatedCust);
+          if (pointsToClaw > 0) {
+            await addLoyaltyTransaction(custId, 'Adjust', -pointsToClaw, ret.orderId, `Reversed for return ${ret.id}`);
+          }
         }
       }
     }
@@ -1759,20 +1763,29 @@ export async function getCustomers(branchId = null) {
 
 export async function saveCustomer(cust) {
   if (cust.id) {
-    // Atomic Update - Merge form changes but preserve critical financial fields
+    // Merge form changes but preserve critical financial fields
     delete cust.tier; // Tier is calculated dynamically
-    return await db.update(KEYS.CUSTOMERS, cust.id, async (existing) => {
-      return {
-        ...existing,
-        ...cust,
-        // Crucial: Only update these if they are actually DIFFERENT from existing
-        // This handles cases where a form might have stale data
-        creditBalance: cust.creditBalance !== undefined ? cust.creditBalance : (existing.creditBalance || 0),
-        loyaltyPoints: cust.loyaltyPoints !== undefined ? cust.loyaltyPoints : (existing.loyaltyPoints || 0),
-        totalSpent: cust.totalSpent !== undefined ? cust.totalSpent : (existing.totalSpent || 0),
-        totalOrders: cust.totalOrders !== undefined ? cust.totalOrders : (existing.totalOrders || 0)
-      };
-    });
+    const existing = (await db.getAll(KEYS.CUSTOMERS) || []).find(c => c.id === cust.id) || {};
+    const merged = {
+      ...existing,
+      ...cust,
+      // Crucial: Only update these if they are actually DIFFERENT from existing
+      // This handles cases where a form might have stale data
+      creditBalance: cust.creditBalance !== undefined ? cust.creditBalance : (existing.creditBalance || 0),
+      loyaltyPoints: cust.loyaltyPoints !== undefined ? cust.loyaltyPoints : (existing.loyaltyPoints || 0),
+      totalSpent: cust.totalSpent !== undefined ? cust.totalSpent : (existing.totalSpent || 0),
+      totalOrders: cust.totalOrders !== undefined ? cust.totalOrders : (existing.totalOrders || 0)
+    };
+    // updateData() (not a raw db.update()/db.put() call) is required here —
+    // it's the only path that dispatches the 'storage-change' event
+    // syncEngine.js listens for to broadcast this write to the LAN hub.
+    // This function previously wrote customers via the raw IndexedDB layer
+    // directly, so customer records/edits (and by extension every credit/
+    // loyalty adjustment below, which all shared that same raw-write bug)
+    // never synced to other branches of the same shop at all — not a merge
+    // conflict, a total, silent sync bypass.
+    await updateData('customers', merged);
+    return merged;
   }
 
   // New Customer
@@ -1782,12 +1795,12 @@ export async function saveCustomer(cust) {
   cust.creditBalance = cust.creditBalance || 0;
   cust.totalSpent = cust.totalSpent || 0;
   cust.totalOrders = cust.totalOrders || 0;
-  
+
   if (!cust.branchId) {
     const cb = await getCurrentBranch();
     cust.branchId = cb?.id || 'b1';
   }
-  await db.put(KEYS.CUSTOMERS, cust);
+  await updateData('customers', cust);
   return cust;
 }
 
@@ -1795,15 +1808,34 @@ export async function deleteCustomer(id) {
   await deleteData('customers', id);
 }
 
+// db.update()'s atomic get+put within a single IndexedDB transaction is
+// needed for these balance/point adjustments (a fast double-click, or two
+// terminals adjusting the same customer concurrently, must serialize
+// rather than race — see the round-7 fix to Customers.js's credit-adjust
+// double-submit for why this matters). But db.update()/db.put() are the
+// raw IndexedDB layer and never dispatch the 'storage-change' event
+// syncEngine.js listens for to broadcast a write to the LAN hub — every
+// customer credit/loyalty function below was writing through this raw
+// layer directly, so none of these changes ever synced to other branches
+// of the same shop. Dispatch it manually after the atomic write instead,
+// mirroring the pattern logInventoryChange() already uses for the same reason.
+function dispatchCustomerSync(cust) {
+  if (typeof window !== 'undefined' && cust) {
+    window.dispatchEvent(new CustomEvent('storage-change', { detail: { type: 'update', store: 'customers', data: cust } }));
+  }
+}
+
 export async function awardLoyaltyPoints(customerId, points, orderTotal = 0, orderId = null) {
   const updatedCust = await db.update(KEYS.CUSTOMERS, customerId, async (cust) => {
     cust.loyaltyPoints = (cust.loyaltyPoints || 0) + points;
     cust.totalSpent = (cust.totalSpent || 0) + orderTotal;
     cust.totalOrders = (cust.totalOrders || 0) + 1;
+    cust.updatedAt = new Date().toISOString();
     return cust;
   });
 
   if (updatedCust) {
+    dispatchCustomerSync(updatedCust);
     await addLoyaltyTransaction(customerId, 'Earn', points, orderId, `Earned from order ${orderId}`);
   }
   return updatedCust;
@@ -1815,12 +1847,14 @@ export async function redeemLoyaltyPoints(customerId, points, orderId = null) {
     const currentPoints = cust.loyaltyPoints || 0;
     if (currentPoints >= points) {
       cust.loyaltyPoints = currentPoints - points;
+      cust.updatedAt = new Date().toISOString();
       success = true;
     }
     return cust;
   });
 
   if (success && updatedCust) {
+    dispatchCustomerSync(updatedCust);
     await addLoyaltyTransaction(customerId, 'Redeem', points, orderId, `Redeemed on order ${orderId}`);
   }
   return success ? updatedCust : null;
@@ -1833,7 +1867,6 @@ export function getLoyaltyTier(totalSpent) {
 }
 
 async function addLoyaltyTransaction(customerId, type, points, orderId, note) {
-  const history = await db.getAll(KEYS.LOYALTY_HISTORY) || [];
   const entry = {
     id: 'LTX-' + Date.now(),
     customerId,
@@ -1844,6 +1877,9 @@ async function addLoyaltyTransaction(customerId, type, points, orderId, note) {
     date: new Date().toISOString()
   };
   await db.put(KEYS.LOYALTY_HISTORY, entry);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('storage-change', { detail: { type: 'update', store: 'loyalty_history', data: entry } }));
+  }
 }
 
 export async function getLoyaltyHistory(customerId) {
@@ -1861,10 +1897,12 @@ export async function adjustCustomerCredit(customerId, amount, type, reason, ord
     } else {
         cust.creditBalance = currentBalance - amount;
     }
+    cust.updatedAt = new Date().toISOString();
     return cust;
   });
 
   if (updatedCust) {
+    dispatchCustomerSync(updatedCust);
     const entry = {
       id: 'CRX-' + Date.now(),
       customerId,
@@ -1875,8 +1913,11 @@ export async function adjustCustomerCredit(customerId, amount, type, reason, ord
       date: new Date().toISOString()
     };
     await db.put(KEYS.CREDIT_HISTORY, entry);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('storage-change', { detail: { type: 'update', store: 'credit_history', data: entry } }));
+    }
   }
-  
+
   return updatedCust;
 }
 
@@ -1894,11 +1935,13 @@ export async function recalculateCustomerBalance(customerId) {
   const correctBalance = history.reduce((acc, h) => {
     return h.type === 'Credit' ? acc + h.amount : acc - h.amount;
   }, 0);
-  
-  await db.update(KEYS.CUSTOMERS, customerId, (cust) => {
+
+  const updatedCust = await db.update(KEYS.CUSTOMERS, customerId, (cust) => {
     cust.creditBalance = correctBalance;
+    cust.updatedAt = new Date().toISOString();
     return cust;
   });
+  dispatchCustomerSync(updatedCust);
   return correctBalance;
 }
 
@@ -2908,7 +2951,13 @@ export async function updateData(store, data, isSilent = false) {
 
   // Update timestamp for sorting (edited items move to top)
   if (!isSilent) {
-    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings'];
+    // appointments/staff_incentives were missing here — without an
+    // `updatedAt` stamp, syncEngine.js's last-write-wins conflict check
+    // (handleIncomingUpdate's isSafeToOverwrite) falls back to treating any
+    // incoming update as automatically newer than the untimestamped local
+    // copy, so an incoming record always clobbered local edits regardless
+    // of which one was actually made more recently.
+    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives'];
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable

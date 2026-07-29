@@ -676,7 +676,25 @@ export async function openQuickCheckout(onSuccess = null) {
             return;
         }
 
-        const validPayments = isUnpaid ? [] : payments.filter(p => p.amount > 0.01);
+        let validPayments = isUnpaid ? [] : payments.filter(p => p.amount > 0.01).map(p => ({ ...p }));
+
+        // A cashier may type a tendered amount larger than what's owed to
+        // see "Change Due" — intentional. But the SAVED payment must only
+        // reflect what was actually retained, or shift.collections/
+        // cashSales get inflated by the change amount (see CheckoutService.js's
+        // identical fix for the full explanation) — clamp the excess back
+        // out of the recorded payments before they're saved.
+        if (!isUnpaid) {
+          let excess = validPayments.reduce((s, p) => s + p.amount, 0) - netPayable;
+          if (excess > 0.001) {
+            for (let i = validPayments.length - 1; i >= 0 && excess > 0.001; i--) {
+              const reduceBy = Math.min(validPayments[i].amount, excess);
+              validPayments[i].amount = parseFloat((validPayments[i].amount - reduceBy).toFixed(2));
+              excess -= reduceBy;
+            }
+            validPayments = validPayments.filter(p => p.amount > 0.01);
+          }
+        }
 
         const confirmData = () => ({
             isCredit: isUnpaid,

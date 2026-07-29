@@ -372,8 +372,12 @@ export async function renderDashboard(container) {
             (o.items || []).forEach(item => {
               const name = item.name || 'Unknown';
               if (!prodMap[name]) prodMap[name] = { qty: 0, revenue: 0, emoji: item.emoji || '📦' };
-              prodMap[name].qty += (item.quantity || 1);
-              prodMap[name].revenue += (item.price || 0) * (item.quantity || 1);
+              // Order line items are always saved with `.qty`, never
+              // `.quantity` — the old field name here was never present on
+              // any real order, so this silently counted every line as
+              // qty=1 regardless of how many were actually sold.
+              prodMap[name].qty += (item.qty || 1);
+              prodMap[name].revenue += (item.price || 0) * (item.qty || 1);
             });
           });
           const topProds = Object.entries(prodMap).sort((a,b) => b[1].revenue - a[1].revenue).slice(0, 5);
