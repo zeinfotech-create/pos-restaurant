@@ -149,7 +149,7 @@ export async function renderDashboard(container) {
 
       <div class="page-header" style="flex-wrap: wrap; gap: 16px;">
         <div>
-          <div class="page-title">Good ${getGreeting()}, ${settings.storeName} 👋</div>
+          <div class="page-title">Good ${getGreeting()}, ${escapeHtml(settings.storeName)} 👋</div>
           <div class="page-subtitle">${getSubTitleMsg()}</div>
         </div>
         <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">

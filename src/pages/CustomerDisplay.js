@@ -65,9 +65,9 @@ export async function renderCustomerDisplay(container) {
       container.innerHTML = `
         <div class="customer-display-welcome">
           <div class="welcome-content">
-            <div class="store-logo-large">${settings.storeName?.[0] || 'Z'}</div>
-            <h1 class="store-name-display">${settings.storeName || 'Welcome'}</h1>
-            <p class="welcome-message">${settings.receiptFooter || 'Thank you for shopping with us!'}</p>
+            <div class="store-logo-large">${escapeHtml(settings.storeName?.[0] || 'Z')}</div>
+            <h1 class="store-name-display">${escapeHtml(settings.storeName) || 'Welcome'}</h1>
+            <p class="welcome-message">${escapeHtml(settings.receiptFooter) || 'Thank you for shopping with us!'}</p>
             <div class="live-indicator"><span class="dot"></span> System Live</div>
           </div>
         </div>
@@ -81,8 +81,8 @@ export async function renderCustomerDisplay(container) {
         <div class="cd-main">
           <div class="cd-header">
             <div class="cd-store-info">
-              <span class="cd-logo-small">${settings.storeName?.[0] || 'Z'}</span>
-              <span class="cd-store-name">${settings.storeName}</span>
+              <span class="cd-logo-small">${escapeHtml(settings.storeName?.[0] || 'Z')}</span>
+              <span class="cd-store-name">${escapeHtml(settings.storeName)}</span>
             </div>
             <div class="cd-time" id="cdTime"></div>
           </div>

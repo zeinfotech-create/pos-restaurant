@@ -358,7 +358,7 @@ async function openUserForm(user = null) {
                   <label class="form-label required">Full Name</label>
                   <div class="search-input-wrap">
                     <i class="fa-solid fa-signature"></i>
-                    <input class="form-input" id="uName" placeholder="Staff Full Name" value="${user?.name || ''}" style="font-weight:700; font-size:16px" />
+                    <input class="form-input" id="uName" placeholder="Staff Full Name" value="${escapeHtml(user?.name || '')}" style="font-weight:700; font-size:16px" />
                   </div>
                </div>
                <button class="btn btn-ghost btn-xs" id="removeUserImgBtn" style="color:var(--danger); ${user?.image ? '' : 'display:none'}"><i class="fa-solid fa-trash mr-4"></i> Remove Photo</button>
@@ -372,7 +372,7 @@ async function openUserForm(user = null) {
           <label class="form-label required">Email / Username</label>
           <div class="search-input-wrap">
             <i class="fa-solid fa-envelope"></i>
-            <input class="form-input" type="email" id="uUsername" value="${user?.username || user?.email || ''}" placeholder="staff@business.com" style="padding-left:36px" />
+            <input class="form-input" type="email" id="uUsername" value="${escapeHtml(user?.username || user?.email || '')}" placeholder="staff@business.com" style="padding-left:36px" />
           </div>
         </div>
 
@@ -397,7 +397,7 @@ async function openUserForm(user = null) {
           <label class="form-label">Contact Email (optional)</label>
           <div class="search-input-wrap">
             <i class="fa-solid fa-at"></i>
-            <input class="form-input" type="email" id="uContactEmail" placeholder="e.g. name@example.com" value="${user?.email || ''}" style="padding-left:36px" />
+            <input class="form-input" type="email" id="uContactEmail" placeholder="e.g. name@example.com" value="${escapeHtml(user?.email || '')}" style="padding-left:36px" />
           </div>
           <p class="form-help-text">For reference only — does not change how this user logs in.</p>
         </div>

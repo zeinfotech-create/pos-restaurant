@@ -1200,23 +1200,35 @@ async function openNewAppointmentForm(cur, appoToEdit = null) {
     });
   };
 
-  document.getElementById('saveAppoBtn').onclick = () => {
+  const saveAppoBtn = document.getElementById('saveAppoBtn');
+  saveAppoBtn.onclick = async () => {
+    if (saveAppoBtn.disabled) return;
     const custId = document.getElementById('apCust').value;
     const staffId = document.getElementById('apStaff').value;
     const serviceId = document.getElementById('apService').value;
     const date = document.getElementById('apDate').value;
     const time = document.getElementById('apTime').value;
 
-    saveAppointment({
-      id: appoToEdit?.id,
-      customerId: custId,
-      staffId: staffId,
-      serviceId: serviceId,
-      date,
-      time,
-      status: appoToEdit?.status || 'Scheduled',
-      branchId: branchId
-    });
+    // saveAppointment() mints a new 'APP-' + Date.now() id whenever no id is
+    // passed (new booking) — without this guard, two fast clicks generate
+    // two different ids and silently double-book the same slot.
+    saveAppoBtn.disabled = true;
+    try {
+      await saveAppointment({
+        id: appoToEdit?.id,
+        customerId: custId,
+        staffId: staffId,
+        serviceId: serviceId,
+        date,
+        time,
+        status: appoToEdit?.status || 'Scheduled',
+        branchId: branchId
+      });
+    } catch (err) {
+      saveAppoBtn.disabled = false;
+      showToast(err.message || 'Failed to save appointment.', 'error');
+      return;
+    }
 
     showToast(appoToEdit ? 'Appointment Updated!' : 'Appointment Booked!', 'success');
     openAppointmentsModal(cur);
@@ -1243,8 +1255,8 @@ function renderSearchSuggestions(matches) {
       <div class="suggestion-content">
         <div class="suggestion-name">${escapeHtml(p.name)}</div>
         <div class="suggestion-meta">
-          ${p.sku ? `<span>SKU: ${p.sku}</span>` : ''}
-          ${p.barcode ? `<span>Barcode: ${p.barcode}</span>` : ''}
+          ${p.sku ? `<span>SKU: ${escapeHtml(p.sku)}</span>` : ''}
+          ${p.barcode ? `<span>Barcode: ${escapeHtml(p.barcode)}</span>` : ''}
         </div>
       </div>
       <div class="suggestion-price">\u20B9${(() => {
@@ -1588,7 +1600,7 @@ function normalizeSearchQuery(q) {
 // `data-product-id`/`data-variant-name` are read back by the click handler
 // wired right after openModal() below.
 function lowStockUpdateControlHtml(productId, variantName) {
-  const variantAttr = variantName ? ` data-variant-name="${variantName}"` : '';
+  const variantAttr = variantName ? ` data-variant-name="${escapeHtml(variantName)}"` : '';
   return `
     <input type="number" min="1" value="10" class="form-input lowstock-input" data-product-id="${productId}"${variantAttr} style="width:60px; padding:4px 6px; font-size:12px; text-align:center; border-radius:8px;" />
     <button class="btn btn-sm lowstock-update-btn" data-product-id="${productId}"${variantAttr} style="padding:4px 10px; font-size:11px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); border-radius:8px; font-weight:700; white-space:nowrap;" title="Add stock">
@@ -1664,8 +1676,13 @@ export async function openLowStockModal(cur) {
     btn.onclick = async () => {
       const productId = btn.dataset.productId;
       const variantName = btn.dataset.variantName || null;
-      const selector = `.lowstock-input[data-product-id="${productId}"]${variantName ? `[data-variant-name="${variantName}"]` : ':not([data-variant-name])'}`;
-      const input = document.querySelector(selector);
+      // Matched via .dataset comparisons rather than an interpolated CSS
+      // attribute selector — a variant name containing a `"` would otherwise
+      // break the selector string (or, before escapeHtml was applied above,
+      // break out of the data-variant-name HTML attribute entirely).
+      const input = Array.from(document.querySelectorAll('.lowstock-input')).find(el =>
+        el.dataset.productId === productId && (el.dataset.variantName || null) === variantName
+      );
       const qty = parseInt(input?.value) || 0;
       if (qty <= 0) return showToast('Enter a valid quantity', 'error');
 

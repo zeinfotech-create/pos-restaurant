@@ -3,6 +3,7 @@ import { store, getCartTotals, clearCart } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { confirmOrder, showQuickAddMethodPopup } from './CheckoutService.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 let qcHandler = null;
 
@@ -179,8 +180,8 @@ export async function openQuickCheckout(onSuccess = null) {
                 <div class="qc-brand"><i class="fa-solid fa-bolt" style="color:var(--accent)"></i> QUICK CHECKOUT</div>
                 <div style="display:flex; align-items:center; gap:20px;">
                     <div style="text-align:right">
-                        <div style="font-weight:800; font-size:16px;">${customer?.name || 'Walk-in Customer'}</div>
-                        <div style="font-size:12px; color:var(--text-muted); font-weight:600">${customer?.phone || 'Guest'}</div>
+                        <div style="font-weight:800; font-size:16px;">${customer?.name ? escapeHtml(customer.name) : 'Walk-in Customer'}</div>
+                        <div style="font-size:12px; color:var(--text-muted); font-weight:600">${customer?.phone ? escapeHtml(customer.phone) : 'Guest'}</div>
                     </div>
                     <button class="btn btn-ghost" onclick="closeModal()" style="font-size:24px"><i class="fa-solid fa-xmark"></i></button>
                 </div>

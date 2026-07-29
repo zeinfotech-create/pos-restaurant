@@ -8,6 +8,7 @@ import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { renderReceiptBody, renderOrderReturnsReceipt, printReceiptHtml, renderReceiptBarcodes } from '../services/CheckoutService.js';
 import { initDateRangePicker, getDefaultRange } from '../utils/dateRangeHelper.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
 
 let searchQ = '';
@@ -222,8 +223,8 @@ async function renderOrderList(cur) {
               <td data-label="Order ID"><span class="badge badge-primary">${o.id}</span></td>
               <td data-label="Date & Time" class="text-muted">${new Date(o.date).toLocaleString('en-IN')}</td>
               <td data-label="Customer">
-                <div class="font-semibold">${o.customer?.name || '<span class="text-muted">Walk-in</span>'}</div>
-                <div class="text-muted" style="font-size:10px">${o.customer?.phone || ''}</div>
+                <div class="font-semibold">${o.customer?.name ? escapeHtml(o.customer.name) : '<span class="text-muted">Walk-in</span>'}</div>
+                <div class="text-muted" style="font-size:10px">${escapeHtml(o.customer?.phone || '')}</div>
               </td>
               <td data-label="Items">${o.items.length} items</td>
               <td data-label="Subtotal">${cur}${o.subtotal.toFixed(2)}</td>
@@ -432,7 +433,7 @@ async function openReturnModal(order, cur) {
         <div class="payment-row" style="margin-bottom:12px; display:flex; align-items:center; gap:12px; background:var(--bg-elevated); padding:12px; border-radius:8px ${(!item.isReturnable || item.availableQty <= 0) ? 'opacity:0.5' : ''}">
           <div style="flex:1">
             <div class="font-bold">
-              ${item.emoji || '📦'} ${item.name}
+              ${item.emoji || '📦'} ${escapeHtml(item.name)}
               ${!item.isReturnable ? '<span class="badge badge-danger ml-8" style="font-size:9px">Non-Returnable</span>' : ''}
             </div>
             <div style="font-size:11px; opacity:0.6">
@@ -669,7 +670,7 @@ async function payOrder(order, cur) {
         </div>
 
         <div class="mt-20" style="font-size:12px; color:var(--text-muted); background:rgba(0,0,0,0.05); padding:12px; border-radius:8px">
-          <i class="fa-solid fa-circle-info mr-4"></i> This will settle the debt for order <b>${order.id}</b> and update <b>${order.customer?.name}</b>'s credit balance.
+          <i class="fa-solid fa-circle-info mr-4"></i> This will settle the debt for order <b>${order.id}</b> and update <b>${escapeHtml(order.customer?.name || '')}</b>'s credit balance.
         </div>
       </div>
     `;

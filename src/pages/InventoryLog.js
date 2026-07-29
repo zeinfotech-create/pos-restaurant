@@ -428,8 +428,8 @@ function renderLogRows(logs, products) {
            <div class="flex items-center gap-12">
              <div style="background:var(--bg-elevated); width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:8px; font-size:18px">${p?.emoji || '📦'}</div>
              <div>
-               <div class="font-bold" style="font-size:13px">${pName}</div>
-               ${l.variantName ? `<div class="text-muted" style="font-size:10px">${l.variantName}</div>` : ''}
+               <div class="font-bold" style="font-size:13px">${escapeHtml(pName)}</div>
+               ${l.variantName ? `<div class="text-muted" style="font-size:10px">${escapeHtml(l.variantName)}</div>` : ''}
              </div>
            </div>
         </td>
