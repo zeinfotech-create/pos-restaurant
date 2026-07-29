@@ -439,6 +439,8 @@ export async function hasPermission(action) {
       'customers': 'customers:view',
       'suppliers': 'products:view',
       'register': 'pos:access', // Register & Shifts — anyone who can use POS can access register
+      'quick-pos': 'pos:access', // Same access as the regular POS screen, just a different layout
+      'catalog': 'products:view', // Read-only product browsing view
     };
 
     const requiredPerm = modulePermissionMap[module];
