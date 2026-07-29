@@ -352,12 +352,19 @@ const server = http.createServer(async (req, res) => {
         req.on('end', async () => {
             try {
                 const { username, password } = JSON.parse(body);
-                const user = await DBManager.findOne(User, 'users', { 
-                    username 
-                }) || await DBManager.findOne(User, 'users', { 
-                    email: username 
-                }) || await DBManager.findOne(User, 'users', { 
-                    name: username 
+                // Without this, a crafted body like {"username": {"$gt": ""}}
+                // builds a Mongo filter that matches an arbitrary user instead
+                // of doing the intended exact-value lookup.
+                if (typeof username !== 'string' || typeof password !== 'string') {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ success: false, message: 'Invalid credentials format' }));
+                }
+                const user = await DBManager.findOne(User, 'users', {
+                    username
+                }) || await DBManager.findOne(User, 'users', {
+                    email: username
+                }) || await DBManager.findOne(User, 'users', {
+                    name: username
                 });
 
                 if (!user) {
@@ -927,6 +934,10 @@ const server = http.createServer(async (req, res) => {
         req.on('end', async () => {
             try {
                 const { username, password } = JSON.parse(body);
+                if (typeof username !== 'string' || typeof password !== 'string') {
+                    res.writeHead(400).end(JSON.stringify({ error: 'Invalid credentials format' }));
+                    return;
+                }
                 const admin = await DBManager.findOne(Admin, 'admins', { username });
                 if (admin && admin.password === password) {
                     const token = Buffer.from(`${admin.username}:${admin.password}`).toString('base64');
@@ -1309,6 +1320,11 @@ const server = http.createServer(async (req, res) => {
     // ── GET /api/backup/download?licenseKey=XXX ──────────────────────────────
     // Download a full JSON backup file for a license. Works for MongoDB + PostgreSQL.
     if (req.url.startsWith('/api/backup/download') && req.method === 'GET') {
+        // Unlike every /api/admin/* endpoint, this had no auth at all — the
+        // server listens on all interfaces (LAN sync needs that), so without
+        // this any device on the same network could download a full data
+        // export for any licenseKey with no credentials.
+        if (!(await checkAdminAuth(req, res))) return;
         const urlObj = new URL(req.url, `http://${req.headers.host}`);
         const licenseKey = urlObj.searchParams.get('licenseKey');
         if (!licenseKey || licenseKey === 'GLOBAL') {
@@ -1348,6 +1364,9 @@ const server = http.createServer(async (req, res) => {
     // ── POST /api/backup/restore ─────────────────────────────────────────────
     // Restore a previously downloaded backup JSON. Works for MongoDB + PostgreSQL.
     if (req.url === '/api/backup/restore' && req.method === 'POST') {
+        // Same gap as /api/backup/download above — this can wipe (wipe:true)
+        // and overwrite a tenant's entire dataset with no credentials at all.
+        if (!(await checkAdminAuth(req, res))) return;
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', async () => {
@@ -2627,10 +2646,14 @@ wss.on('connection', (ws, req) => {
                 // pos_verify_credentials — login pin/password check
                 // --------------------------------------------------------
                 case 'pos_verify_credentials': {
-                    const { username, password, requestId, systemDetails } = msg; 
+                    const { username, password, requestId, systemDetails } = msg;
+
+                    if (typeof username !== 'string' || typeof password !== 'string') {
+                        return send(ws, { type: 'pos_verify_result', requestId, success: false, message: 'Invalid credentials format' });
+                    }
 
                     // 1. Check User in MongoDB
-                    const user = await DBManager.findOne(User, 'users', { 
+                    const user = await DBManager.findOne(User, 'users', {
                         $or: [
                             { username }, 
                             { email: username },
@@ -2851,6 +2874,10 @@ wss.on('connection', (ws, req) => {
                 // --------------------------------------------------------
                 case 'pos_check_availability': {
                     const { username, email, requestId } = msg;
+                    if ((username != null && typeof username !== 'string') || (email != null && typeof email !== 'string')) {
+                        send(ws, { type: 'pos_check_result', requestId, usernameAvailable: false, emailAvailable: false });
+                        break;
+                    }
                     // Check if any user already has this 'username' or 'email'
                     const checkValue = username || email;
                     const [byUser, byLicense] = await Promise.all([
