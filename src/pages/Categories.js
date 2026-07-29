@@ -2,7 +2,7 @@
 // Categories.js — Standalone Category & Sub-Category Management
 // ============================================================
 
-import { getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory } from '../db.js';
+import { getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory, getProducts } from '../db.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 
@@ -223,9 +223,15 @@ async function setupCategoryListeners() {
   // Delete category
   document.querySelectorAll('.del-cat-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
+      // Products reference a category by its name string, not an id — nothing
+      // stops a category from being deleted while products are still tagged
+      // with it (the tag just becomes an orphaned string, no crash), so warn
+      // with a count instead of deleting silently.
+      const cat = (await getCategories()).find(c => c.id === btn.dataset.id);
+      const affectedCount = cat ? (await getProducts()).filter(p => p.category === cat.name).length : 0;
       const confirmed = await showConfirm({
         title: 'Delete Category',
-        message: 'This will also delete all sub-categories within this group. Continue?',
+        message: `This will also delete all sub-categories within this group.${affectedCount > 0 ? ` ${affectedCount} product(s) are currently tagged with this category and will keep that tag after it's gone.` : ''} Continue?`,
         okText: 'Delete', okClass: 'btn-danger'
       });
       if (confirmed) {
@@ -316,9 +322,11 @@ async function setupCategoryListeners() {
   // Delete sub-category
   document.querySelectorAll('.del-sub-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
+      const sub = selectedCategoryId ? (await getSubCategories(selectedCategoryId)).find(s => s.id === btn.dataset.id) : null;
+      const affectedCount = sub ? (await getProducts()).filter(p => p.subCategory === sub.name).length : 0;
       const confirmed = await showConfirm({
         title: 'Delete Sub-category',
-        message: 'Remove this sub-category?',
+        message: `Remove this sub-category?${affectedCount > 0 ? ` ${affectedCount} product(s) are currently tagged with it and will keep that tag after it's gone.` : ''}`,
         okText: 'Delete', okClass: 'btn-danger'
       });
       if (confirmed) {

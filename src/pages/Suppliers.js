@@ -1,4 +1,4 @@
-import { getSuppliers, saveSupplier, getCurrentBranch, getCurrentUser, deleteSupplier, hasPermission } from '../db.js';
+import { getSuppliers, saveSupplier, getCurrentBranch, getCurrentUser, deleteSupplier, hasPermission, getPurchases } from '../db.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { initDateRangePicker, getDefaultRange } from '../utils/dateRangeHelper.js';
@@ -189,11 +189,16 @@ export async function renderSuppliers(container, subPage) {
       };
     });
     wrap.querySelectorAll('.delete-btn').forEach(btn => {
-      btn.onclick = () => {
+      btn.onclick = async () => {
         const s = suppliers.find(x => x.id === btn.dataset.id);
+        // A purchase references its supplier by id, not a live link — nothing
+        // stops the supplier being deleted while purchase history still
+        // points at it (the reference just becomes orphaned, no crash), so
+        // warn with a count instead of deleting silently.
+        const purchaseCount = (await getPurchases()).filter(p => String(p.supplierId) === String(s.id)).length;
         openModal({
           title: 'Delete Supplier',
-          body: `<p>Are you sure you want to delete supplier <b>${s.name}</b>?</p>`,
+          body: `<p>Are you sure you want to delete supplier <b>${s.name}</b>?${purchaseCount > 0 ? ` This supplier has ${purchaseCount} purchase record(s) — they'll remain but will no longer link to a valid supplier.` : ''}</p>`,
           footer: `
             <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
             <button class="btn btn-danger" id="confirmDeleteSupplierBtn">Delete</button>
