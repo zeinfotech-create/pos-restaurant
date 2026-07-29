@@ -1167,6 +1167,36 @@ export async function getReturns(branchId = null, startDate = null, endDate = nu
 export async function saveReturn(ret) {
   ret.id = ret.id || `RET-${Date.now()}`;
   ret.date = ret.date || new Date().toISOString();
+
+  // Re-validate against a FRESH read of existing returns at save-time,
+  // not whatever the UI computed when the return modal was first opened —
+  // a double-click on "Confirm Return" (or two terminals returning the
+  // same order concurrently) could otherwise both submit against the same
+  // stale "available to return" figures, refunding/restocking more than
+  // was actually sold.
+  if (ret.type === 'sales' && ret.orderId) {
+    const orders = await getOrders();
+    const parentOrder = orders.find(o => o.id === ret.orderId);
+    if (parentOrder) {
+      const existingReturns = (await getReturns()).filter(r => r.orderId === ret.orderId && r.id !== ret.id);
+      const alreadyReturnedByItem = {};
+      existingReturns.forEach(r => {
+        r.items.forEach(item => {
+          alreadyReturnedByItem[item.id] = (alreadyReturnedByItem[item.id] || 0) + item.qty;
+        });
+      });
+      for (const item of ret.items) {
+        const originalItem = parentOrder.items.find(oi => oi.id === item.id);
+        const originalQty = originalItem ? originalItem.qty : 0;
+        const alreadyReturned = alreadyReturnedByItem[item.id] || 0;
+        const available = originalQty - alreadyReturned;
+        if (item.qty > available + 0.001) { // small epsilon for float rounding
+          throw new Error(`Cannot return ${item.qty} of "${item.name}" — only ${Math.max(0, available).toFixed(3)} available to return.`);
+        }
+      }
+    }
+  }
+
   await updateData('returns', ret);
 
   // If it's a sales return, adjust shift sales

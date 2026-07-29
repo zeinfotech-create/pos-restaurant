@@ -552,7 +552,15 @@ async function openReturnModal(order, cur) {
           refundMethod = e.target.value;
         };
 
-        document.getElementById('confirmReturnBtn').onclick = async () => {
+        const confirmReturnBtn = document.getElementById('confirmReturnBtn');
+        confirmReturnBtn.onclick = async () => {
+          // Guards against a fast double-click saving the same return twice
+          // (double refund, double stock restock, double shift-cash
+          // adjustment) — db.saveReturn() below also independently
+          // re-validates against a fresh read of existing returns, but this
+          // is the first line of defense.
+          if (confirmReturnBtn.disabled) return;
+
           const itemsToReturn = returnedItems.filter(i => i.returnQty > 0).map(i => {
             // Scale finalTax down to the returned share of the original line —
             // it's stored (and read by Reports.js's GST/HSN summaries) as the
@@ -576,17 +584,29 @@ async function openReturnModal(order, cur) {
           const totalReturn = parseFloat(returnedItems.filter(i => i.returnQty > 0).reduce((sum, item) => sum + (item.returnQty * getRefundPerItem(item)), 0).toFixed(2));
           const reason = document.getElementById('returnReason').value || 'Not specified';
 
-          const res = await db.saveReturn({
-            orderId: order.id,
-            type: 'sales',
-            items: itemsToReturn,
-            total: totalReturn,
-            reason: reason,
-            branchId: order.branchId,
-            customer: order.customer,
-            registerId: await db.getCurrentRegisterId(),
-            refundMethod: refundMethod
-          });
+          confirmReturnBtn.disabled = true;
+          let res;
+          try {
+            res = await db.saveReturn({
+              orderId: order.id,
+              type: 'sales',
+              items: itemsToReturn,
+              total: totalReturn,
+              reason: reason,
+              branchId: order.branchId,
+              customer: order.customer,
+              registerId: await db.getCurrentRegisterId(),
+              refundMethod: refundMethod
+            });
+          } catch (err) {
+            // db.saveReturn() rejects if the requested qty now exceeds what's
+            // actually still available to return (e.g. another return for
+            // this same order was just saved elsewhere) — surface it instead
+            // of leaving the modal in a broken state.
+            confirmReturnBtn.disabled = false;
+            showToast(err.message || 'Failed to process return.', 'error');
+            return;
+          }
           closeModal();
 
           // Show a post-return confirmation with Print option
