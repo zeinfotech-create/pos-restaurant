@@ -92,7 +92,7 @@ export function openCustomerForm(cust = null, callback = null) {
     document.getElementById('removeCustImgBtn').style.display = 'none';
   };
 
-  document.getElementById('saveCustBtn').onclick = () => {
+  document.getElementById('saveCustBtn').onclick = async () => {
     const name = document.getElementById('cName').value.trim();
     const phone = document.getElementById('cPhone').value.trim();
 
@@ -105,7 +105,7 @@ export function openCustomerForm(cust = null, callback = null) {
       return;
     }
 
-    const saved = saveCustomer({
+    const saved = await saveCustomer({
       ...cust,
       name,
       phone,
