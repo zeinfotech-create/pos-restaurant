@@ -8,6 +8,7 @@ vi.mock('../db.js', () => ({
   read: vi.fn((key) => Promise.resolve(writtenStores[key] || [])),
   write: vi.fn((key, val) => { writtenStores[key] = val; }),
   updateData: vi.fn(),
+  getDataById: vi.fn().mockResolvedValue(null),
   getSettings: vi.fn().mockResolvedValue({
     licenseKey: 'TEST-LICENSE',
     branchId: 'b1',

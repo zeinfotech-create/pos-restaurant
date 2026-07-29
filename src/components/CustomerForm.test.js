@@ -68,7 +68,11 @@ describe('CustomerForm component', () => {
     document.getElementById('cPhone').value = '9876543210';
     
     document.getElementById('saveCustBtn').click();
-    
+    // saveCustBtn's onclick is async (it awaits saveCustomer()) — .click()
+    // doesn't return that promise, so let pending microtasks flush before
+    // asserting on what happens after the await.
+    await new Promise(resolve => setTimeout(resolve, 0));
+
     expect(saveCustomer).toHaveBeenCalledWith({
       name: 'Jane Doe',
       phone: '9876543210',
@@ -76,7 +80,7 @@ describe('CustomerForm component', () => {
       birthday: '',
       image: ''
     });
-    
+
     expect(showToast).toHaveBeenCalledWith('Customer saved!', 'success');
     expect(closeModal).toHaveBeenCalled();
     expect(callback).toHaveBeenCalled();
