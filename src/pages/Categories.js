@@ -2,11 +2,37 @@
 // Categories.js — Standalone Category & Sub-Category Management
 // ============================================================
 
-import { getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory, getProducts } from '../db.js';
+import { getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory, getProducts, updateProduct } from '../db.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 
 let selectedCategoryId = null;
+
+// Products reference a category/sub-category by its NAME string, not an id
+// (see Products.js) — renaming one here would otherwise silently orphan
+// every product still tagged with the old name (they'd vanish from filters/
+// POS tabs with no warning), so any rename must cascade into those records.
+async function renameCategoryOnProducts(oldName, newName) {
+  if (oldName === newName) return;
+  const products = await getProducts();
+  for (const p of products) {
+    if (p.category === oldName) {
+      p.category = newName;
+      await updateProduct(p);
+    }
+  }
+}
+
+async function renameSubCategoryOnProducts(oldName, newName) {
+  if (oldName === newName) return;
+  const products = await getProducts();
+  for (const p of products) {
+    if (p.subCategory === oldName) {
+      p.subCategory = newName;
+      await updateProduct(p);
+    }
+  }
+}
 
 export async function renderCategories(container) {
   container.innerHTML = `
@@ -172,6 +198,10 @@ async function setupCategoryListeners() {
       if (btn) btn.onclick = async () => {
         const name = input?.value.trim();
         if (!name) return showToast('Please enter a name', 'error');
+        const existing = await getCategories();
+        if (existing.some(c => c.name.trim().toLowerCase() === name.toLowerCase())) {
+          return showToast(`A category named "${name}" already exists`, 'error');
+        }
         await saveCategory({ name });
         closeModal();
         showToast(`Category "${name}" created`, 'success');
@@ -211,7 +241,13 @@ async function setupCategoryListeners() {
         if (saveBtn) saveBtn.onclick = async () => {
           const name = input?.value.trim();
           if (!name) return;
+          const existing = await getCategories();
+          if (existing.some(c => c.id !== cat.id && c.name.trim().toLowerCase() === name.toLowerCase())) {
+            return showToast(`A category named "${name}" already exists`, 'error');
+          }
+          const oldName = cat.name;
           await saveCategory({ ...cat, name });
+          await renameCategoryOnProducts(oldName, name);
           closeModal();
           showToast('Category updated', 'success');
           await renderCategoriesContent();
@@ -271,6 +307,10 @@ async function setupCategoryListeners() {
       if (btn) btn.onclick = async () => {
         const name = input?.value.trim();
         if (!name) return showToast('Please enter a name', 'error');
+        const existing = await getSubCategories(selectedCategoryId);
+        if (existing.some(s => s.name.trim().toLowerCase() === name.toLowerCase())) {
+          return showToast(`A sub-category named "${name}" already exists in this category`, 'error');
+        }
         await saveSubCategory({ name, categoryId: selectedCategoryId });
         closeModal();
         showToast(`Sub-category "${name}" created`, 'success');
@@ -310,7 +350,13 @@ async function setupCategoryListeners() {
         if (saveBtn) saveBtn.onclick = async () => {
           const name = input?.value.trim();
           if (!name) return;
+          const existing = await getSubCategories(sub.categoryId);
+          if (existing.some(s => s.id !== sub.id && s.name.trim().toLowerCase() === name.toLowerCase())) {
+            return showToast(`A sub-category named "${name}" already exists in this category`, 'error');
+          }
+          const oldName = sub.name;
           await saveSubCategory({ ...sub, name });
+          await renameSubCategoryOnProducts(oldName, name);
           closeModal();
           showToast('Sub-category updated', 'success');
           await renderCategoriesContent();

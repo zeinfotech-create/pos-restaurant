@@ -45,9 +45,15 @@ export async function renderCustomerDisplay(container) {
   const settings = await getSettings();
   const cur = settings.currency || '\u20B9';
 
+  let clockInterval = null;
   function updateUI(data) {
     currentCart = data || currentCart;
     const { items, total, subtotal, discount, tax } = currentCart;
+
+    if (clockInterval) {
+      clearInterval(clockInterval);
+      clockInterval = null;
+    }
 
     if (!items || items.length === 0) {
       container.innerHTML = `
@@ -126,7 +132,7 @@ export async function renderCustomerDisplay(container) {
         timeEl.innerText = new Date().toLocaleTimeString();
       };
       updateTime();
-      setInterval(updateTime, 1000);
+      clockInterval = setInterval(updateTime, 1000);
     }
 
     // Render the QR — a direct merchant UPI payment link when a UPI ID is
