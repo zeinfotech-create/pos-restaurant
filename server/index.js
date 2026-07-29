@@ -1791,7 +1791,7 @@ async function broadcastAdminMetrics() {
 
 // Helper to send JSON messages securely
 function send(ws, obj) {
-    if (ws && ws.readyState === 1) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(obj));
     }
 }
@@ -1818,12 +1818,6 @@ function broadcastToLicense(licenseKey, payload, excludeWs = null) {
     for (const ws of group) {
         if (ws === excludeWs) continue;
         if (ws.readyState === WebSocket.OPEN) ws.send(json);
-    }
-}
-
-function send(ws, payload) {
-    if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(payload));
     }
 }
 
