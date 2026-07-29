@@ -2014,7 +2014,13 @@ wss.on('connection', (ws, req) => {
 
 
         const { type } = msg;
-        const licenseKey = msg.licenseKey || ws._licenseKey || 'GLOBAL';
+        // Use the connection's OWN registered identity, not whatever the
+        // message body claims — a client sending {licenseKey: 'someone-else'}
+        // in an 'update'/'delete'/'pos_fetch_all'/etc message body must not be
+        // able to act as a different tenant than the one it connected/
+        // registered as. ('register' itself is the one legitimate place a
+        // connection's licenseKey is established/changed — see that case.)
+        const licenseKey = ws._licenseKey || 'GLOBAL';
 
         // GLOBAL SUSPENSION GUARD: Check license status for EVERY message
         const status = await getLicenseStatus(licenseKey);
@@ -2137,7 +2143,11 @@ wss.on('connection', (ws, req) => {
                         break;
                     }
 
-                    const finalLicense = msgLicense || licenseKey || (data && data.licenseKey);
+                    // Prefer the connection's own established identity over
+                    // whatever the message/payload claims — only fall back to
+                    // those when this connection hasn't registered a real
+                    // licenseKey yet (still 'GLOBAL').
+                    const finalLicense = licenseKey !== 'GLOBAL' ? licenseKey : (msgLicense || (data && data.licenseKey));
                     console.log(`[Hub] [UPDATE] Store: ${store} | ID: ${data.id} | License: ${finalLicense}`);
 
                     // GUARD: Reject updates from unconfigured/GLOBAL clients to keep DB clean
@@ -2554,7 +2564,7 @@ wss.on('connection', (ws, req) => {
                 // --------------------------------------------------------
                 case 'delete': {
                     const { store, data, licenseKey: msgLicense } = msg;
-                    const finalLicense = msgLicense || licenseKey;
+                    const finalLicense = licenseKey !== 'GLOBAL' ? licenseKey : msgLicense;
 
                     // GUARD: Reject deletes from unconfigured/GLOBAL clients
                     if (!finalLicense || finalLicense === 'GLOBAL') return;
