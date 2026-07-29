@@ -422,7 +422,15 @@ app.whenReady().then(() => {
         return;
       }
       startServer();
-      waitForServer((ok) => { createMainWindow(); });
+      waitForServer((ok) => {
+        if (!ok) {
+          if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
+          dialog.showErrorBox('Server Error', 'The local sync server did not start in time. Please restart the app, or contact support if the problem continues.');
+          app.quit();
+          return;
+        }
+        createMainWindow();
+      });
     });
   } else {
     // In CI, skip splash, tray, mongo, and server entirely.

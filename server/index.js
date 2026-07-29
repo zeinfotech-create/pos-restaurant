@@ -3063,6 +3063,18 @@ wss.on('close', () => {
 // ============================================================
 // Start everything
 // ============================================================
+// Without this, a bind failure (most commonly EADDRINUSE from an orphaned
+// previous instance still holding the port) is an unhandled 'error' event on
+// the server's EventEmitter — Node treats that as an uncaught exception and
+// kills this process immediately, with nothing communicating WHY to the
+// Electron parent, which just sees the child exit and never explains it to
+// the user (main.cjs's waitForServer eventually times out after 30s, but
+// only if it's also taught to surface that failure — see its call site).
+server.on('error', (err) => {
+    console.error(`[Server] Failed to bind to port ${PORT}:`, err.code, err.message);
+    process.exit(1);
+});
+
 connectDB().then(() => {
     server.listen(PORT, () => {
         console.log(`🚀 POS Sync Hub running on ws://localhost:${PORT}`);
