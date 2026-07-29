@@ -2191,42 +2191,6 @@ export async function getInstantSalesData(branchId = null, startDate = null, end
   };
 }
 
-export async function getPaymentBreakdown(branchId = null, startDate = null, endDate = null) {
-  const allOrders = await getOrders(branchId, startDate, endDate);
-  const orders = allOrders.filter(o => o.status !== 'cancelled');
-  const allRet = await getReturns(branchId, startDate, endDate);
-  const returns = allRet.filter(r => r.type === 'sales');
-  const methods = { Cash: 0, Card: 0, UPI: 0, Wallet: 0, Credit: 0 };
-  orders.forEach(o => {
-    if (o.payments) {
-      o.payments.forEach(p => {
-        if (methods[p.method] !== undefined) methods[p.method] += p.amount;
-      });
-      if (o.isCredit) {
-        const paid = o.payments.reduce((s, px) => s + px.amount, 0);
-        methods.Credit += (o.total - paid);
-      }
-    } else {
-      const m = o.paymentMethod || 'Cash';
-      if (methods[m] !== undefined) methods[m] += o.total;
-    }
-  });
-
-  // Subtract returns
-  returns.forEach(r => {
-    if (r.payments && Array.isArray(r.payments)) {
-      r.payments.forEach(p => {
-        if (methods[p.method] !== undefined) methods[p.method] -= p.amount;
-      });
-    } else {
-      const m = r.paymentMethod || 'Cash';
-      if (methods[m] !== undefined) methods[m] -= r.total;
-    }
-  });
-
-  return Object.entries(methods).map(([method, amount]) => ({ method, amount }));
-}
-
 // ============================================================
 // Register / Shift Management
 // ============================================================
