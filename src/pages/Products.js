@@ -592,17 +592,26 @@ function convertToCSV(data) {
   if (data.length === 0) return "";
   // Columns: Name, SKU, Emoji, Cat, SubCat, Price, Stock, Barcode, HSN
   const headers = ['Name', 'SKU', 'Emoji', 'Category', 'SubCategory', 'Price', 'Stock', 'Barcode', 'HSN'];
-  const rows = data.map(p => [
-    `"${(p.name || '').replace(/"/g, '""')}"`,
-    `"${(p.sku || '').replace(/"/g, '""')}"`,
-    `"${(p.emoji || '📦').replace(/"/g, '""')}"`,
-    `"${(p.category || '').replace(/"/g, '""')}"`,
-    `"${(p.subCategory || '').replace(/"/g, '""')}"`,
-    p.price || 0,
-    p.stock || 0,
-    `"${(p.barcode || '').replace(/"/g, '""')}"`,
-    `"${(p.hsnCode || '').replace(/"/g, '""')}"`
-  ].join(','));
+  const rows = data.map(p => {
+    // Recompute from variants at export time instead of trusting the cached
+    // p.stock sum — a CSV row has no room for a per-variant breakdown, so
+    // this is the one place a variant product's true total stock is a hard
+    // requirement, not just a display nicety.
+    const stock = (p.variants && p.variants.length > 0)
+      ? p.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0)
+      : (p.stock || 0);
+    return [
+      `"${(p.name || '').replace(/"/g, '""')}"`,
+      `"${(p.sku || '').replace(/"/g, '""')}"`,
+      `"${(p.emoji || '📦').replace(/"/g, '""')}"`,
+      `"${(p.category || '').replace(/"/g, '""')}"`,
+      `"${(p.subCategory || '').replace(/"/g, '""')}"`,
+      p.price || 0,
+      stock,
+      `"${(p.barcode || '').replace(/"/g, '""')}"`,
+      `"${(p.hsnCode || '').replace(/"/g, '""')}"`
+    ].join(',');
+  });
   return [headers.join(','), ...rows].join('\n');
 }
 
