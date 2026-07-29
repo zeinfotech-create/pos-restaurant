@@ -9,6 +9,7 @@ import { openModal, closeModal, showConfirm, showAlert } from '../components/Mod
 import { syncEngine } from '../services/syncEngine.js';
 import { BackupService } from '../services/BackupService.js';
 import { MediaService } from '../services/MediaService.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 let activeSettingsTab = 'general';
 let advancedConnectionExpanded = false;
@@ -270,20 +271,20 @@ export async function renderSettings(container) {
             <div style="display:flex;flex-direction:column;gap:14px">
               <div class="form-group">
                 <label class="form-label">Store Name</label>
-                <input class="form-input" id="sStoreName" value="${s.storeName}" placeholder="My Store" />
+                <input class="form-input" id="sStoreName" value="${escapeHtml(s.storeName)}" placeholder="My Store" />
               </div>
               <div class="form-group">
                 <label class="form-label">Store Name Subtitle (optional)</label>
-                <input class="form-input" id="sStoreNameSubtitle" value="${s.storeNameSubtitle || ''}" placeholder="e.g. Group" />
+                <input class="form-input" id="sStoreNameSubtitle" value="${escapeHtml(s.storeNameSubtitle)}" placeholder="e.g. Group" />
                 <p style="font-size:11px; color:var(--text-muted); margin-top:4px">Shown on its own smaller line under the store name — on receipts, tax invoices, and anywhere else the store name is printed.</p>
               </div>
               <div class="form-group">
                 <label class="form-label">Store Address</label>
-                <input class="form-input" id="sStoreAddress" value="${s.storeAddress || ''}" placeholder="123 Main Street, City" />
+                <input class="form-input" id="sStoreAddress" value="${escapeHtml(s.storeAddress)}" placeholder="123 Main Street, City" />
               </div>
               <div class="form-group">
                 <label class="form-label">Store Phone</label>
-                <input class="form-input" id="sStorePhone" value="${s.storePhone || ''}" placeholder="e.g. 0413-2225777" />
+                <input class="form-input" id="sStorePhone" value="${escapeHtml(s.storePhone)}" placeholder="e.g. 0413-2225777" />
               </div>
               <div class="form-group">
                 <label class="form-label">GSTIN (optional)</label>
@@ -665,8 +666,8 @@ export async function renderSettings(container) {
 
     pContainer.innerHTML = methods.map(m => `
       <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:6px 12px; border-radius:8px; display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600">
-        ${m}
-        <button type="button" class="remove-payment-btn" data-method="${m}" style="background:none; border:none; color:var(--danger); cursor:pointer; padding:2px"><i class="fa-solid fa-circle-xmark"></i></button>
+        ${escapeHtml(m)}
+        <button type="button" class="remove-payment-btn" data-method="${escapeHtml(m)}" style="background:none; border:none; color:var(--danger); cursor:pointer; padding:2px"><i class="fa-solid fa-circle-xmark"></i></button>
       </div>
     `).join('');
 
@@ -918,7 +919,7 @@ function setupDataMaintenance(container) {
       if (result.length === 0) {
         showToast('No duplicate products found — nothing to merge.', 'info');
       } else {
-        const names = result.map(r => r.name).join(', ');
+        const names = result.map(r => escapeHtml(r.name)).join(', ');
         showToast(`Merged ${result.length} duplicate group(s): ${names}`, 'success');
       }
     } catch (err) {
@@ -1386,7 +1387,7 @@ async function renderStandaloneExportHistory() {
     return `
       <div class="history-item">
          <div>
-            <div style="font-weight:800; font-size:14px">${h.filename}</div>
+            <div style="font-weight:800; font-size:14px">${escapeHtml(h.filename)}</div>
             <div style="font-size:11px; color:var(--text-muted)">Created: ${date} • Size: ${size}</div>
          </div>
          <div style="display:flex; gap:8px">
@@ -1416,7 +1417,7 @@ async function renderStandaloneImportHistory() {
       <div class="history-item">
          <div>
             <div style="font-weight:800; font-size:14px">Restored ${h.count} Records</div>
-            <div style="font-size:11px; color:var(--text-muted)">Date: ${date} • Source: ${h.filename}</div>
+            <div style="font-size:11px; color:var(--text-muted)">Date: ${date} • Source: ${escapeHtml(h.filename)}</div>
          </div>
          <div class="badge badge-success" style="font-size:10px">SUCCESS</div>
       </div>
@@ -1435,7 +1436,7 @@ async function showSyncDetails(store, label) {
     return `
       <div style="padding:10px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center">
         <div>
-          <div style="font-size:13px; font-weight:700">${item.name || item.id || 'Unnamed Record'}</div>
+          <div style="font-size:13px; font-weight:700">${escapeHtml(item.name) || escapeHtml(item.id) || 'Unnamed Record'}</div>
           <div style="font-size:11px; color:var(--text-muted)">Modified: ${time} • ID: ${item.id}</div>
         </div>
         <div style="font-size:10px; color:var(--warning); font-weight:700; text-transform:uppercase">Local Only</div>
@@ -1584,7 +1585,7 @@ async function renderCategoriesTab() {
             <div class="category-item ${selectedCategoryId === cat.id ? 'active' : ''}" 
                  data-id="${cat.id}" 
                  style="padding:12px; border-radius:10px; border:1px solid ${selectedCategoryId === cat.id ? 'var(--primary)' : 'var(--border)'}; background:${selectedCategoryId === cat.id ? 'var(--primary-light-rgba)' : 'var(--bg-elevated)'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition:all 0.2s">
-              <span style="font-weight:700; font-size:13px">${cat.name}</span>
+              <span style="font-weight:700; font-size:13px">${escapeHtml(cat.name)}</span>
               <div style="display:flex; gap:8px">
                 <button class="btn-icon edit-category-btn" data-id="${cat.id}" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>
                 <button class="btn-icon delete-category-btn" data-id="${cat.id}" title="Delete"><i class="fa-solid fa-trash text-danger"></i></button>
@@ -1605,7 +1606,7 @@ async function renderCategoriesTab() {
         ` : `
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
             <div>
-              <div style="font-size:15px; font-weight:800; color:var(--text-main)">${selectedCat?.name} <i class="fa-solid fa-chevron-right" style="font-size:10px; margin:0 4px; opacity:0.5"></i> Sub-categories</div>
+              <div style="font-size:15px; font-weight:800; color:var(--text-main)">${escapeHtml(selectedCat?.name)} <i class="fa-solid fa-chevron-right" style="font-size:10px; margin:0 4px; opacity:0.5"></i> Sub-categories</div>
               <div style="font-size:11px; color:var(--text-muted)">Manage items within this group</div>
             </div>
             <button class="btn btn-primary btn-sm" id="addSubCategoryBtn">
@@ -1621,7 +1622,7 @@ async function renderCategoriesTab() {
               </div>
             ` : subCategories.map(sub => `
               <div style="padding:14px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:12px; display:flex; justify-content:space-between; align-items:center">
-                <span style="font-size:13px; font-weight:600">${sub.name}</span>
+                <span style="font-size:13px; font-weight:600">${escapeHtml(sub.name)}</span>
                 <div style="display:flex; gap:6px">
                    <button class="btn-icon edit-subcategory-btn" data-id="${sub.id}" title="Edit"><i class="fa-solid fa-pen" style="font-size:11px"></i></button>
                    <button class="btn-icon delete-subcategory-btn" data-id="${sub.id}" title="Delete"><i class="fa-solid fa-trash text-danger" style="font-size:11px"></i></button>
@@ -1692,7 +1693,7 @@ function setupCategoriesListeners(container) {
         body: `
           <div class="form-group">
             <label class="form-label">Category Name</label>
-            <input class="form-input" id="editCatName" value="${cat.name}" />
+            <input class="form-input" id="editCatName" value="${escapeHtml(cat.name)}" />
           </div>
         `,
         footer: `
@@ -1767,7 +1768,7 @@ function setupCategoriesListeners(container) {
         body: `
           <div class="form-group">
             <label class="form-label">Sub-category Name</label>
-            <input class="form-input" id="editSubName" value="${sub.name}" />
+            <input class="form-input" id="editSubName" value="${escapeHtml(sub.name)}" />
           </div>
         `,
         footer: `

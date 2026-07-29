@@ -60,7 +60,7 @@ export async function renderReports(container, subPage = 'sales') {
 
         <select class="form-select form-select-sm" id="report-branch-filter" style="width:180px">
           <option value="">All Branches</option>
-          ${(await getBranches()).map(b => `<option value="${b.id}" ${currentBranchFilter === b.id ? 'selected' : ''}>${b.name}</option>`).join('')}
+          ${(await getBranches()).map(b => `<option value="${b.id}" ${currentBranchFilter === b.id ? 'selected' : ''}>${escapeHtml(b.name)}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -513,7 +513,7 @@ async function renderSalesReport(container, cur) {
                 <td data-label="Product">
                   <div style="display:flex;align-items:center;gap:10px;justify-content:flex-start">
                     <span style="font-size:20px">${p.emoji || '📦'}</span>
-                    <span>${p.name}</span>
+                    <span>${escapeHtml(p.name)}</span>
                   </div>
                 </td>
                 <td data-label="Qty Sold">${p.qty}</td>
@@ -606,8 +606,8 @@ async function renderInstantSalesReport(container, cur) {
     return `
               <tr>
                 <td data-label="Date">${new Date(item.date).toLocaleString()}</td>
-                <td data-label="Customer">${item.customer}</td>
-                <td data-label="Item Name" class="font-bold">${item.name}</td>
+                <td data-label="Customer">${escapeHtml(item.customer)}</td>
+                <td data-label="Item Name" class="font-bold">${escapeHtml(item.name)}</td>
                 <td data-label="Qty">${item.qty}</td>
                 <td data-label="Price">${cur}${item.price.toFixed(2)}</td>
                 <td data-label="Total" class="text-success font-bold">${cur}${item.revenue.toFixed(2)}</td>
@@ -638,7 +638,7 @@ async function renderCategorySalesReport(container, cur) {
   function categoryRowHtml(c) {
     return `
               <tr>
-                <td data-label="Category"><span class="badge badge-ghost">${c.category}</span></td>
+                <td data-label="Category"><span class="badge badge-ghost">${escapeHtml(c.category)}</span></td>
                 <td data-label="Qty Sold">${c.qty}</td>
                 <td data-label="Revenue" class="font-bold">${cur}${c.revenue.toFixed(2)}</td>
                 <td data-label="Market Share">
@@ -1027,14 +1027,14 @@ async function renderOutstandingReport(container, cur) {
                 <tr>
                   <td data-label="Customer">
                     <div style="text-align:left">
-                      <div class="font-bold">${c.name}</div>
-                      <div style="font-size:11px;opacity:0.6">${c.phone}</div>
+                      <div class="font-bold">${escapeHtml(c.name)}</div>
+                      <div style="font-size:11px;opacity:0.6">${escapeHtml(c.phone)}</div>
                     </div>
                   </td>
                   <td data-label="Orders"><span class="badge badge-info">${c.orderCount} Orders</span></td>
                   <td data-label="Last Activity" style="font-size:12px">${new Date(c.lastOrderDate).toLocaleDateString()}</td>
                   <td data-label="Balance" class="font-bold" style="font-size:16px; color:var(--warning)">${cur}${c.totalOutstanding.toFixed(2)}</td>
-                  <td><button class="btn btn-ghost btn-sm sales-outstanding-view-btn" data-customer="${c.name}"><i class="fa-solid fa-eye"></i> View Orders</button></td>
+                  <td><button class="btn btn-ghost btn-sm sales-outstanding-view-btn" data-customer="${escapeHtml(c.name)}"><i class="fa-solid fa-eye"></i> View Orders</button></td>
                 </tr>
               `;
   }
@@ -1056,7 +1056,7 @@ async function renderOutstandingReport(container, cur) {
           const res = paginate(sortedOrders, modalPage, REPORT_PAGE_SIZE);
           modalPage = res.page;
           openModal({
-            title: `Outstanding Orders — ${c.name}`,
+            title: `Outstanding Orders — ${escapeHtml(c.name)}`,
             body: `
               <div class="table-wrap">
                 <table class="responsive-table">
@@ -1187,7 +1187,7 @@ async function openPurchaseReturnModal(purchase, cur) {
     return returnedItems.map((item, idx) => `
       <div class="payment-row" style="margin-bottom:12px; display:flex; align-items:center; gap:12px; background:var(--bg-elevated); padding:12px; border-radius:8px ${item.availableQty <= 0 ? 'opacity:0.5' : ''}">
         <div style="flex:1">
-          <div class="font-bold">${item.emoji || '📦'} ${item.name}</div>
+          <div class="font-bold">${item.emoji || '📦'} ${escapeHtml(item.name)}</div>
           <div style="font-size:11px; opacity:0.6">
             Original: ${item.qty} | 
             <span class="text-danger">Returned: ${item.alreadyReturned}</span> | 
@@ -1352,7 +1352,7 @@ async function renderCustomerReport(container, cur) {
               <tr>
                 <td data-label="Customer">
                   <div style="text-align:left">
-                    <div class="font-bold">${c.name}</div>
+                    <div class="font-bold">${escapeHtml(c.name)}</div>
                     <div style="font-size:10px;margin-top:2px">
                       <span style="background:${c.tier.color}20;color:${c.tier.color};padding:1px 6px;border-radius:10px;border:1px solid ${c.tier.color}40;text-transform:uppercase;font-weight:700;font-size:9px">
                         <i class="fa-solid ${c.tier.icon}"></i> ${c.tier.name}
@@ -1361,7 +1361,7 @@ async function renderCustomerReport(container, cur) {
                     <div style="font-size:11px;color:var(--text-muted);margin-top:2px">ID: ${c.id}</div>
                   </div>
                 </td>
-                <td data-label="Phone">${c.phone}</td>
+                <td data-label="Phone">${escapeHtml(c.phone)}</td>
                 <td data-label="Orders">${c.orderCount}</td>
                 <td data-label="Total Spent" class="font-bold text-accent">${cur}${c.totalSpent.toFixed(2)}</td>
                 <td data-label="Loyalty Points" class="font-bold text-success">${c.loyaltyPoints || 0} Pts</td>
@@ -1422,11 +1422,11 @@ async function renderSupplierReport(container, cur) {
               <tr>
                 <td data-label="Supplier">
                   <div style="text-align:left">
-                    <div class="font-bold">${s.name}</div>
+                    <div class="font-bold">${escapeHtml(s.name)}</div>
                     <div style="font-size:11px;color:var(--text-muted)">ID: ${s.id}</div>
                   </div>
                 </td>
-                <td data-label="Contact">${s.contact}</td>
+                <td data-label="Contact">${escapeHtml(s.contact)}</td>
                 <td data-label="Orders">${s.orderCount}</td>
                 <td data-label="Total Spending" class="text-danger font-bold">${cur}${s.totalSpend.toFixed(2)}</td>
               </tr>
@@ -1893,11 +1893,11 @@ async function renderStaffIncentiveReport(container, cur) {
               <tr>
                 <td data-label="Staff Member">
                   <div style="text-align:left">
-                    <div class="font-bold">${s.name}</div>
-                    <div style="font-size:11px;opacity:0.6">${s.phone || ''}</div>
+                    <div class="font-bold">${escapeHtml(s.name)}</div>
+                    <div style="font-size:11px;opacity:0.6">${escapeHtml(s.phone || '')}</div>
                   </div>
                 </td>
-                <td data-label="Role"><span class="badge badge-primary">${s.specialization || 'Artist'}</span></td>
+                <td data-label="Role"><span class="badge badge-primary">${escapeHtml(s.specialization || 'Artist')}</span></td>
                 <td data-label="Orders">${s.orderCount}</td>
                 <td data-label="Comm %" class="text-accent font-bold">${s.commissionRate || 0}%</td>
                 <td data-label="Total Earnings" class="text-success font-bold" style="font-size:16px">${cur}${s.totalEarned.toFixed(2)}</td>
@@ -1909,7 +1909,7 @@ async function renderStaffIncentiveReport(container, cur) {
     return `
               <tr>
                 <td data-label="Date" style="font-size:11px">${new Date(i.date).toLocaleDateString()}</td>
-                <td data-label="Staff">${i.staffName}</td>
+                <td data-label="Staff">${escapeHtml(i.staffName)}</td>
                 <td data-label="Order ID" style="font-size:11px;opacity:0.7">${i.orderId}</td>
                 <td data-label="Total">${cur}${i.orderTotal.toFixed(2)}</td>
                 <td data-label="Incentive" class="font-bold text-success">+${cur}${i.amount.toFixed(2)}</td>
@@ -1987,8 +1987,8 @@ async function renderRegisterReport(container, cur) {
   `;
 
   function shiftRowHtml(s) {
-                const branchName = branches.find(b => b.id === s.branchId)?.name || 'Branch';
-                const regName = registers.find(r => r.id === s.registerId)?.name || s.registerId || 'Main Terminal';
+                const branchName = escapeHtml(branches.find(b => b.id === s.branchId)?.name || 'Branch');
+                const regName = escapeHtml(registers.find(r => r.id === s.registerId)?.name || s.registerId || 'Main Terminal');
                 const openDate = new Date(s.openedAt);
                 const closeDate = s.closedAt ? new Date(s.closedAt) : null;
                 
@@ -2027,7 +2027,7 @@ async function renderRegisterReport(container, cur) {
                       <div style="font-size:10px;opacity:0.5">${branchName}</div>
                     </td>
                     <td data-label="Cashier">
-                      <div class="badge badge-ghost" style="font-size:11px">${s.openedBy || 'Staff'}</div>
+                      <div class="badge badge-ghost" style="font-size:11px">${escapeHtml(s.openedBy || 'Staff')}</div>
                     </td>
                     <td data-label="Sales">
                       <div class="text-success font-bold">${cur}${(s.sales || 0).toFixed(2)}</div>
@@ -2196,12 +2196,12 @@ async function renderLowStockReport(container, cur) {
                     <div style="display:flex;align-items:center;gap:12px;justify-content:flex-start">
                       <span style="font-size:24px">${p.emoji || '📦'}</span>
                       <div style="text-align:left">
-                        <div class="font-bold">${p.name}</div>
+                        <div class="font-bold">${escapeHtml(p.name)}</div>
                         <div style="font-size:11px;opacity:0.6">ID: ${p.id}</div>
                       </div>
                     </div>
                   </td>
-                  <td data-label="Category"><span class="badge badge-ghost">${p.category || 'General'}</span></td>
+                  <td data-label="Category"><span class="badge badge-ghost">${escapeHtml(p.category || 'General')}</span></td>
                   <td data-label="Stock" class="font-bold cursor-help" title="${isVariant ? 'Threshold varies by variant' : `Threshold: ${threshold}`}">
                     <span class="${isOut ? 'text-danger' : 'text-warning'}">${parseFloat(Number(p.stock || 0).toFixed(3))}${isVariant ? ' (Total)' : ''}</span>
                   </td>
@@ -2276,7 +2276,7 @@ async function renderReturnsReport(container, cur) {
                   <td data-label="Type"><span class="badge badge-${r.type === 'sales' ? 'accent' : 'primary'}">${r.type.toUpperCase()}</span></td>
                   <td data-label="Reference">${r.orderId || r.purchaseId || 'N/A'}</td>
                   <td data-label="Return Items" style="font-size:11px">
-                    ${r.items.map(i => `${i.qty} x ${i.name}`).join('<br>')}
+                    ${r.items.map(i => `${i.qty} x ${escapeHtml(i.name)}`).join('<br>')}
                   </td>
                   <td data-label="Total Value" class="font-bold text-danger">${cur}${r.total.toFixed(2)}</td>
                   <td data-label="Method"><span class="badge badge-warning">${r.refundMethod || 'Cash'}</span></td>
@@ -2492,8 +2492,8 @@ async function renderLoginActivityReport(container, cur) {
             <span class="badge badge-primary-light" style="font-size:11px">${log.browser || 'Browser'}</span>
           </td>
           <td data-label="Register">
-             <div style="font-size:13px">${log.registerName || 'N/A'}</div>
-             <div style="font-size:10px;opacity:0.5">${log.branchName || ''}</div>
+             <div style="font-size:13px">${escapeHtml(log.registerName || 'N/A')}</div>
+             <div style="font-size:10px;opacity:0.5">${escapeHtml(log.branchName || '')}</div>
           </td>
         </tr>
       `;
@@ -2562,7 +2562,7 @@ function buildTaxInvoiceHtml(order, settings, cur) {
   // (this invoice, receipts, etc.), not re-derived ad hoc per place.
   const storeNameSub = (settings.storeNameSubtitle || '').trim() || null;
   const dateStr = new Date(order.date).toLocaleDateString('en-GB');
-  const customerName = order.customer?.name || 'Walk-in Customer';
+  const customerName = escapeHtml(order.customer?.name || 'Walk-in Customer');
   const rate = order.taxRate || 0;
   const halfRate = (rate / 2).toFixed(1);
   const gstAmt = order.tax || 0;
@@ -2571,7 +2571,7 @@ function buildTaxInvoiceHtml(order, settings, cur) {
   const itemRows = (order.items && order.items.length) ? order.items.map((item, idx) => `
     <tr>
       <td style="padding:6px 8px; border-right:1px solid #ccc;">${idx + 1}</td>
-      <td style="padding:6px 8px; border-right:1px solid #ccc;">${item.name}${item.variantName ? ` (${item.variantName})` : ''}</td>
+      <td style="padding:6px 8px; border-right:1px solid #ccc;">${escapeHtml(item.name)}${item.variantName ? ` (${escapeHtml(item.variantName)})` : ''}</td>
       <td style="padding:6px 8px; border-right:1px solid #ccc;">${item.hsnCode || '-'}</td>
       <td style="padding:6px 8px; text-align:right; border-right:1px solid #ccc;">${item.qty}</td>
       <td style="padding:6px 8px; text-align:right; border-right:1px solid #ccc;">${(item.price || 0).toFixed(2)}</td>

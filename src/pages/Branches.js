@@ -299,7 +299,7 @@ async function openBranchForm(branch = null) {
                   <label class="form-label required">Branch Name</label>
                   <div class="search-input-wrap">
                     <i class="fa-solid fa-shop"></i>
-                    <input class="form-input" id="bName" placeholder="e.g. Mumbai Station" value="${branch?.name || ''}" style="font-weight:700; font-size:16px" />
+                    <input class="form-input" id="bName" placeholder="e.g. Mumbai Station" value="${escapeHtml(branch?.name)}" style="font-weight:700; font-size:16px" />
                   </div>
                </div>
                <button class="btn btn-ghost btn-xs mt-8" id="removeBranchImgBtn" style="color:var(--danger); ${branch?.image ? '' : 'display:none'}"><i class="fa-solid fa-trash mr-4"></i> Remove Logo</button>
@@ -313,7 +313,7 @@ async function openBranchForm(branch = null) {
           <label class="form-label">Physical Address</label>
           <div class="search-input-wrap">
             <i class="fa-solid fa-location-dot"></i>
-            <input class="form-input" id="bAddress" placeholder="Full store address" value="${branch?.address || ''}" style="padding-left:36px" />
+            <input class="form-input" id="bAddress" placeholder="Full store address" value="${escapeHtml(branch?.address)}" style="padding-left:36px" />
           </div>
         </div>
 
@@ -321,7 +321,7 @@ async function openBranchForm(branch = null) {
           <label class="form-label">Contact Number</label>
           <div class="search-input-wrap">
             <i class="fa-solid fa-phone"></i>
-            <input class="form-input" id="bPhone" placeholder="Branch phone line" value="${branch?.phone || ''}" style="padding-left:36px" />
+            <input class="form-input" id="bPhone" placeholder="Branch phone line" value="${escapeHtml(branch?.phone)}" style="padding-left:36px" />
           </div>
         </div>
 
@@ -413,7 +413,7 @@ async function openRegisterList(branch) {
   const isOverLimit = regs.length >= limits.maxRegistersPerBranch;
 
   openModal({
-    title: `Registers: ${branch.name}`,
+    title: `Registers: ${escapeHtml(branch.name)}`,
     body: `
       <div style="margin-bottom:16px; display:flex; justify-content:space-between; align-items:center">
         <h3 style="font-size:14px; opacity:0.7">Defined Registers</h3>
@@ -446,7 +446,7 @@ async function openRegisterList(branch) {
                 <tr style="${restricted ? 'opacity:0.5; background:rgba(0,0,0,0.05)' : ''}">
                   <td data-label="Register Name">
                     <div style="display:flex; align-items:center; gap:8px">
-                      ${r.name}
+                      ${escapeHtml(r.name)}
                       ${restricted ? '<span style="font-size:9px; background:var(--warning); color:black; padding:2px 6px; border-radius:4px; font-weight:700">LOCKED</span>' : ''}
                     </div>
                   </td>
@@ -480,7 +480,7 @@ async function openRegisterList(branch) {
           <div style="text-align:center; padding: 20px 0;">
             <i class="fa-solid fa-trash-can text-danger" style="font-size: 48px; margin-bottom: 24px;"></i>
             <h3 style="margin-bottom:8px">Confirm Delete</h3>
-            <p style="color:var(--text-muted); font-size:14px; margin-bottom:32px">Are you sure you want to delete register <b>${r.name}</b>?</p>
+            <p style="color:var(--text-muted); font-size:14px; margin-bottom:32px">Are you sure you want to delete register <b>${escapeHtml(r.name)}</b>?</p>
             
             <div style="display:flex; gap:16px; justify-content:center;">
               <button class="btn btn-ghost" onclick="closeModal()" style="flex:1">Cancel</button>
@@ -513,7 +513,7 @@ async function openAddRegisterModal(branch) {
   )].filter(name => !currentNames.has(name.toLowerCase()));
 
   openModal({
-    title: `Add Register: ${branch.name}`,
+    title: `Add Register: ${escapeHtml(branch.name)}`,
     body: `
       <div class="form-group">
         <label class="form-label">Register Name *</label>
@@ -525,9 +525,9 @@ async function openAddRegisterModal(branch) {
           <label class="form-label" style="font-size:12px; opacity:0.7">Suggestions from other branches:</label>
           <div class="flex flex-wrap gap-2" style="margin-top:8px">
             ${suggestedNames.map(name => `
-              <button class="btn btn-ghost btn-sm suggestion-tag" data-name="${name}" 
+              <button class="btn btn-ghost btn-sm suggestion-tag" data-name="${escapeHtml(name)}"
                 style="background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.2); padding:4px 10px; font-size:12px; border-radius:100px">
-                ${name}
+                ${escapeHtml(name)}
               </button>
             `).join('')}
           </div>

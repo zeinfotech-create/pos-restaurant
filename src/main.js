@@ -81,7 +81,7 @@ async function renderSidebar() {
     <div class="sidebar-header" style="position:relative; display:flex; align-items:center; justify-content:space-between; padding-bottom:16px">
       <div class="sidebar-logo" style="font-weight:800; font-size:18px; color:var(--primary-light); padding-left:8px; display:flex; align-items:center;">
         <i class="fa-solid fa-rocket mr-8"></i>
-        <span style="letter-spacing:-0.5px">${store.branch?.name || settings.storeName || 'POS'}</span>
+        <span style="letter-spacing:-0.5px">${escapeHtml(store.branch?.name || settings.storeName) || 'POS'}</span>
       </div>
       <button id="toggleCollapseBtn" title="${isSidebarCollapsed ? 'Expand' : 'Collapse'}" 
         style="width:28px; height:28px; border-radius:8px; background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-muted); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all var(--transition)">
@@ -229,9 +229,9 @@ async function openUserProfileModal() {
     body: `
       <div style="text-align:center; padding:16px 0">
         <div class="profile-avatar" style="width:64px; height:64px; font-size:28px; margin:0 auto 16px">${/^[a-zA-Z]/.test(store.user?.name || '') ? store.user.name.charAt(0).toUpperCase() : '<i class="fa-solid fa-user"></i>'}</div>
-        <div style="font-size:18px; font-weight:700; color:var(--text-primary)">${store.user?.name || 'User'}</div>
+        <div style="font-size:18px; font-weight:700; color:var(--text-primary)">${escapeHtml(store.user?.name) || 'User'}</div>
         <div style="font-size:13px; color:var(--text-muted); margin-bottom:20px">
-          ${store.branch?.name || 'Branch'} · ${currentRegister}
+          ${escapeHtml(store.branch?.name) || 'Branch'} · ${escapeHtml(currentRegister)}
         </div>
 
         <div style="display:flex; flex-direction:column; gap:10px">
@@ -867,7 +867,7 @@ async function renderMobileCart() {
           <span class="cart-meta-icon"><i class="fa-solid fa-calendar-check" style="color:var(--accent)"></i></span>
           <div style="flex:1;min-width:0">
             <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Appointment</div>
-            <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${store.selectedCustomer?.name || 'Walk-in'}</div>
+            <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(store.selectedCustomer?.name) || 'Walk-in'}</div>
           </div>
           <button class="cart-meta-add" id="mClearAppoCust" title="Clear"><i class="fa-solid fa-xmark"></i></button>
         </div>
@@ -887,7 +887,7 @@ async function renderMobileCart() {
             ${item.image ? `<img src="${item.image}" style="width:100%;height:100%;object-fit:cover" />` : (item.emoji || '📦')}
           </div>
           <div class="cart-item-info" style="min-width:0;flex:1">
-            <div class="cart-item-name" title="Double-click to edit">${item.name}${item.variantName ? ` <span style="font-size:10px;opacity:0.6">(${item.variantName})</span>` : ''}</div>
+            <div class="cart-item-name" title="Double-click to edit">${escapeHtml(item.name)}${item.variantName ? ` <span style="font-size:10px;opacity:0.6">(${escapeHtml(item.variantName)})</span>` : ''}</div>
             <div class="cart-item-price">
               ${cur}${item.price}
               ${item.unit ? `<span style="font-size:10px;opacity:0.55;margin-left:2px">/${item.unit}</span>` : ''}
@@ -1316,7 +1316,7 @@ async function openBranchSwitcher() {
       body: `
         <div style="text-align:center;padding:12px 0">
           <i class="fa-solid fa-cash-register" style="font-size:48px;color:var(--warning);margin-bottom:16px"></i>
-          <p style="font-size:14px;margin-bottom:8px">Your current register (<b>${store.branch?.name}</b>) has an active shift.</p>
+          <p style="font-size:14px;margin-bottom:8px">Your current register (<b>${escapeHtml(store.branch?.name)}</b>) has an active shift.</p>
           <p style="font-size:13px;color:var(--text-muted)">We recommend closing your current shift before switching branches.</p>
         </div>
       `,
@@ -1349,14 +1349,14 @@ async function showBranchList(branches, currentBranchId) {
     title: '<i class="fa-solid fa-store"></i> Switch Branch',
     body: `
       <div style="display:flex;flex-direction:column;gap:10px;padding:4px">
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Current: <b>${store.branch?.name || 'None'}</b></p>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Current: <b>${escapeHtml(store.branch?.name) || 'None'}</b></p>
         ${branches.map(b => `
           <button class="btn btn-ghost branch-switch-btn" data-id="${b.id}"
             style="justify-content:flex-start;height:54px;padding:0 20px;border:1px solid ${b.id === currentBranchId ? 'var(--primary)' : 'var(--border)'};${b.id === currentBranchId ? 'background:rgba(99,102,241,0.08)' : ''}">
             <i class="fa-solid fa-store mr-12" style="color:${b.id === currentBranchId ? 'var(--primary)' : 'var(--text-muted)'}"></i>
             <div style="text-align:left">
-              <div class="font-bold">${b.name}${b.id === currentBranchId ? ' <span style="font-size:10px;color:var(--primary);font-weight:600;margin-left:4px">● Active</span>' : ''}</div>
-              ${b.address ? `<div style="font-size:11px;opacity:0.6">${b.address}</div>` : ''}
+              <div class="font-bold">${escapeHtml(b.name)}${b.id === currentBranchId ? ' <span style="font-size:10px;color:var(--primary);font-weight:600;margin-left:4px">● Active</span>' : ''}</div>
+              ${b.address ? `<div style="font-size:11px;opacity:0.6">${escapeHtml(b.address)}</div>` : ''}
             </div>
           </button>
         `).join('')}
@@ -1387,7 +1387,7 @@ async function openRegisterPickerForBranch(branch, branches) {
           <i class="fa-solid fa-cash-register mr-12" style="color:${hasOpenShift ? 'var(--success)' : 'var(--text-muted)'}"></i>
           <div style="text-align:left;flex:1">
             <div class="font-bold">
-              ${r.name}
+              ${escapeHtml(r.name)}
               ${restricted ? '<span style="font-size:9px; background:var(--warning); color:black; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">PREMIUM ONLY</span>' : ''}
             </div>
             <div style="font-size:11px;opacity:0.6">
@@ -1400,7 +1400,7 @@ async function openRegisterPickerForBranch(branch, branches) {
   }));
 
   openModal({
-    title: `<i class="fa-solid fa-cash-register"></i> Select Register — ${branch.name}`,
+    title: `<i class="fa-solid fa-cash-register"></i> Select Register — ${escapeHtml(branch.name)}`,
     body: `
       <div style="display:flex;flex-direction:column;gap:10px;padding:4px">
         ${registers.length === 0
@@ -1437,13 +1437,13 @@ async function openRegisterPickerForBranch(branch, branches) {
       closeModal();
 
       if (!hasOpenShift && registerId) {
-        showToast(`Switched to ${branch.name}`, 'info');
+        showToast(`Switched to ${escapeHtml(branch.name)}`, 'info');
         setTimeout(() => {
           openModal({
             title: '<i class="fa-solid fa-key"></i> Open Register Shift',
             body: `
               <div style="text-align:center;margin-bottom:16px">
-                <p style="font-size:13px;color:var(--text-muted)">The register at <b>${branch.name}</b> is currently closed. Enter opening cash to start your shift.</p>
+                <p style="font-size:13px;color:var(--text-muted)">The register at <b>${escapeHtml(branch.name)}</b> is currently closed. Enter opening cash to start your shift.</p>
               </div>
               <div class="form-group">
                 <label class="form-label">Opening Cash Balance</label>
@@ -1463,18 +1463,18 @@ async function openRegisterPickerForBranch(branch, branches) {
             const bal = document.getElementById('switchOpenBal').value;
             await db.openRegister(branch.id, sess.user.name || sess.user.username || 'Admin', bal, registerId);
             closeModal();
-            showToast(`Switched to ${branch.name} · Register opened!`, 'success');
+            showToast(`Switched to ${escapeHtml(branch.name)} · Register opened!`, 'success');
             setTimeout(() => window.location.reload(), 400);
           };
 
           document.getElementById('skipOpenRegBtn').onclick = () => {
             closeModal();
-            showToast(`Switched to ${branch.name}`, 'success');
+            showToast(`Switched to ${escapeHtml(branch.name)}`, 'success');
             setTimeout(() => window.location.reload(), 400);
           };
         }, 150);
       } else {
-        showToast(`Switched to ${branch.name}${hasOpenShift ? ' · Shift resuming' : ''}`, 'success');
+        showToast(`Switched to ${escapeHtml(branch.name)}${hasOpenShift ? ' · Shift resuming' : ''}`, 'success');
         setTimeout(() => window.location.reload(), 400);
       }
     };

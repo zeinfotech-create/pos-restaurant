@@ -1,6 +1,7 @@
 import { getProducts, getCategories, getSettings, getProductStockAcrossBranches, getStockStatus } from '../db.js';
 import { store } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 let catalogSearch = '';
 let catalogCategory = 'All';
@@ -114,7 +115,7 @@ export async function renderCatalog(container) {
                 <div style="padding:0 10px; color:var(--text-muted); font-size:14px;"><i class="fa-solid fa-layer-group"></i></div>
                 <select id="catalogCategorySelect" style="appearance:none; -webkit-appearance:none; background:transparent; color:var(--text-main); border:none; outline:none; font-size:13px; font-weight:700; padding:8px 32px 8px 0; cursor:pointer; width:100%;">
                   <option value="All">All Categories</option>
-                  ${cats.map(c => `<option value="${c.name}" ${catalogCategory === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}
+                  ${cats.map(c => `<option value="${escapeHtml(c.name)}" ${catalogCategory === c.name ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
                 </select>
                 <i class="fa-solid fa-chevron-down" style="position:absolute; right:14px; top:50%; transform:translateY(-50%); font-size:10px; color:var(--text-muted); pointer-events:none;"></i>
               </div>
@@ -451,7 +452,7 @@ async function renderGrid(cur) {
             <div style="padding: 16px; flex: 1; display:flex; flex-direction:column; background: var(--bg-elevated);">
               <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 8px;">
                 <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--primary); font-weight: 800; background: var(--bg-surface); border:1px solid var(--border); padding: 4px 8px; border-radius: 6px; display:inline-block;">
-                  ${p.category}
+                  ${escapeHtml(p.category)}
                 </div>
                 ${p.location && (p.location.floor || p.location.row || p.location.rack) ? `
                   <div style="font-size:10px; color:var(--text-muted); font-weight:700; display:flex; align-items:center; gap:4px; max-width:50%; justify-content:flex-end;" title="Location">
@@ -460,7 +461,7 @@ async function renderGrid(cur) {
                 ` : ''}
               </div>
               
-              <div style="font-weight: 800; font-size: 16px; color: var(--text-main); margin-bottom: 4px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; padding-right:8px;">${p.name}</div>
+              <div style="font-weight: 800; font-size: 16px; color: var(--text-main); margin-bottom: 4px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; padding-right:8px;">${escapeHtml(p.name)}</div>
               ${p.sku ? `<div style="font-size:11px; color:var(--text-muted); font-family:monospace; font-weight:600; margin-bottom:12px;">SKU: ${p.sku}</div>` : ''}
               
               <div style="margin-top: auto; display: flex; align-items: flex-end; justify-content: space-between; padding-top:12px;">
@@ -530,7 +531,7 @@ async function openProductDetailsModal(p, cur) {
           <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:8px;">
             ${branchesStock.map(bs => `
               <div style="background:var(--bg-main); padding:10px 14px; border-radius:8px; border:1px solid var(--border);">
-                <div style="font-size:11px; color:var(--text-muted); font-weight:700; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">${bs.branchName}</div>
+                <div style="font-size:11px; color:var(--text-muted); font-weight:700; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">${escapeHtml(bs.branchName)}</div>
                 <div style="font-size:16px; font-weight:900; color:${bs.stock > 0 ? 'var(--success)' : 'var(--danger)'}">${bs.stock} <span style="font-size:11px; font-weight:600;">${bs.stock > 0 ? 'Units' : 'Out'}</span></div>
               </div>
             `).join('')}
@@ -563,7 +564,7 @@ async function openProductDetailsModal(p, cur) {
         <div style="display:flex; flex-direction:column; gap:8px;">
           ${p.variants.map(v => `
             <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-main); padding:12px 16px; border-radius:12px; border:1px solid var(--border);">
-              <div style="font-size:14px; font-weight:700; color:var(--text-main);">${v.name}</div>
+              <div style="font-size:14px; font-weight:700; color:var(--text-main);">${escapeHtml(v.name)}</div>
               <div style="display:flex; align-items:center; gap:16px;">
                 <div style="font-size:12px; color:${v.stock > 0 ? 'var(--text-muted)' : 'var(--danger)'}; font-weight:700;">
                   ${v.stock > 0 ? `${parseFloat(Number(v.stock).toFixed(3))} in stock` : 'Out of stock'}
@@ -598,10 +599,10 @@ async function openProductDetailsModal(p, cur) {
           <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
             <div>
               <div style="display:flex; gap:8px; margin-bottom:8px;">
-                <span class="badge" style="background:var(--primary); color:#fff; font-weight:800; font-size:10px; padding:4px 8px;">${p.category}</span>
-                ${p.subCategory ? `<span class="badge" style="background:var(--bg-main); color:var(--text-muted); font-weight:700; font-size:10px; padding:4px 8px; border:1px solid var(--border);">${p.subCategory}</span>` : ''}
+                <span class="badge" style="background:var(--primary); color:#fff; font-weight:800; font-size:10px; padding:4px 8px;">${escapeHtml(p.category)}</span>
+                ${p.subCategory ? `<span class="badge" style="background:var(--bg-main); color:var(--text-muted); font-weight:700; font-size:10px; padding:4px 8px; border:1px solid var(--border);">${escapeHtml(p.subCategory)}</span>` : ''}
               </div>
-              <h2 style="font-size:26px; font-weight:900; color:var(--text-main); margin:0; line-height:1.2; letter-spacing:-0.5px;">${p.name}</h2>
+              <h2 style="font-size:26px; font-weight:900; color:var(--text-main); margin:0; line-height:1.2; letter-spacing:-0.5px;">${escapeHtml(p.name)}</h2>
             </div>
             ${(!p.variants || p.variants.length === 0) ? stockBadge : ''}
           </div>

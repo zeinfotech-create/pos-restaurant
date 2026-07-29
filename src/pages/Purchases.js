@@ -4,6 +4,7 @@ import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { initDateRangePicker, getDefaultRange } from '../utils/dateRangeHelper.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 let currentPage = 1;
 const itemsPerPage = 10;
@@ -125,7 +126,7 @@ export async function renderPurchases(container, subPage) {
           <td data-label="Date">${p.date ? new Date(p.date).toLocaleDateString() : 'N/A'}</td>
           <td data-label="Purchase ID" class="font-mono text-sm">${p.id || 'N/A'}</td>
           <td data-label="Invoice #" class="font-mono text-sm">${p.supplierInvoiceNo || 'N/A'}</td>
-          <td data-label="Supplier">${p.supplierName || 'Unknown Supplier'}</td>
+          <td data-label="Supplier">${escapeHtml(p.supplierName) || 'Unknown Supplier'}</td>
           <td data-label="Total Amount" class="font-bold">\u20B9${p.total.toFixed(2)}</td>
           <td data-label="Status"><span class="badge ${p.status === 'Completed' ? 'badge-success' : 'badge-warning'}">${p.status}</span></td>
           <td>
@@ -242,7 +243,7 @@ export async function renderPurchases(container, subPage) {
           <label class="filter-label">Supplier</label>
           <select class="form-select" id="purSupFilter">
             <option value="all">All Suppliers</option>
-            ${suppliers.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+            ${suppliers.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -344,7 +345,7 @@ export async function openPurchaseForm(container) {
     if (!list) return;
     list.innerHTML = selectedItems.map((item, i) => `
       <div class="variant-row" style="margin-bottom:8px">
-        <span style="flex:2">${item.name}</span>
+        <span style="flex:2">${escapeHtml(item.name)}</span>
         <input class="form-input" style="flex:1" type="number" min="0" placeholder="Qty" data-idx="${i}" data-key="qty" value="${item.qty}">
         <input class="form-input" style="flex:1" type="number" placeholder="Cost" data-idx="${i}" data-key="cost" value="${item.cost}">
         <button class="btn btn-icon remove-item" data-idx="${i}" style="color:var(--danger)"><i class="fa-solid fa-trash"></i></button>
@@ -398,7 +399,7 @@ export async function openPurchaseForm(container) {
             <div class="search-input-wrap">
               <i class="fa-solid fa-truck-field"></i>
               <select class="form-select" id="purSupplier" style="padding-left:36px; font-weight:600">
-              ${suppliers.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('')}
+              ${suppliers.map(s => '<option value="' + s.id + '">' + escapeHtml(s.name) + '</option>').join('')}
             </select>
           </div>
        </div>
@@ -422,7 +423,7 @@ export async function openPurchaseForm(container) {
         <div class="search-input-wrap" style="flex:1">
           <i class="fa-solid fa-barcode"></i>
           <select class="form-select" id="addProductSelect" style="padding-left:36px; height:42px">
-            ${products.map(p => '<option value="' + p.id + '">' + p.name + ' (SKU: ' + (p.sku || 'N/A') + ')</option>').join('')}
+            ${products.map(p => '<option value="' + p.id + '">' + escapeHtml(p.name) + ' (SKU: ' + escapeHtml(p.sku || 'N/A') + ')</option>').join('')}
           </select>
           </div>
           <button class="btn btn-primary" id="addItemBtn" style="height:42px; padding: 0 20px">
@@ -541,7 +542,7 @@ export async function openPurchaseForm(container) {
     // way an untouched variant row (qty 0) is — that's a mistake to fix, not
     // "this variant wasn't restocked this time".
     const negativeItem = selectedItems.find(i => i.qty < 0);
-    if (negativeItem) { showToast(`"${negativeItem.name}": quantity can't be negative`, 'error'); return; }
+    if (negativeItem) { showToast(`"${escapeHtml(negativeItem.name)}": quantity can't be negative`, 'error'); return; }
 
     // Variant rows start at qty 0 (a product can have several variants added
     // at once but this purchase may only cover some of them) — drop the ones
@@ -554,7 +555,7 @@ export async function openPurchaseForm(container) {
     // reducing it, which is the opposite of what a purchase record should ever do.
     const invalidItem = itemsToProcess.find(i => i.cost < 0);
     if (invalidItem) {
-      showToast(`"${invalidItem.name}": cost can't be negative`, 'error');
+      showToast(`"${escapeHtml(invalidItem.name)}": cost can't be negative`, 'error');
       return;
     }
 
@@ -641,7 +642,7 @@ function viewPurchaseDetails(purchase) {
       <div style="margin-bottom:16px; display:flex; justify-content:space-between; align-items:flex-start">
         <div>
           <div style="font-size:14px;color:var(--text-secondary)">Supplier</div>
-          <div class="font-bold">${purchase.supplierName || 'Unknown Supplier'}</div>
+          <div class="font-bold">${escapeHtml(purchase.supplierName) || 'Unknown Supplier'}</div>
           <div style="font-size:12px;opacity:0.6">${purchase.date ? new Date(purchase.date).toLocaleString() : 'N/A'}</div>
           <div style="font-size:12px;margin-top:4px">Invoice #: <span class="font-mono font-bold">${purchase.supplierInvoiceNo || 'N/A'}</span></div>
         </div>
@@ -659,7 +660,7 @@ function viewPurchaseDetails(purchase) {
           <tbody>
             ${purchase.items.map(i => `
               <tr>
-                <td data-label="Product">${i.name}</td>
+                <td data-label="Product">${escapeHtml(i.name)}</td>
                 <td data-label="Qty">${i.qty}</td>
                 <td data-label="Cost">\u20B9${i.cost.toFixed(2)}</td>
                 <td data-label="Subtotal" class="font-bold">\u20B9${(i.qty * i.cost).toFixed(2)}</td>

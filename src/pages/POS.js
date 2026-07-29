@@ -34,7 +34,7 @@ export async function renderPOS(container) {
       const regs = await db.getBranchRegisters(branchId);
       const regName = regs.find(r => r.id === registerId)?.name || 'Global';
       const msgEl = document.getElementById('closedRegMsg');
-      if (msgEl) msgEl.innerHTML = `Register <b>${regName}</b> is Closed at ${store.branch?.name}`;
+      if (msgEl) msgEl.innerHTML = `Register <b>${escapeHtml(regName)}</b> is Closed at ${escapeHtml(store.branch?.name || '')}`;
     });
 
     container.innerHTML = `
@@ -71,7 +71,7 @@ export async function renderPOS(container) {
                     <button class="btn btn-ghost reg-pick-btn" data-id="${r.id}" style="justify-content:flex-start;height:54px;padding:0 20px;border:1px solid ${isCurrent ? 'var(--primary)' : 'var(--border)'}">
                       <i class="fa-solid fa-cash-register mr-12" style="color:var(--success)"></i>
                       <div class="font-bold">
-                        ${r.name}
+                        ${escapeHtml(r.name)}
                         ${isCurrent ? '<span style="font-size:9px; background:var(--primary-light); color:var(--primary); padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">CURRENT</span>' : ''}
                       </div>
                     </button>
@@ -349,8 +349,8 @@ async function renderCategories() {
   chips.innerHTML = `
     <!-- Top Level Categories -->
     <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; margin-bottom: 8px;" class="custom-scrollbar categories-row">
-      ${allCats.map(c => 
-        `<div class="chip ${c.name === currentCategory ? 'active' : ''}" data-cat="${c.name}">${c.name}</div>`
+      ${allCats.map(c =>
+        `<div class="chip ${c.name === currentCategory ? 'active' : ''}" data-cat="${escapeHtml(c.name)}">${escapeHtml(c.name)}</div>`
       ).join('')}
     </div>
     
@@ -358,8 +358,8 @@ async function renderCategories() {
     ${subCategories.length > 0 ? `
       <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:12px; animation: slideDown 0.3s ease" class="custom-scrollbar sub-categories-row">
         <div class="chip sub-chip ${currentSubCategory === 'All' ? 'active' : ''}" data-sub="All">All ${currentCategory}</div>
-        ${subCategories.map(s => 
-          `<div class="chip sub-chip ${s.name === currentSubCategory ? 'active' : ''}" data-sub="${s.name}">${s.name}</div>`
+        ${subCategories.map(s =>
+          `<div class="chip sub-chip ${s.name === currentSubCategory ? 'active' : ''}" data-sub="${escapeHtml(s.name)}">${escapeHtml(s.name)}</div>`
         ).join('')}
       </div>
     ` : ''}
@@ -491,7 +491,7 @@ async function renderProductGrid(append = false) {
         <div class="product-emoji">
           ${p.image ? `<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;border-radius:8px" />` : (p.emoji || '📦')}
         </div>
-        <div class="product-name" style="${isOutOfStock ? 'opacity:0.6' : ''}">${p.name}</div>
+        <div class="product-name" style="${isOutOfStock ? 'opacity:0.6' : ''}">${escapeHtml(p.name)}</div>
         <div class="product-price">
           ${p.itemDiscount > 0 ? `<span style="text-decoration:line-through; font-size:0.85em; opacity:0.5; margin-right:4px;">\u20B9${p.price.toFixed(2)}</span>` : ''}
           \u20B9${finalPrice.toFixed(2)}
@@ -605,7 +605,7 @@ export async function renderCart(cur) {
               ${item.image ? `<img src="${item.image}" style="width:100%;height:100%;object-fit:cover" />` : (item.emoji || '📦')}
             </div>
             <div class="cart-item-info" style="min-width:0;flex:1">
-              <div class="cart-item-name" style="font-size:14px" title="${item.name}${item.variantName ? ` (${item.variantName})` : ''}">${item.name}${item.variantName ? ` <span style="color:var(--accent); font-weight:800; font-size:12px">(${item.variantName})</span>` : ''}</div>
+              <div class="cart-item-name" style="font-size:14px" title="${escapeHtml(item.name)}${item.variantName ? ` (${escapeHtml(item.variantName)})` : ''}">${escapeHtml(item.name)}${item.variantName ? ` <span style="color:var(--accent); font-weight:800; font-size:12px">(${escapeHtml(item.variantName)})</span>` : ''}</div>
               <div class="cart-item-price" style="font-size:12px; opacity:0.8">
                 ${cur}${item.price}
                 ${item.unit ? `<span style="font-size:10px;opacity:0.55;margin-left:2px">/${item.unit}</span>` : ''}
@@ -1144,7 +1144,7 @@ async function openNewAppointmentForm(cur, appoToEdit = null) {
           <label class="form-label" style="display:flex;align-items:center;gap:8px"><i class="fa-solid fa-scissors text-accent"></i> Service / Treatment</label>
           <select class="form-select" id="apService" style="height:46px;border-radius:12px;border:1px solid var(--border);background:var(--bg-elevated)">
             <option value="">Select a Service...</option>
-            ${products.map(p => `<option value="${p.id}" ${String(appoToEdit?.serviceId) === String(p.id) ? 'selected' : ''}>${p.emoji || '💇‍♂️'} ${p.name} - \u20B9${p.price}</option>`).join('')}
+            ${products.map(p => `<option value="${p.id}" ${String(appoToEdit?.serviceId) === String(p.id) ? 'selected' : ''}>${p.emoji || '💇‍♂️'} ${escapeHtml(p.name)} - \u20B9${p.price}</option>`).join('')}
           </select>
         </div>
 
@@ -1229,7 +1229,7 @@ function renderSearchSuggestions(matches) {
     <div class="suggestion-item ${idx === activeSuggestionIndex ? 'active' : ''}" data-id="${p.id}" data-index="${idx}">
       <div class="suggestion-emoji">${p.emoji || '📦'}</div>
       <div class="suggestion-content">
-        <div class="suggestion-name">${p.name}</div>
+        <div class="suggestion-name">${escapeHtml(p.name)}</div>
         <div class="suggestion-meta">
           ${p.sku ? `<span>SKU: ${p.sku}</span>` : ''}
           ${p.barcode ? `<span>Barcode: ${p.barcode}</span>` : ''}
@@ -1284,8 +1284,8 @@ async function openVariantSelectionModal(p) {
         const discountedPrice = Number(v.price) - (Number(v.itemDiscount) || 0);
 
         return `
-          <div class="variant-select-card ${isOutOfStock ? 'out-of-stock' : ''}" 
-               data-vname="${v.name}" 
+          <div class="variant-select-card ${isOutOfStock ? 'out-of-stock' : ''}"
+               data-vname="${escapeHtml(v.name)}"
                style="background: var(--bg-card); border: 2px solid var(--border); border-radius: 16px; padding: 16px; cursor: ${isOutOfStock ? 'not-allowed' : 'pointer'}; 
                       text-align: center; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px;
                       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); ${isOutOfStock ? 'opacity: 0.5' : ''}"
@@ -1296,7 +1296,7 @@ async function openVariantSelectionModal(p) {
                ${p.image ? `<img src="${p.image}" style="width:100%; height:100%; object-fit:cover; border-radius:50%" />` : (p.emoji || '📦')}
             </div>
             <div>
-              <div style="font-weight: 800; font-size: 14px; color: var(--text-main); line-height: 1.2">${v.name}</div>
+              <div style="font-weight: 800; font-size: 14px; color: var(--text-main); line-height: 1.2">${escapeHtml(v.name)}</div>
               <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px">${v.sku || ''}</div>
             </div>
             <div style="display: flex; flex-direction: column; gap: 2px; margin-top: auto">
@@ -1322,7 +1322,7 @@ async function openVariantSelectionModal(p) {
                 <i class="fa-solid fa-layer-group" style="color:var(--primary)"></i>
               </div>
               <div>
-                <div style="font-size:16px; font-weight:900">${p.name}</div>
+                <div style="font-size:16px; font-weight:900">${escapeHtml(p.name)}</div>
                 <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px">Select Variant Option</div>
               </div>
             </div>`,
@@ -1608,8 +1608,8 @@ export async function openLowStockModal(cur) {
                   <div style="display:flex; align-items:center; gap:12px; min-width:0">
                     <span style="font-size:24px; flex-shrink:0">${p.emoji || '📦'}</span>
                     <div style="min-width:0">
-                      <div style="font-weight:700; font-size:14px">${p.name}</div>
-                      <div style="font-size:11px; opacity:0.6; font-weight:600; text-transform:uppercase">${v.name}</div>
+                      <div style="font-weight:700; font-size:14px">${escapeHtml(p.name)}</div>
+                      <div style="font-size:11px; opacity:0.6; font-weight:600; text-transform:uppercase">${escapeHtml(v.name)}</div>
                       <div style="font-size:10px; opacity:0.5; font-weight:600">MIN: ${v.minStock || 0}</div>
                     </div>
                   </div>
@@ -1625,8 +1625,8 @@ export async function openLowStockModal(cur) {
                 <div style="display:flex; align-items:center; gap:12px; min-width:0">
                   <span style="font-size:24px; flex-shrink:0">${p.emoji || '📦'}</span>
                   <div style="min-width:0">
-                    <div style="font-weight:700; font-size:14px">${p.name}</div>
-                    <div style="font-size:11px; opacity:0.6">${p.category || ''}</div>
+                    <div style="font-weight:700; font-size:14px">${escapeHtml(p.name)}</div>
+                    <div style="font-size:11px; opacity:0.6">${escapeHtml(p.category || '')}</div>
                     <div style="font-size:10px; opacity:0.5; font-weight:600">MIN: ${p.minStock || 0}</div>
                   </div>
                 </div>
@@ -1683,7 +1683,7 @@ export async function openLowStockModal(cur) {
 
       await logInventoryChange(product.id, variantName, 'IN', qty, 'Quick Restock (Low Stock Alert)', product.branchId || store.branch?.id || 'b1', null, oldStock, newStock, currentUser?.name);
 
-      showToast(`+${qty} added to ${product.name}${variantName ? ' (' + variantName + ')' : ''} (now ${newStock})`, 'success');
+      showToast(`+${qty} added to ${escapeHtml(product.name)}${variantName ? ' (' + escapeHtml(variantName) + ')' : ''} (now ${newStock})`, 'success');
       await openLowStockModal(cur); // refresh — restocked items drop off the list automatically
     };
   });
@@ -1709,8 +1709,8 @@ export async function openExpiryModal(cur) {
                 <div style="display:flex; align-items:center; gap:12px">
                   <span style="font-size:24px">${p.emoji || '📦'}</span>
                   <div>
-                    <div style="font-weight:700; font-size:14px">${p.name}</div>
-                    <div style="font-size:11px; opacity:0.6">${p.category || ''} &middot; Exp: ${p.expiryDate}</div>
+                    <div style="font-weight:700; font-size:14px">${escapeHtml(p.name)}</div>
+                    <div style="font-size:11px; opacity:0.6">${escapeHtml(p.category || '')} &middot; Exp: ${p.expiryDate}</div>
                   </div>
                 </div>
                 <div style="text-align:right">

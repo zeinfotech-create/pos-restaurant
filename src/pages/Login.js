@@ -1,5 +1,6 @@
 import { setSession, clearStore, updateData, updateSettings, getSettings, getLoginActivity, getCurrentShift } from '../db.js';
 import { showToast } from '../components/Toast.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 export function renderLogin(container) {
   let currentStep = 'credentials'; // 'credentials', 'branch', 'register'
@@ -71,8 +72,8 @@ export function renderLogin(container) {
               </h2>
               <p class="login-form-subtitle">
                 ${currentStep === 'credentials' ? 'Welcome back! Please enter your details.' : ''}
-                ${currentStep === 'branch' ? `Select branch for <b>${authenticatedUser.name}</b>` : ''}
-                ${currentStep === 'register' ? `Select register for <b>${selectedBranch.name}</b>` : ''}
+                ${currentStep === 'branch' ? `Select branch for <b>${escapeHtml(authenticatedUser.name)}</b>` : ''}
+                ${currentStep === 'register' ? `Select register for <b>${escapeHtml(selectedBranch.name)}</b>` : ''}
               </p>
             </div>
 
@@ -118,11 +119,11 @@ export function renderLogin(container) {
                           </div>
                           <div style="flex:1; text-align:left">
                             <div class="font-bold" style="color:#202124">
-                              ${b.name || 'Unnamed Branch'}
+                              ${escapeHtml(b.name || 'Unnamed Branch')}
                               ${isLastUsed ? '<span style="font-size:9px; background:rgba(26,115,232,0.12); color:#1a73e8; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">LAST USED</span>' : ''}
                               ${restricted ? '<span style="font-size:9px; background:var(--warning); color:black; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">PREMIUM ONLY</span>' : ''}
                             </div>
-                            <div style="font-size:11px; color:#5f6368">${b.address || ''}</div>
+                            <div style="font-size:11px; color:#5f6368">${escapeHtml(b.address || '')}</div>
                           </div>
                         </button>
                       `;
@@ -157,7 +158,7 @@ export function renderLogin(container) {
                           </div>
                           <div style="flex:1; text-align:left">
                             <div class="font-bold" style="color:#202124">
-                              ${r.name || 'Unnamed Register'}
+                              ${escapeHtml(r.name || 'Unnamed Register')}
                             </div>
                             <div style="font-size:11px; color:${isOpen ? '#1e8e3e' : '#9aa0a6'}; font-weight:600">
                               ${isOpen ? '● Shift Open' : 'Shift Closed'}

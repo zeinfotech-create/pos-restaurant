@@ -100,13 +100,13 @@ export async function openCheckout() {
                 const noCustomer = !store.selectedCustomer;
                 const isDisabled = isUsedElsewhere || (isStoreCredit && noCustomer);
                 return `
-                  <button type="button" class="method-pill ${isSelected ? 'active' : ''}" 
-                    data-idx="${idx}" data-method="${m}" ${isDisabled ? 'disabled' : ''}
+                  <button type="button" class="method-pill ${isSelected ? 'active' : ''}"
+                    data-idx="${idx}" data-method="${escapeHtml(m)}" ${isDisabled ? 'disabled' : ''}
                     title="${isStoreCredit && noCustomer ? 'Select a customer to use store credit' : ''}"
-                    style="padding:6px 12px; border-radius:20px; font-size:12px; font-weight:600; border:1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}; 
-                    background:${isSelected ? 'var(--accent)' : 'transparent'}; color:${isSelected ? '#fff' : 'var(--text-muted)'}; 
+                    style="padding:6px 12px; border-radius:20px; font-size:12px; font-weight:600; border:1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'};
+                    background:${isSelected ? 'var(--accent)' : 'transparent'}; color:${isSelected ? '#fff' : 'var(--text-muted)'};
                     cursor:${isDisabled ? 'not-allowed' : 'pointer'}; opacity:${isDisabled ? 0.3 : 1}; transition:all 0.2s ease;">
-                    ${m}
+                    ${escapeHtml(m)}
                   </button>
                 `;
               }).join('')}
@@ -151,8 +151,8 @@ export async function openCheckout() {
             <div class="checkout-brand"><i class="fa-solid fa-gem" style="color:var(--accent)"></i> PREMIUM CHECKOUT</div>
             <div style="display:flex; align-items:center; gap:20px;">
                 <div style="text-align:right">
-                    <div style="font-weight:800; font-size:16px;">${store.selectedCustomer?.name || 'Walk-in Customer'}</div>
-                    <div style="font-size:12px; color:var(--text-muted); font-weight:600">${store.selectedCustomer?.phone || 'Guest'}</div>
+                    <div style="font-weight:800; font-size:16px;">${escapeHtml(store.selectedCustomer?.name || 'Walk-in Customer')}</div>
+                    <div style="font-size:12px; color:var(--text-muted); font-weight:600">${escapeHtml(store.selectedCustomer?.phone || 'Guest')}</div>
                 </div>
                 <button class="btn btn-ghost" onclick="closeModal()" style="font-size:24px"><i class="fa-solid fa-xmark"></i></button>
             </div>
@@ -1004,7 +1004,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
     return `
         <tr>
           <td style="padding:4px 0; vertical-align:top">
-            <div style="font-weight:600">${i.name}</div>
+            <div style="font-weight:600">${escapeHtml(i.name)}</div>
             ${subLines ? `<div style="font-size:9px; opacity:0.65">${subLines}</div>` : ''}
           </td>
           <td style="text-align:center; vertical-align:top; padding:4px 0">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}</td>
@@ -1027,8 +1027,8 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
       return `
           <div class="receipt-row" style="align-items:flex-start; color:var(--danger); margin-bottom:6px">
             <div style="flex:1">
-              <span style="font-weight:600">${i.name}</span>
-              <div style="font-size:11px; opacity:0.75; margin-top:2px">${Number.isInteger(rQty) ? rQty : rQty.toFixed(3)} x ${cur}${i.price.toFixed(2)} | Refund: ${r.refundMethod || 'Cash'}</div>
+              <span style="font-weight:600">${escapeHtml(i.name)}</span>
+              <div style="font-size:11px; opacity:0.75; margin-top:2px">${Number.isInteger(rQty) ? rQty : rQty.toFixed(3)} x ${cur}${i.price.toFixed(2)} | Refund: ${escapeHtml(r.refundMethod || 'Cash')}</div>
             </div>
             <span style="align-self:flex-end; font-weight:bold">-${cur}${lineTotal.toFixed(2)}</span>
           </div>
@@ -1077,13 +1077,13 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
           }
           return `
           <div class="flex items-center justify-between" style="padding:2px 0">
-            <span>${p.method}</span>
+            <span>${escapeHtml(p.method)}</span>
             <span class="font-semibold">${cur}${p.amount.toFixed(2)}</span>
           </div>
           ${txnText}
           `;
         }).join('')}
-        ${(!order.payments || order.payments.length === 0) ? `<div class="flex items-center justify-between"><span>${order.paymentMethod || 'Unpaid'}</span><span class="font-semibold">${cur}${total.toFixed(2)}</span></div>` : ''}
+        ${(!order.payments || order.payments.length === 0) ? `<div class="flex items-center justify-between"><span>${escapeHtml(order.paymentMethod || 'Unpaid')}</span><span class="font-semibold">${cur}${total.toFixed(2)}</span></div>` : ''}
         
         ${order.creditUsed ? `
           <div class="flex items-center justify-between mt-2" style="color:#6366f1">
@@ -1096,7 +1096,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
             <span>Balance Due (New Debt)</span>
             <span class="font-bold">${cur}${(order.total - (order.redeemedPoints || 0) - (order.creditUsed || 0) - (order.payments || []).reduce((s, p) => s + p.amount, 0)).toFixed(2)}</span>
           </div>
-          <div style="font-size:10px;opacity:0.6;margin-top:2px">Note: ${order.creditInfo}</div>
+          <div style="font-size:10px;opacity:0.6;margin-top:2px">Note: ${escapeHtml(order.creditInfo)}</div>
         ` : ''}
       </div>
       <div class="receipt-divider"></div>
@@ -1253,8 +1253,8 @@ export function renderOrderReturnsReceipt(order, allReturns, settings, cur) {
           ${allItems.map(i => `
             <tr style="color:var(--danger)">
               <td style="padding:4px 0; vertical-align:top">
-                <div style="font-weight:600">${i.name}</div>
-                <div style="font-size:9px; opacity:0.7">Refund: ${i.refundMethod || 'Cash'}</div>
+                <div style="font-weight:600">${escapeHtml(i.name)}</div>
+                <div style="font-size:9px; opacity:0.7">Refund: ${escapeHtml(i.refundMethod || 'Cash')}</div>
               </td>
               <td style="text-align:center; vertical-align:top; padding:4px 0">${i.qty}</td>
               <td style="text-align:right; vertical-align:top; padding:4px 0">${cur}${i.price.toFixed(2)}</td>
@@ -1314,7 +1314,7 @@ export function renderRefundReceipt(ret, settings, cur) {
         <tbody>
           ${ret.items.map(i => `
             <tr style="color:var(--danger)">
-              <td style="padding:4px 0; vertical-align:top; font-weight:600">${i.name}</td>
+              <td style="padding:4px 0; vertical-align:top; font-weight:600">${escapeHtml(i.name)}</td>
               <td style="text-align:center; vertical-align:top; padding:4px 0">${i.qty}</td>
               <td style="text-align:right; vertical-align:top; padding:4px 0">${cur}${i.price.toFixed(2)}</td>
               <td style="text-align:right; vertical-align:top; padding:4px 0; font-weight:bold">-${cur}${(i.price * i.qty).toFixed(2)}</td>
@@ -1332,7 +1332,7 @@ export function renderRefundReceipt(ret, settings, cur) {
       <div style="margin-top:8px; font-size:11px; padding:8px; background:rgba(239,68,68,0.05); border-radius:4px">
         <div style="display:flex; justify-content:space-between; margin-bottom:4px">
           <span>Refund Method:</span>
-          <span class="font-bold">${ret.refundMethod || 'Cash'}</span>
+          <span class="font-bold">${escapeHtml(ret.refundMethod || 'Cash')}</span>
         </div>
         <div style="font-size:10px; opacity:0.8">Reason: ${escapeHtml(ret.reason || 'Not specified')}</div>
       </div>
@@ -1479,7 +1479,7 @@ export function showQuickAddMethodPopup(onSuccess, parentSelector = '.checkout-f
           // Avoid duplicates case-insensitively
           const exists = currentMethods.some(m => m.toLowerCase() === name.toLowerCase());
           if (exists) {
-              showToast(`"${name}" already exists!`, 'warning');
+              showToast(`"${escapeHtml(name)}" already exists!`, 'warning');
               saveBtn.disabled = false;
               saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-4"></i> Save Method';
               return;
@@ -1488,7 +1488,7 @@ export function showQuickAddMethodPopup(onSuccess, parentSelector = '.checkout-f
           currentMethods.push(name);
           await saveSettings({ ...settings, paymentMethods: currentMethods });
           
-          showToast(`"${name}" payment method added successfully!`, 'success');
+          showToast(`"${escapeHtml(name)}" payment method added successfully!`, 'success');
           close();
           onSuccess(name);
       } catch (err) {

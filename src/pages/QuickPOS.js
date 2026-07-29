@@ -80,8 +80,8 @@ export async function renderQuickPOS(container) {
                        ${store.selectedCustomer?.image ? `<img src="${store.selectedCustomer.image}" style="width:100%; height:100%; border-radius:8px; object-fit:cover" />` : `<i class="fa-solid fa-user"></i>`}
                     </div>
                     <div>
-                       <div style="font-size:14px; font-weight:700; color:#1e1b4b;">${store.selectedCustomer?.name || 'Walk-in Customer'}</div>
-                       <div style="font-size:11px; color:#6366f1; font-weight:600;">${store.selectedCustomer ? (store.selectedCustomer.phone || 'No Phone') : 'General Guest'}</div>
+                       <div style="font-size:14px; font-weight:700; color:#1e1b4b;">${escapeHtml(store.selectedCustomer?.name || 'Walk-in Customer')}</div>
+                       <div style="font-size:11px; color:#6366f1; font-weight:600;">${store.selectedCustomer ? escapeHtml(store.selectedCustomer.phone || 'No Phone') : 'General Guest'}</div>
                     </div>
                  </div>
                  ${!store.selectedCustomer ? `<button id="qcAddBtn" style="width:28px; height:28px; border-radius:6px; background:#e0e7ff; color:#6366f1; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px;"><i class="fa-solid fa-plus"></i></button>` : ''}
@@ -92,12 +92,12 @@ export async function renderQuickPOS(container) {
             <div class="custom-scrollbar" style="flex:1; overflow-y:auto; padding:12px;">
                <div class="form-group" style="margin-bottom:8px">
                  <label class="form-label" style="font-size:11px; font-weight:700; margin-bottom:2px">Name *</label>
-                 <input class="form-input" id="qcName" value="${store.selectedCustomer?.name || ''}" placeholder="Enter name" tabindex="2" style="border-radius:4px; font-size:13px; height:28px" />
+                 <input class="form-input" id="qcName" value="${escapeHtml(store.selectedCustomer?.name || '')}" placeholder="Enter name" tabindex="2" style="border-radius:4px; font-size:13px; height:28px" />
                </div>
-               
+
                <div class="form-group" style="margin-bottom:12px">
                  <label class="form-label" style="font-size:11px; font-weight:700; margin-bottom:2px">Phone *</label>
-                 <input class="form-input" id="qcPhone" value="${store.selectedCustomer?.phone || ''}" placeholder="Enter phone" tabindex="2" style="border-radius:4px; font-size:13px; height:28px" />
+                 <input class="form-input" id="qcPhone" value="${escapeHtml(store.selectedCustomer?.phone || '')}" placeholder="Enter phone" tabindex="2" style="border-radius:4px; font-size:13px; height:28px" />
                </div>
 
                <details style="margin-bottom:12px; border:1px solid #e5e7eb; border-radius:4px; background:#f9fafb; overflow:hidden">
@@ -120,7 +120,7 @@ export async function renderQuickPOS(container) {
                     
                     <div class="form-group" style="margin-bottom:2px">
                       <label class="form-label" style="font-size:11px; font-weight:700; margin-bottom:2px">Email</label>
-                      <input class="form-input" id="qcEmail" value="${store.selectedCustomer?.email || ''}" placeholder="Optional" tabindex="2" style="border-radius:4px; font-size:13px; height:28px" />
+                      <input class="form-input" id="qcEmail" value="${escapeHtml(store.selectedCustomer?.email || '')}" placeholder="Optional" tabindex="2" style="border-radius:4px; font-size:13px; height:28px" />
                     </div>
                  </div>
                </details>
@@ -653,9 +653,9 @@ export async function renderQuickPOS(container) {
            </td>`
         : `<td style="text-align:right">${itemDisc > 0 ? (item.itemDiscountType === 'pct' ? item.itemDiscount + '%' : itemDisc.toFixed(2)) : ''}</td>`;
 
-      const descHtml = item.variantName 
-        ? `${item.name} <span style="font-size:11px;opacity:0.6;font-weight:normal">(${item.variantName})</span>`
-        : item.name;
+      const descHtml = item.variantName
+        ? `${escapeHtml(item.name)} <span style="font-size:11px;opacity:0.6;font-weight:normal">(${escapeHtml(item.variantName)})</span>`
+        : escapeHtml(item.name);
 
       return `
       <tr class="${isSelected ? 'selected-row' : ''}" data-index="${idx}" data-cart-id="${item.cartId}">
@@ -724,7 +724,7 @@ export async function renderQuickPOS(container) {
     suggestionsEl.classList.add('hidden');
     await renderCart();
     setTimeout(scrollToSelected, 20);
-    const displayName = variant ? `${product.name} (${variant.name})` : product.name;
+    const displayName = variant ? `${escapeHtml(product.name)} (${escapeHtml(variant.name)})` : escapeHtml(product.name);
     const msg = qty !== 1 ? `${qty}${product.unit || 'kg'} of ${displayName} added` : `${displayName} added`;
     showToast(msg, 'success');
   };
@@ -735,12 +735,12 @@ export async function renderQuickPOS(container) {
     // If it's a click from catalog grid and it has variants, we MUST show a modal
     if (!variant && product.variants && product.variants.length > 0) {
       openModal({
-        title: `${product.name} - Select Variant`,
+        title: `${escapeHtml(product.name)} - Select Variant`,
         body: `
         <div class="ep-variant-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
           ${product.variants.map(v => `
-            <button class="btn btn-ghost w-full quick-variant-btn" data-vname="${v.name.replace(/"/g, '&quot;')}" style="justify-content:space-between; padding:16px; border:1px solid #d1d5db;">
-              <div style="font-weight:700">${v.name}</div>
+            <button class="btn btn-ghost w-full quick-variant-btn" data-vname="${escapeHtml(v.name)}" style="justify-content:space-between; padding:16px; border:1px solid #d1d5db;">
+              <div style="font-weight:700">${escapeHtml(v.name)}</div>
               <div style="color:#059669;font-weight:900">${cur}${v.price}</div>
             </button>
           `).join('')}
@@ -844,9 +844,9 @@ export async function renderQuickPOS(container) {
       suggestionsEl.innerHTML = flattenedMatches.map((item, idx) => {
         const p = item.product;
         const v = item.variant;
-        const displayName = v ? `${p.name} <span style="font-size:12px;opacity:0.6">(${v.name})</span>` : p.name;
+        const displayName = v ? `${escapeHtml(p.name)} <span style="font-size:12px;opacity:0.6">(${escapeHtml(v.name)})</span>` : escapeHtml(p.name);
         const displayPrice = v ? v.price : p.price;
-        const vNameAttr = v ? `data-vname="${v.name.replace(/"/g, '&quot;')}"` : '';
+        const vNameAttr = v ? `data-vname="${escapeHtml(v.name)}"` : '';
         return `
         <div class="ep-suggestion-item ${idx === 0 ? 'active' : ''}" data-id="${p.id}" ${vNameAttr}>
           <div style="font-weight:700">${displayName}</div>

@@ -5,6 +5,7 @@
 import { getTodaySales, getOrders, getReturns, getSettings, hasPermission, getProducts, updateProduct, logInventoryChange, getSession, getLowStockProducts, localDateOnly } from '../db.js';
 import { store } from '../store.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 let dateRangeType = 'today';
 let customStartDate = '';
@@ -246,15 +247,15 @@ export async function renderDashboard(container) {
               <div class="dash-low-stock-row" data-product-id="${p.id}" style="display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom: 1px solid var(--border-subtle);">
                 <div style="font-size:20px">${p.emoji || '📦'}</div>
                 <div style="flex:1; min-width:0;">
-                  <div style="font-size:14px; font-weight:600">${p.name} ${p.isVariant ? `<span style="font-size:11px;opacity:0.7">(${p.variantName})</span>` : ''}</div>
-                  <div style="font-size:11px; opacity:0.6">${p.category}</div>
+                  <div style="font-size:14px; font-weight:600">${escapeHtml(p.name)} ${p.isVariant ? `<span style="font-size:11px;opacity:0.7">(${escapeHtml(p.variantName)})</span>` : ''}</div>
+                  <div style="font-size:11px; opacity:0.6">${escapeHtml(p.category)}</div>
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
                   <span style="font-size:13px; font-weight:700;" class="${p.stock <= 0 ? 'text-danger' : 'text-warning'}">${parseFloat(Number(p.stock).toFixed(3))}</span>
-                  
+
                   <div class="dash-quick-stock" style="display:flex; align-items:center; gap:4px;">
-                    <input type="number" min="1" value="10" class="form-input dash-addqty-input" data-product-id="${p.id}" data-variant-name="${p.isVariant ? p.variantName : ''}" style="width:60px; padding:4px 6px; font-size:12px; text-align:center; border-radius:8px;" />
-                    <button class="btn btn-sm dash-addstock-btn" data-product-id="${p.id}" data-variant-name="${p.isVariant ? p.variantName : ''}" style="padding:4px 10px; font-size:11px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); border-radius:8px; font-weight:700; white-space:nowrap;" title="Add stock">
+                    <input type="number" min="1" value="10" class="form-input dash-addqty-input" data-product-id="${p.id}" data-variant-name="${p.isVariant ? escapeHtml(p.variantName) : ''}" style="width:60px; padding:4px 6px; font-size:12px; text-align:center; border-radius:8px;" />
+                    <button class="btn btn-sm dash-addstock-btn" data-product-id="${p.id}" data-variant-name="${p.isVariant ? escapeHtml(p.variantName) : ''}" style="padding:4px 10px; font-size:11px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); border-radius:8px; font-weight:700; white-space:nowrap;" title="Add stock">
                       <i class="fa-solid fa-plus" style="font-size:10px"></i> Add
                     </button>
                   </div>
@@ -388,7 +389,7 @@ export async function renderDashboard(container) {
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
                   <div style="display:flex; align-items:center; gap:8px;">
                     <span style="font-size:16px">${data.emoji}</span>
-                    <span style="font-size:13px; font-weight:600; color:var(--text-primary)">${name}</span>
+                    <span style="font-size:13px; font-weight:600; color:var(--text-primary)">${escapeHtml(name)}</span>
                   </div>
                   <div style="display:flex; align-items:center; gap:10px;">
                     <span style="font-size:11px; color:var(--text-muted)">${data.qty} sold</span>
@@ -580,7 +581,7 @@ export async function renderDashboard(container) {
         session?.user?.name || 'Admin'
       );
 
-      if (window.showToast) window.showToast(`+${qty} added to ${product.name} ${variantName ? `(${variantName})` : ''} (now ${newStock})`, 'success');
+      if (window.showToast) window.showToast(`+${qty} added to ${escapeHtml(product.name)} ${variantName ? `(${escapeHtml(variantName)})` : ''} (now ${newStock})`, 'success');
       await renderDashboard(container);
     });
   }

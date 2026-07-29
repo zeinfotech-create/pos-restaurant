@@ -1,5 +1,6 @@
 import { getSettings } from '../db.js';
 import { store } from '../store.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 import QRCode from 'qrcode';
 
 function buildBillText(settings, cur, cart) {
@@ -79,7 +80,7 @@ export async function renderCustomerDisplay(container) {
               <div class="cd-cart-item animate-slide-in">
                 <div class="cd-item-emoji">${item.emoji || '📦'}</div>
                 <div class="cd-item-details">
-                  <div class="cd-item-name">${item.name} ${item.variantName ? `<span class="cd-variant">${item.variantName}</span>` : ''}</div>
+                  <div class="cd-item-name">${escapeHtml(item.name)} ${item.variantName ? `<span class="cd-variant">${escapeHtml(item.variantName)}</span>` : ''}</div>
                   <div class="cd-item-meta">${item.qty} x ${cur}${item.price.toFixed(2)}</div>
                 </div>
                 <div class="cd-item-total">${cur}${(item.qty * item.price).toFixed(2)}</div>

@@ -154,7 +154,7 @@ export async function renderProducts(container) {
           <label class="filter-label">Category</label>
           <select class="form-select" id="catFilter">
             <option value="All">All Categories</option>
-            ${(await getCategories()).map(c => `<option value="${c.name}" ${filterCategory === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}
+            ${(await getCategories()).map(c => `<option value="${escapeHtml(c.name)}" ${filterCategory === c.name ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
           </select>
         </div>
 
@@ -364,7 +364,7 @@ async function renderTable(container, cur) {
                 <i class="fa-solid fa-code-branch text-primary" style="font-size:12px; opacity:0.8;"></i>
                 <div class="branch-tooltip" style="display:none; position:absolute; bottom:100%; left:50%; transform:translateX(-50%); background:var(--bg-elevated); border:1px solid var(--border); padding:8px 12px; border-radius:6px; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1); z-index:100; min-width:180px; white-space:nowrap; margin-bottom:8px;">
                     <div style="font-size:10px; font-weight:800; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">Stock in other branches</div>
-                    ${branchesStock.length ? branchesStock.map(x => `<div style="display:flex; justify-content:space-between; font-size:12px; border-bottom:1px solid var(--bg-main); padding:4px 0;"><span>${x.branchName}</span><span style="font-weight:700">${x.stock}</span></div>`).join('') : '<div style="font-size:11px; opacity:0.6;">No other branches</div>'}
+                    ${branchesStock.length ? branchesStock.map(x => `<div style="display:flex; justify-content:space-between; font-size:12px; border-bottom:1px solid var(--bg-main); padding:4px 0;"><span>${escapeHtml(x.branchName)}</span><span style="font-weight:700">${x.stock}</span></div>`).join('') : '<div style="font-size:11px; opacity:0.6;">No other branches</div>'}
                 </div>
             </div>
         `;
@@ -381,14 +381,14 @@ async function renderTable(container, cur) {
                   ${p.image ? `<img src="${p.image}" style="width:100%;height:100%;object-fit:cover" />` : (p.emoji || '📦')}
                 </div>
                 <div style="text-align: left">
-                  <div class="font-semibold">${p.name}</div>
+                  <div class="font-semibold">${escapeHtml(p.name)}</div>
                   ${hasVariants ? `<div style="font-size:11px;color:var(--text-secondary)">${p.variants.length} Variants</div>` : ''}
                   <div style="font-size:10px;opacity:0.6">${p.sku || 'No SKU'}</div>
                   ${(p.location?.floor || p.location?.row || p.location?.rack) ? `<div style="font-size:10px; color:var(--info); font-weight:600; margin-top:2px;"><i class="fa-solid fa-location-dot"></i> Loc: ${[p.location.floor ? `Fl: ${p.location.floor}` : '', p.location.row ? `Rw: ${p.location.row}` : '', p.location.rack ? `Rk: ${p.location.rack}` : ''].filter(Boolean).join(', ')}</div>` : ''}
                 </div>
               </div>
             </td>
-            <td data-label="Category"><span class="badge badge-primary">${p.category}</span></td>
+            <td data-label="Category"><span class="badge badge-primary">${escapeHtml(p.category)}</span></td>
             <td data-label="Price" class="font-bold text-accent">${priceDisplay}</td>
             <td data-label="Stock">
               <div style="display:flex; align-items:center; gap:6px;">
@@ -796,7 +796,7 @@ async function openProductForm(product, container, cur) {
         </div>
         ${variants.map((v, i) => `
           <div class="variant-row">
-            <input class="form-input" style="flex:2" placeholder="Variant Name" value="${v.name || ''}" data-idx="${i}" data-key="name" />
+            <input class="form-input" style="flex:2" placeholder="Variant Name" value="${escapeHtml(v.name || '')}" data-idx="${i}" data-key="name" />
             <input class="form-input" style="flex:1" type="number" placeholder="Cost" value="${v.costPrice ?? ''}" data-idx="${i}" data-key="costPrice" title="Cost Price" />
             <input class="form-input" style="flex:1" type="number" placeholder="Price" value="${v.price ?? ''}" data-idx="${i}" data-key="price" title="Selling Price" />
             <input class="form-input" style="flex:1" type="number" placeholder="Stock" value="${v.stock ?? ''}" data-idx="${i}" data-key="stock" title="Stock" />
@@ -1063,7 +1063,7 @@ async function openProductForm(product, container, cur) {
     }
     const subs = await getSubCategories(cat.id);
     subSelect.innerHTML = '<option value="">None</option>' + 
-      subs.map(s => `<option value="${s.name}" ${selectedSubName === s.name ? 'selected' : ''}>${s.name}</option>`).join('');
+      subs.map(s => `<option value="${escapeHtml(s.name)}" ${selectedSubName === s.name ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
   }
 
   catSelect.onchange = async () => await updateSubOptions(catSelect.value);
@@ -1470,7 +1470,7 @@ async function openLabelModal(product, type) {
         
         ${config.prodNamePos === 'top' ? `
           <div class="label-title" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '9pt' : '12px'}; font-weight: 900; color: #000; margin-bottom: ${inPrint ? '1mm' : '4px'}; line-height: 1.1; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            ${product.name}
+            ${escapeHtml(product.name)}
           </div>
         ` : ''}
 
@@ -1480,7 +1480,7 @@ async function openLabelModal(product, type) {
 
         ${config.prodNamePos === 'bottom' ? `
           <div class="label-title" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '9pt' : '12px'}; font-weight: 900; color: #000; margin-top: ${inPrint ? '1mm' : '4px'}; line-height: 1.1; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            ${product.name}
+            ${escapeHtml(product.name)}
           </div>
         ` : ''}
 
@@ -1508,7 +1508,7 @@ async function openLabelModal(product, type) {
   };
 
   openModal({
-    title: `<i class="fa-solid fa-${isBarcode ? 'barcode' : 'qrcode'}"></i> Generate Label: ${product.name}`,
+    title: `<i class="fa-solid fa-${isBarcode ? 'barcode' : 'qrcode'}"></i> Generate Label: ${escapeHtml(product.name)}`,
     body: `
       <div style="display:flex; flex-direction:column; gap:20px; padding:10px;">
         <!-- Preview Area -->
@@ -1907,16 +1907,16 @@ async function openAdjustStockModal(product, container, cur) {
     ? product.variants.map((v, idx) => `
         <div class="form-group" style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
           <div style="flex:1">
-            <div style="font-weight:600">${v.name}</div>
+            <div style="font-weight:600">${escapeHtml(v.name)}</div>
             <div style="font-size:12px; opacity:0.6">Current: ${v.stock ?? 0}</div>
           </div>
-          <input type="number" step="any" class="form-input adjust-stock-input" data-variant="${v.name}" style="width:120px" value="${v.stock ?? 0}" />
+          <input type="number" step="any" class="form-input adjust-stock-input" data-variant="${escapeHtml(v.name)}" style="width:120px" value="${v.stock ?? 0}" />
         </div>
       `).join('')
     : `
         <div class="form-group" style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
           <div style="flex:1">
-            <div style="font-weight:600">${product.name}</div>
+            <div style="font-weight:600">${escapeHtml(product.name)}</div>
             <div style="font-size:12px; opacity:0.6">Current: ${product.stock ?? 0}</div>
           </div>
           <input type="number" step="any" class="form-input adjust-stock-input" data-variant="" style="width:120px" value="${product.stock ?? 0}" />
@@ -2031,7 +2031,7 @@ async function openStockHistoryModal(product) {
           ${product.image ? `<img src="${product.image}" style="width:100%;height:100%;object-fit:cover;border-radius:8px" />` : (product.emoji || '📦')}
         </div>
         <div>
-          <div class="font-bold" style="font-size:16px">${product.name}</div>
+          <div class="font-bold" style="font-size:16px">${escapeHtml(product.name)}</div>
           <div style="font-size:12px;opacity:0.7">Current Stock: <b class="${historyStatus === 'in' ? 'text-success' : historyStatus === 'low' ? 'text-warning' : 'text-danger'}">${stockStr}</b></div>
         </div>
       </div>

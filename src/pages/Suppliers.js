@@ -3,6 +3,7 @@ import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { initDateRangePicker, getDefaultRange } from '../utils/dateRangeHelper.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 let searchQ = '';
 const { start: defaultStart, end: defaultEnd } = getDefaultRange();
@@ -134,11 +135,11 @@ export async function renderSuppliers(container, subPage) {
                     <div style="width:32px;height:32px;border-radius:16px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid var(--border)">
                       ${s.image ? `<img src="${s.image}" style="width:100%;height:100%;object-fit:cover" />` : `<i class="fa-solid fa-truck-loading" style="opacity:0.3"></i>`}
                     </div>
-                    ${s.name}
+                    ${escapeHtml(s.name)}
                   </div>
                 </td>
-                <td data-label="Contact Person">${s.contact || '-'}</td>
-                <td data-label="Phone">${s.phone || '-'}</td>
+                <td data-label="Contact Person">${escapeHtml(s.contact) || '-'}</td>
+                <td data-label="Phone">${escapeHtml(s.phone) || '-'}</td>
                 <td>
                   <div style="display:flex;gap:4px">
                     ${canManage ? `
@@ -198,7 +199,7 @@ export async function renderSuppliers(container, subPage) {
         const purchaseCount = (await getPurchases()).filter(p => String(p.supplierId) === String(s.id)).length;
         openModal({
           title: 'Delete Supplier',
-          body: `<p>Are you sure you want to delete supplier <b>${s.name}</b>?${purchaseCount > 0 ? ` This supplier has ${purchaseCount} purchase record(s) — they'll remain but will no longer link to a valid supplier.` : ''}</p>`,
+          body: `<p>Are you sure you want to delete supplier <b>${escapeHtml(s.name)}</b>?${purchaseCount > 0 ? ` This supplier has ${purchaseCount} purchase record(s) — they'll remain but will no longer link to a valid supplier.` : ''}</p>`,
           footer: `
             <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
             <button class="btn btn-danger" id="confirmDeleteSupplierBtn">Delete</button>
@@ -400,7 +401,7 @@ export async function openSupplierForm(sup = null, container = null) {
                   <label class="form-label required">Supplier Company Name</label>
                   <div class="search-input-wrap">
                     <i class="fa-solid fa-building"></i>
-                    <input class="form-input" id="sName" placeholder="Enter company name" value="${sup?.name || ''}" style="font-weight:700; font-size:16px" />
+                    <input class="form-input" id="sName" placeholder="Enter company name" value="${escapeHtml(sup?.name)}" style="font-weight:700; font-size:16px" />
                   </div>
                </div>
                <button class="btn btn-ghost btn-xs mt-8" id="removeSupImgBtn" style="color:var(--danger); ${sup?.image ? '' : 'display:none'}"><i class="fa-solid fa-trash mr-4"></i> Remove Logo</button>
@@ -414,7 +415,7 @@ export async function openSupplierForm(sup = null, container = null) {
           <label class="form-label">Contact Person</label>
           <div class="search-input-wrap">
             <i class="fa-solid fa-user-tie"></i>
-            <input class="form-input" id="sContact" placeholder="e.g. John Doe" value="${sup?.contact || ''}" style="padding-left:36px" />
+            <input class="form-input" id="sContact" placeholder="e.g. John Doe" value="${escapeHtml(sup?.contact)}" style="padding-left:36px" />
           </div>
         </div>
 
@@ -422,7 +423,7 @@ export async function openSupplierForm(sup = null, container = null) {
           <label class="form-label required">Phone Number</label>
           <div class="search-input-wrap">
             <i class="fa-solid fa-phone"></i>
-            <input class="form-input" id="sPhone" placeholder="10-digit mobile" value="${sup?.phone || ''}" style="padding-left:36px" />
+            <input class="form-input" id="sPhone" placeholder="10-digit mobile" value="${escapeHtml(sup?.phone)}" style="padding-left:36px" />
           </div>
         </div>
 
