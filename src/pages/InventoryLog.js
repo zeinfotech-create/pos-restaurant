@@ -90,19 +90,28 @@ export async function renderInventoryLog(container) {
       .reduce((sum, l) => sum + (l.qtyChange || 0), 0)
   };
 
-  // 3. Final Filter (Search + Type + Reason Category)
-  const finalLogs = filteredByDate.filter(l => {
+  // 3. Final Filter (Type + Reason Category, independent of search) — kept
+  // separate from the search term so the live search handler below has a
+  // stable base to re-filter from. If search were baked into this list,
+  // switching the Log Type/Reason tab while a search term is active would
+  // bake that term into the closure the search handler reads from, and no
+  // amount of editing (even clearing) the search box afterward could bring
+  // back records excluded by that stale term.
+  const baseForSearch = filteredByDate.filter(l => {
+    const matchesType = logTypeFilter === 'All' || l.type === logTypeFilter;
+    const matchesReasonCategory = logReasonFilter === 'All' || categorizeReason(l.reason) === logReasonFilter;
+    return matchesType && matchesReasonCategory;
+  });
+
+  const matchesSearchTerm = (l, q) => {
     const p = products.find(prod => String(prod.id) === String(l.productId));
     const pName = p ? p.name.toLowerCase() : 'unknown';
     const reason = (l.reason || '').toLowerCase();
     const logUser = (l.user || 'System').toLowerCase();
+    return pName.includes(q) || reason.includes(q) || logUser.includes(q);
+  };
 
-    const matchesSearch = pName.includes(logSearchQuery.toLowerCase()) || reason.includes(logSearchQuery.toLowerCase()) || logUser.includes(logSearchQuery.toLowerCase());
-    const matchesType = logTypeFilter === 'All' || l.type === logTypeFilter;
-    const matchesReasonCategory = logReasonFilter === 'All' || categorizeReason(l.reason) === logReasonFilter;
-
-    return matchesSearch && matchesType && matchesReasonCategory;
-  });
+  const finalLogs = baseForSearch.filter(l => matchesSearchTerm(l, logSearchQuery.toLowerCase()));
 
   // Pagination (on the fully-filtered set)
   const totalLogPages = Math.ceil(finalLogs.length / LOG_ITEMS_PER_PAGE) || 1;
@@ -272,17 +281,21 @@ export async function renderInventoryLog(container) {
   const exportBtn = document.getElementById('exportLogsBtn');
   const productsBtn = document.getElementById('navToProductsBtn');
 
+  // Tracks whatever's actually on screen right now, so Export always matches
+  // the visible table even after a live search edit (which doesn't trigger
+  // a full re-render and therefore never updates the outer `finalLogs`).
+  let currentFilteredLogs = finalLogs;
+
   searchInput?.addEventListener('input', (e) => {
     logSearchQuery = e.target.value;
     // We update just the table for search to feel snappy
     const q = logSearchQuery.toLowerCase();
-    const filtered = finalLogs.filter(l => {
-        const p = products.find(prod => String(prod.id) === String(l.productId));
-        const pName = p ? p.name.toLowerCase() : 'unknown';
-        const reason = (l.reason || '').toLowerCase();
-        const logUser = (l.user || 'System').toLowerCase();
-        return pName.includes(q) || reason.includes(q) || logUser.includes(q);
-    });
+    // Re-filter from baseForSearch (type/reason/date only), NOT finalLogs —
+    // finalLogs already has the search term baked in from the last full
+    // render, so filtering from it can't recover records excluded by a
+    // now-stale term (see comment above baseForSearch's definition).
+    const filtered = baseForSearch.filter(l => matchesSearchTerm(l, q));
+    currentFilteredLogs = filtered;
     logCurrentPage = 1;
     const totalPages = Math.ceil(filtered.length / LOG_ITEMS_PER_PAGE) || 1;
     const pageStart = (logCurrentPage - 1) * LOG_ITEMS_PER_PAGE;
@@ -314,7 +327,7 @@ export async function renderInventoryLog(container) {
   });
 
   productsBtn?.addEventListener('click', () => window.navigate('products'));
-  exportBtn?.addEventListener('click', () => exportLogsToCSV(finalLogs, products));
+  exportBtn?.addEventListener('click', () => exportLogsToCSV(currentFilteredLogs, products));
 }
 
 // Global listener moved outside to prevent duplicates on each render

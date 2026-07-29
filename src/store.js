@@ -79,9 +79,13 @@ export function addToCart(product, variant = null, qty = 1) {
 
     if (existing) {
         existing.qty = parseFloat((existing.qty + roundedQty).toFixed(3));
+        if (existing.qty <= 0) { removeFromCart(cartId); return cartId; }
         // Move to bottom (user preference: last added/updated should be at bottom)
         store.cart = [...store.cart.filter(i => i.cartId !== cartId), existing];
     } else {
+        // Mirrors updateQty()'s floor — a brand-new line must never be pushed
+        // with a zero/negative qty (e.g. a stray 0 from a weight-scale read).
+        if (roundedQty <= 0) return cartId;
         store.cart.push({
             ...product,
             cartId,
@@ -126,7 +130,13 @@ export function updateQty(cartId, delta) {
     const item = store.cart.find(i => i.cartId === cartId);
     if (!item) return;
 
-    if (delta > 0 && item.qty + delta > item.originalStock) {
+    // Weighed items bypass the stock cap in addToCart too (see comment there) —
+    // without the same bypass here, an item added over its originalStock
+    // snapshot (allowed, since weighed stock isn't tracked precisely) could
+    // never be incremented again from the +/- stepper, even by a gram.
+    const unit = (item.unit || '').toLowerCase();
+    const isWeighed = unit === 'kg' || unit === 'g' || unit === 'kilogram' || unit === 'gram';
+    if (!isWeighed && delta > 0 && item.qty + delta > item.originalStock) {
         showToast(`Limit reached: ${item.originalStock} in stock`, 'warning');
         return;
     }
@@ -143,6 +153,8 @@ export async function clearCart() {
     store.discount = 0;
     store.discountRaw = 0;
     store.discountType = 'flat';
+    store.extraTaxRaw = 0;
+    store.extraTaxType = 'flat';
     store.selectedStaff = null;
     store.selectedAppointmentId = null;
     renderCartEvent();
@@ -331,6 +343,8 @@ export function loadAppointmentIntoCart(data) {
     store.discountRaw = 0;
     store.discountType = 'flat';
     store.discount = 0;
+    store.extraTaxRaw = 0;
+    store.extraTaxType = 'flat';
 
     // Set metadata
     store.selectedCustomer = customer || null;

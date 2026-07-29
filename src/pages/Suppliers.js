@@ -483,7 +483,9 @@ export async function openSupplierForm(sup = null, container = null) {
     removeBtn.style.display = 'none';
   };
 
-  document.getElementById('saveSupBtn').onclick = async () => {
+  const saveSupBtn = document.getElementById('saveSupBtn');
+  saveSupBtn.onclick = async () => {
+    if (saveSupBtn.disabled) return;
     const name = document.getElementById('sName').value.trim();
     const phone = document.getElementById('sPhone').value.trim();
     const gstin = document.getElementById('sGstin').value.trim();
@@ -503,15 +505,35 @@ export async function openSupplierForm(sup = null, container = null) {
       return;
     }
 
-    await saveSupplier({
-      ...sup,
-      name,
-      phone,
-      image: base64Input.value,
-      gstin: gstin.toUpperCase(),
-      type: document.getElementById('sType').value,
-      contact: document.getElementById('sContact').value.trim()
-    });
+    // Same duplicate-name-class guard already applied to Categories.js —
+    // without it, two suppliers with the same name/phone are indistinguishable
+    // in purchase-order pickers and reports.
+    const existing = await getSuppliers();
+    if (existing.some(s => s.id !== sup?.id && s.name.trim().toLowerCase() === name.toLowerCase())) {
+      showToast(`A supplier named "${name}" already exists`, 'error');
+      return;
+    }
+    if (existing.some(s => s.id !== sup?.id && s.phone === phone)) {
+      showToast(`A supplier with phone "${phone}" already exists`, 'error');
+      return;
+    }
+
+    saveSupBtn.disabled = true;
+    try {
+      await saveSupplier({
+        ...sup,
+        name,
+        phone,
+        image: base64Input.value,
+        gstin: gstin.toUpperCase(),
+        type: document.getElementById('sType').value,
+        contact: document.getElementById('sContact').value.trim()
+      });
+    } catch (err) {
+      saveSupBtn.disabled = false;
+      showToast(err.message || 'Failed to save supplier.', 'error');
+      return;
+    }
 
     showToast('Supplier saved!', 'success');
     closeModal();
