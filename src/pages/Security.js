@@ -189,8 +189,18 @@ export function getLockState() {
     return read(KEYS.IS_LOCKED);
 }
 
-export function isAppLocked() {
-    return isLocked;
+export async function isAppLocked() {
+    if (isLocked) return true;
+    // isLocked always starts false on module (re)load — without this,
+    // a lock set right before Electron closes/crashes/is killed was
+    // silently forgotten on the next launch (the session is still logged
+    // in, separately), letting the app open straight to the dashboard with
+    // no PIN prompt at all. Fall back to the persisted flag lockApp()/
+    // unlockApp() already write, which getLockState() reads but was never
+    // actually called from anywhere.
+    const persisted = await getLockState();
+    if (persisted) isLocked = true;
+    return !!persisted;
 }
 
 export function promptModuleLock(correctPin, onVerified, title = 'Security Lock', subtitle = 'Enter PIN to access this module') {

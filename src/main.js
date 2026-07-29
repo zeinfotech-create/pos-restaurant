@@ -1535,6 +1535,15 @@ async function initApp() {
   // 1. Initialize DB and Store (Core requirement for IndexedDB)
   await initStore();
 
+  // Restore a lock that was still active when the app last closed
+  // uncleanly (crash, Task Manager kill, anything skipping a normal
+  // unlock) — isAppLocked()'s in-memory flag always starts false on a
+  // fresh load, so without this the app would otherwise silently open
+  // straight to the dashboard with no PIN prompt at all.
+  if (await getLockState()) {
+    lockApp();
+  }
+
   const session = await getSession();
   console.log('[App] Session:', session ? `User ${session.user?.name || 'Unknown'} logged in` : 'No session found');
 
