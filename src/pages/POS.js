@@ -16,6 +16,12 @@ let isSummaryExpanded = false;
 let isDiscountExpanded = false;
 let activeSuggestionIndex = -1;
 let currentSuggestions = [];
+// Guards the Enter-key add-to-cart lookup below against a fast barcode
+// scanner (or just two quick keystrokes) firing two 'Enter' keydown events
+// before the first async getProducts() lookup resolves — without it, both
+// resolve to the same product and addToCart() runs twice, silently
+// doubling the scanned item's quantity.
+let isProcessingEnterAdd = false;
 export async function renderPOS(container) {
   if (window._posCleanup) { window._posCleanup(); window._posCleanup = null; }
 
@@ -240,19 +246,25 @@ export async function renderPOS(container) {
       activeSuggestionIndex = Math.max(activeSuggestionIndex - 1, -1);
       renderSearchSuggestions(currentSuggestions);
     } else if (e.key === 'Enter') {
-      if (activeSuggestionIndex >= 0) {
-        await selectProduct(currentSuggestions[activeSuggestionIndex]);
-      } else if (currentSuggestions.length === 1) {
-        // If only one match (e.g. barcode scan), select it automatically
-        await selectProduct(currentSuggestions[0]);
-      } else if (searchQuery) {
-        // Check for exact barcode/sku match even if not selected in list
-        const products = await getProducts(store.branch?.id);
-        const exactMatch = products.find(p =>
-          (p.barcode && p.barcode.toLowerCase() === searchQuery) ||
-          (p.sku && p.sku.toLowerCase() === searchQuery)
-        );
-        if (exactMatch) await selectProduct(exactMatch);
+      if (isProcessingEnterAdd) return;
+      isProcessingEnterAdd = true;
+      try {
+        if (activeSuggestionIndex >= 0) {
+          await selectProduct(currentSuggestions[activeSuggestionIndex]);
+        } else if (currentSuggestions.length === 1) {
+          // If only one match (e.g. barcode scan), select it automatically
+          await selectProduct(currentSuggestions[0]);
+        } else if (searchQuery) {
+          // Check for exact barcode/sku match even if not selected in list
+          const products = await getProducts(store.branch?.id);
+          const exactMatch = products.find(p =>
+            (p.barcode && p.barcode.toLowerCase() === searchQuery) ||
+            (p.sku && p.sku.toLowerCase() === searchQuery)
+          );
+          if (exactMatch) await selectProduct(exactMatch);
+        }
+      } finally {
+        isProcessingEnterAdd = false;
       }
     } else if (e.key === 'Escape') {
       renderSearchSuggestions([]);
@@ -1008,11 +1020,12 @@ export async function renderCart(cur) {
   }
 }
 
-function openAppointmentsModal(cur) {
+async function openAppointmentsModal(cur) {
   const branchId = store.branch?.id || 'b1';
-  const appos = getAppointments(branchId);
-  const staff = getStaff(branchId);
-  const customers = getCustomers(branchId);
+  const appos = await getAppointments(branchId);
+  const staff = await getStaff(branchId);
+  const customers = await getCustomers(branchId);
+  const products = await getProducts(branchId);
 
   openModal({
     title: '<i class="fa-solid fa-calendar-check text-accent"></i> Appointment Manager',
@@ -1030,7 +1043,7 @@ function openAppointmentsModal(cur) {
         ` : appos.filter(a => a.status !== 'Completed').map(a => {
       const s = staff.find(x => x.id === a.staffId);
       const c = customers.find(x => x.id === a.customerId);
-      const prod = getProducts(branchId).find(p => String(p.id) === String(a.serviceId));
+      const prod = products.find(p => String(p.id) === String(a.serviceId));
 
       return `
             <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:18px;display:flex;justify-content:space-between;align-items:center;gap:16px;transition:all 0.2s ease;box-shadow:var(--shadow-sm)" class="appo-card">
@@ -1041,11 +1054,11 @@ function openAppointmentsModal(cur) {
                 </div>
                 <div style="min-width:0;flex:1">
                   <div class="font-bold" style="font-size:16px;margin-bottom:2px;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                    ${c?.name || 'Walk-in Customer'}
+                    ${escapeHtml(c?.name || 'Walk-in Customer')}
                   </div>
                   <div style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                    <span><i class="fa-solid fa-user-tie" style="margin-right:4px;opacity:0.6"></i>${s?.name || 'Any'}</span>
-                    <span><i class="fa-solid fa-scissors" style="margin-right:4px;opacity:0.6"></i>${prod?.name || 'Service'}</span>
+                    <span><i class="fa-solid fa-user-tie" style="margin-right:4px;opacity:0.6"></i>${escapeHtml(s?.name || 'Any')}</span>
+                    <span><i class="fa-solid fa-scissors" style="margin-right:4px;opacity:0.6"></i>${escapeHtml(prod?.name || 'Service')}</span>
                   </div>
                 </div>
               </div>
@@ -1076,7 +1089,6 @@ function openAppointmentsModal(cur) {
       const c = customers.find(x => x.id === a.customerId);
       const s = staff.find(x => x.id === a.staffId);
 
-      const products = getProducts();
       const service = a.serviceId ? products.find(p => String(p.id) === String(a.serviceId)) : null;
 
       // Use the consolidated store function
@@ -1420,14 +1432,14 @@ function startVoiceSearch() {
     showToast('Listening...', 'info');
   };
 
-  recognition.onresult = (event) => {
+  recognition.onresult = async (event) => {
     const transcript = event.results[0][0].transcript;
     searchInput.value = transcript;
     searchQuery = transcript.toLowerCase().trim();
     const normQuery = normalizeSearchQuery(searchQuery);
 
     // Trigger search logic
-    const allProducts = getProducts(store.branch?.id);
+    const allProducts = await getProducts(store.branch?.id);
     const matches = searchQuery ? allProducts.filter(p => {
       const pName = p.name.toLowerCase();
       const pSku = normalizeSearchQuery(p.sku || '');
