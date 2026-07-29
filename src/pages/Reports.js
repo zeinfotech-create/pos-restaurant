@@ -1519,19 +1519,34 @@ function computePurchaseRateWiseSummary(purchases) {
 async function renderGSTReport(container, cur) {
   const orders = (await getOrders(currentBranchFilter, currentStartDate, currentEndDate)).filter(o => o.status !== 'cancelled');
   const purchases = await getPurchases(currentBranchFilter, currentStartDate, currentEndDate);
+  const salesReturns = (await getReturns(currentBranchFilter, currentStartDate, currentEndDate)).filter(r => r.type === 'sales');
 
-  const outputGST = orders.reduce((sum, o) => sum + (o.tax || 0), 0);
+  // Net sales returns into the same item-level computation as orders, instead
+  // of ignoring them — otherwise this report keeps showing tax as owed on
+  // sales that were subsequently refunded, overstating what's actually
+  // payable. finalTax is already scaled to the returned quantity (see
+  // Orders.js's saveReturn call), so negating qty + finalTax here nets each
+  // return straight into whichever HSN/rate bucket its original sale fell in.
+  const returnOrders = salesReturns.map(ret => ({
+    items: (ret.items || []).map(i => ({ ...i, qty: -(parseFloat(i.qty) || 0), finalTax: -(parseFloat(i.finalTax) || 0) }))
+  }));
+  const ordersNetOfReturns = [...orders, ...returnOrders];
+
   const inputGST = purchases.reduce((sum, p) => sum + (p.taxAmount || 0), 0);
-  const outputTaxable = orders.reduce((sum, o) => sum + (o.subtotal || 0), 0);
   const inputTaxable = purchases.reduce((sum, p) => sum + (p.subtotal || p.total || 0), 0);
-  const netPayable = outputGST - inputGST;
   const canExportGst = await hasPermission('reports:export');
   const settings = await getSettings();
   const periodLabel = `${new Date(currentStartDate).toLocaleDateString('en-GB')} to ${new Date(currentEndDate).toLocaleDateString('en-GB')}`;
 
-  const hsnSummary = computeHsnWiseSummary(orders);
-  const rateSummarySales = computeRateWiseSummary(orders);
+  const hsnSummary = computeHsnWiseSummary(ordersNetOfReturns);
+  const rateSummarySales = computeRateWiseSummary(ordersNetOfReturns);
   const rateSummaryPurchases = computePurchaseRateWiseSummary(purchases);
+
+  // Derived from the same rate-wise summary the table below renders, so the
+  // top summary card can never disagree with it (both already net of returns).
+  const outputGST = rateSummarySales.reduce((sum, r) => sum + r.tax, 0);
+  const outputTaxable = rateSummarySales.reduce((sum, r) => sum + r.taxable, 0);
+  const netPayable = outputGST - inputGST;
 
   container.innerHTML = `
     <!-- Net Summary Card -->

@@ -553,10 +553,15 @@ async function openReturnModal(order, cur) {
         };
 
         document.getElementById('confirmReturnBtn').onclick = async () => {
-          const itemsToReturn = returnedItems.filter(i => i.returnQty > 0).map(i => ({
-            ...i,
-            qty: i.returnQty
-          }));
+          const itemsToReturn = returnedItems.filter(i => i.returnQty > 0).map(i => {
+            // Scale finalTax down to the returned share of the original line —
+            // it's stored (and read by Reports.js's GST/HSN summaries) as the
+            // tax for whatever quantity is on the item, so leaving it at the
+            // FULL original line's tax would overstate a partial return's tax.
+            const originalQty = parseFloat(i.qty) || 1;
+            const scaledFinalTax = (parseFloat(i.finalTax) || 0) * (i.returnQty / originalQty);
+            return { ...i, qty: i.returnQty, finalTax: parseFloat(scaledFinalTax.toFixed(2)) };
+          });
 
           if (itemsToReturn.length === 0) {
             showToast('Please select at least one item to return.', 'warning');
