@@ -29,12 +29,30 @@ let serverProcess = null;
 let mongodProcess = null;
 let tray = null;
 
-// Per-launch secret shared with the local hub server so its onboarding-only
-// endpoints (standalone-reset/standalone-register) can tell a real request
-// from this app apart from any other local process hitting localhost:3030 —
-// without it, those endpoints wipe/write shop data for anyone who can reach
-// the loopback address, e.g. JS running in an unrelated browser tab.
-const HUB_ADMIN_TOKEN = crypto.randomBytes(24).toString('hex');
+// Secret shared with the local hub server so its onboarding-only endpoints
+// (standalone-reset/standalone-register) can tell a real request from this
+// app apart from any other local process hitting localhost:3030 — without
+// it, those endpoints wipe/write shop data for anyone who can reach the
+// loopback address, e.g. JS running in an unrelated browser tab.
+//
+// Persisted to disk (not regenerated per launch): startServer() below can
+// reuse an already-running server instead of spawning a new one (e.g. an
+// orphaned instance from an unclean previous shutdown that survived past
+// this launch). A fresh random token every launch would mismatch whatever
+// that surviving process was actually given, turning the exact crash-
+// recovery case the reuse logic exists for into a 403 instead of a normal
+// working install.
+let HUB_ADMIN_TOKEN = null;
+function loadOrCreateHubToken() {
+  const tokenPath = path.join(app.getPath('userData'), 'hub-token.txt');
+  try {
+    const existing = fs.readFileSync(tokenPath, 'utf8').trim();
+    if (existing) return existing;
+  } catch (e) { /* no token file yet — generate one below */ }
+  const fresh = crypto.randomBytes(24).toString('hex');
+  try { fs.writeFileSync(tokenPath, fresh); } catch (e) { console.error('[Server] Failed to persist hub token:', e.message); }
+  return fresh;
+}
 let splashWindow = null;
 
 // Prevent a second launch from opening a duplicate window and spawning a
@@ -422,6 +440,7 @@ function createTray() {
 // ─── App Lifecycle ────────────────────────────────────────
 app.whenReady().then(() => {
   if (!process.env.CI) {
+    HUB_ADMIN_TOKEN = loadOrCreateHubToken();
     createSplash();
     createTray();
     // Mongo must be accepting connections before the sync server tries to
