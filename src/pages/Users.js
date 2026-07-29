@@ -3,6 +3,7 @@ import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { MediaService } from '../services/MediaService.js';
 import { paginate, renderPaginationBar } from '../utils/pagination.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 const USERS_PAGE_SIZE = 10;
 
@@ -70,7 +71,7 @@ export async function renderUsers(container) {
           <label class="filter-label">Branch</label>
           <select class="form-select" id="branchFilter">
             <option value="All">All Branches</option>
-            ${branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}
+            ${branches.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('')}
           </select>
         </div>
 
@@ -146,11 +147,11 @@ export async function renderUsers(container) {
                     <div style="width:32px;height:32px;border-radius:16px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid var(--border)">
                       ${u.image ? `<img src="${u.image}" style="width:100%;height:100%;object-fit:cover" />` : `<i class="fa-solid fa-user-circle" style="opacity:0.3"></i>`}
                     </div>
-                    ${u.name}
+                    ${escapeHtml(u.name)}
                     ${restricted ? '<span style="font-size:9px; background:var(--warning); color:black; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">LOCKED</span>' : ''}
                   </div>
                 </td>
-                <td data-label="Email">${u.email || u.username || '—'}</td>
+                <td data-label="Email">${escapeHtml(u.email || u.username || '—')}</td>
                 <td data-label="PIN" class="font-mono">${u.pin || '----'}</td>
                 <td data-label="Role"><span class="badge ${(u.role === 'Admin' || u.role === 'Super Admin') ? 'badge-primary' : 'badge-ghost'}">${u.role}</span></td>
                 <td data-label="Branch">${branchString}</td>
@@ -217,7 +218,7 @@ export async function renderUsers(container) {
           
           const newState = e.target.checked;
           await saveUser({ ...u, isActive: newState });
-          showToast(`User ${u.name} is now ${newState ? 'Active' : 'Inactive'}`, 'success');
+          showToast(`User ${escapeHtml(u.name)} is now ${newState ? 'Active' : 'Inactive'}`, 'success');
           await renderUsers(container);
         }
       };
@@ -299,7 +300,7 @@ export async function renderUsers(container) {
         <div style="text-align:center; padding: 20px 0;">
           <i class="fa-solid fa-trash-can text-danger" style="font-size: 48px; margin-bottom: 24px;"></i>
           <h3 style="margin-bottom:8px">Confirm Delete</h3>
-          <p style="color:var(--text-muted); font-size:14px; margin-bottom:32px">Are you sure you want to delete user <b>${u.name}</b>? This action cannot be undone.</p>
+          <p style="color:var(--text-muted); font-size:14px; margin-bottom:32px">Are you sure you want to delete user <b>${escapeHtml(u.name)}</b>? This action cannot be undone.</p>
           
           <div style="display:flex; gap:16px; justify-content:center;">
             <button class="btn btn-ghost" onclick="closeModal()" style="flex:1">Cancel</button>

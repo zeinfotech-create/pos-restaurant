@@ -4,6 +4,7 @@ import { showToast } from '../components/Toast.js';
 import { openCustomerForm } from '../components/CustomerForm.js';
 import { initDateRangePicker, getDefaultRange } from '../utils/dateRangeHelper.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 export { openCustomerForm } from '../components/CustomerForm.js';
 
 let searchQ = '';
@@ -139,7 +140,7 @@ export async function renderCustomers(container, subPage) {
                     </div>
                     <div>
                       <div style="display:flex;align-items:center;gap:8px">
-                        ${c.name}
+                        ${escapeHtml(c.name)}
                         <span style="background:${c.tier.color}15;color:${c.tier.color};font-size:9px;padding:1px 6px;border-radius:10px;border:1px solid ${c.tier.color}30;text-transform:uppercase;font-weight:700">
                           <i class="fa-solid ${c.tier.icon}" style="font-size:8px;margin-right:2px"></i> ${c.tier.name}
                         </span>
@@ -147,8 +148,8 @@ export async function renderCustomers(container, subPage) {
                     </div>
                   </div>
                 </td>
-                <td data-label="Phone">${c.phone}</td>
-                <td data-label="Email">${c.email || '-'}</td>
+                <td data-label="Phone">${escapeHtml(c.phone)}</td>
+                <td data-label="Email">${escapeHtml(c.email || '-')}</td>
                 <td data-label="Points" class="font-bold text-accent">${c.loyaltyPoints || 0}</td>
                 <td data-label="Credit" class="font-bold ${c.creditBalance < 0 ? 'text-danger' : 'text-success'}">\u20B9${(c.creditBalance || 0).toLocaleString()}</td>
                 <td>
@@ -218,7 +219,7 @@ export async function renderCustomers(container, subPage) {
             <div style="text-align:center; padding: 20px 0;">
               <i class="fa-solid fa-trash-can text-danger" style="font-size: 48px; margin-bottom: 24px;"></i>
               <h3 style="margin-bottom:8px">Confirm Delete</h3>
-              <p style="color:var(--text-muted); font-size:14px; margin-bottom:32px">Are you sure you want to delete customer <b>${c.name}</b>? This will also remove their loyalty history.</p>
+              <p style="color:var(--text-muted); font-size:14px; margin-bottom:32px">Are you sure you want to delete customer <b>${escapeHtml(c.name)}</b>? This will also remove their loyalty history.</p>
               
               <div style="display:flex; gap:16px; justify-content:center;">
                 <button class="btn btn-ghost" onclick="closeModal()" style="flex:1">Cancel</button>

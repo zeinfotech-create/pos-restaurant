@@ -4,6 +4,7 @@ import { showToast } from '../components/Toast.js';
 import { initDateRangePicker } from '../utils/dateRangeHelper.js';
 import { store } from '../store.js';
 import { paginate, renderPaginationBar } from '../utils/pagination.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 const BRANCHES_PAGE_SIZE = 10;
 
@@ -105,14 +106,14 @@ export async function renderBranches(container) {
                 ${b.image ? `<img src="${b.image}" style="width:100%;height:100%;object-fit:cover" />` : `<i class="fa-solid fa-store" style="opacity:0.3"></i>`}
               </div>
               <div>
-                ${b.name}
+                ${escapeHtml(b.name)}
                 ${restricted ? '<span style="font-size:9px; background:var(--warning); color:black; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">LOCKED</span>' : ''}
                 ${b.isMainBranch ? '<span style="font-size:9px; background:var(--primary-light); color:var(--primary); padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">MAIN</span>' : ''}
               </div>
             </div>
           </td>
-          <td data-label="Address">${b.address || ''}</td>
-          <td data-label="Phone">${b.phone || ''}</td>
+          <td data-label="Address">${escapeHtml(b.address || '')}</td>
+          <td data-label="Phone">${escapeHtml(b.phone || '')}</td>
           <td>
             <div class="flex gap-4">
               ${canEditBranch && !b.isMainBranch ? `
@@ -234,7 +235,7 @@ export async function renderBranches(container) {
         <div style="text-align:center; padding: 20px 0;">
           <i class="fa-solid fa-building-circle-exclamation text-danger" style="font-size: 48px; margin-bottom: 24px;"></i>
           <h3 style="margin-bottom:8px">Confirm Delete</h3>
-          <p style="color:var(--text-muted); font-size:14px; margin-bottom:32px">Are you sure you want to delete branch <b>${b.name}</b>? All associated data might be lost. This action cannot be undone.</p>
+          <p style="color:var(--text-muted); font-size:14px; margin-bottom:32px">Are you sure you want to delete branch <b>${escapeHtml(b.name)}</b>? All associated data might be lost. This action cannot be undone.</p>
           
           <div style="display:flex; gap:16px; justify-content:center;">
             <button class="btn btn-ghost" onclick="closeModal()" style="flex:1">Cancel</button>

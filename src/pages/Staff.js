@@ -2,6 +2,7 @@ import { getStaff, saveStaff, deleteStaff, getStaffIncentives, getCurrentUser, h
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { store } from '../store.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 let currentPage = 1;
 const itemsPerPage = 10;
@@ -81,10 +82,10 @@ export async function renderStaff(container) {
                   <div style="width:32px;height:32px;border-radius:16px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid var(--border)">
                     ${s.image ? `<img src="${s.image}" style="width:100%;height:100%;object-fit:cover" />` : `<i class="fa-solid fa-user-tie" style="opacity:0.3"></i>`}
                   </div>
-                  ${s.name}
+                  ${escapeHtml(s.name)}
                 </div>
               </td>
-              <td data-label="Specialization"><span class="badge badge-primary">${s.specialization || 'Generalist'}</span></td>
+              <td data-label="Specialization"><span class="badge badge-primary">${escapeHtml(s.specialization || 'Generalist')}</span></td>
               <td data-label="Commission (%)" class="text-accent font-bold">${s.commissionRate || 0}%</td>
               <td data-label="Earnings" class="text-success font-bold">\u20B9${mtdEarnings.toLocaleString()}</td>
               <td>
@@ -143,7 +144,7 @@ export async function renderStaff(container) {
             <div style="text-align:center; padding: 20px 0;">
               <i class="fa-solid fa-trash-can text-danger" style="font-size: 48px; margin-bottom: 24px;"></i>
               <h3 style="margin-bottom:8px">Confirm Delete</h3>
-              <p style="color:var(--text-muted); font-size:14px; margin-bottom:32px">Are you sure you want to delete staff member <b>${s.name}</b>?</p>
+              <p style="color:var(--text-muted); font-size:14px; margin-bottom:32px">Are you sure you want to delete staff member <b>${escapeHtml(s.name)}</b>?</p>
               <div style="display:flex; gap:16px; justify-content:center;">
                 <button class="btn btn-ghost" onclick="closeModal()" style="flex:1">Cancel</button>
                 <button class="btn btn-primary" id="confirmDeleteStaffBtn" style="flex:1; background:var(--danger); border-color:var(--danger)">Delete</button>
