@@ -501,6 +501,16 @@ ipcMain.handle('select-directory', async (event) => {
 });
 
 ipcMain.handle('save-file-from-buffer', async (event, { filePath, buffer }) => {
+  // The only caller (BackupService.js) writes either a user-chosen path from
+  // a native showSaveDialog (trustworthy — the OS dialog controls it, not
+  // renderer JS) or an auto-backup path built from a user-configured folder,
+  // always ending in .json. This IPC channel itself has no such constraint
+  // though, so a compromised renderer (XSS, malicious dependency) could
+  // otherwise write arbitrary bytes to any path it likes — restricting the
+  // extension keeps the channel doing only what it's actually for.
+  if (typeof filePath !== 'string' || !filePath.toLowerCase().endsWith('.json')) {
+    return { success: false, error: 'Only .json files can be written through this channel.' };
+  }
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, Buffer.from(buffer));
@@ -566,6 +576,14 @@ ipcMain.handle('detect-cloud-folders', async () => {
 });
 
 ipcMain.handle('delete-file', async (event, filePath) => {
+  // The only caller (BackupService.js's retention cleanup) only ever passes
+  // back a path this same session got from list-backups, which already
+  // filters to the Auto_Backup_*.json naming pattern — enforcing it here too
+  // means this channel can only ever delete a backup file it created itself,
+  // not an arbitrary path a compromised renderer might supply.
+  if (typeof filePath !== 'string' || !/^Auto_Backup_.*\.json$/i.test(path.basename(filePath))) {
+    return { success: false, error: 'This channel can only delete Auto_Backup_*.json files.' };
+  }
   try { if (fs.existsSync(filePath)) { fs.unlinkSync(filePath); return { success: true }; } return { success: false, error: 'File not found' }; }
   catch (err) { return { success: false, error: err.message }; }
 });
