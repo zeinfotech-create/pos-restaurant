@@ -699,7 +699,7 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
   const branchId = store.branch?.id || 'b1';
   if (!(await isRegisterOpen(branchId, store.registerId))) {
     showToast('Register is closed. Please open the register before completing a sale.', 'error');
-    return;
+    return false;
   }
 
   const orderItems = store.cart.map(i => {
@@ -818,9 +818,11 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
         tempDiv.remove();
       }, 150);
     }
+    return true;
   } catch (err) {
     console.error('Error saving order:', err);
     showToast('Error processing payment.', 'error');
+    return false;
   }
 }
 

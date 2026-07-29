@@ -685,11 +685,16 @@ export async function openQuickCheckout(onSuccess = null) {
         });
 
         isConfirming = true;
+        let succeeded = false;
         try {
-            await confirmOrder(validPayments, getCartTotals(), settings, cur, confirmData());
+            succeeded = await confirmOrder(validPayments, getCartTotals(), settings, cur, confirmData());
         } finally {
             isConfirming = false;
         }
+        // confirmOrder() already showed an error toast on failure (register
+        // closed, save error, etc.) — closing the modal and firing onSuccess
+        // anyway would tell the cashier the sale went through when it didn't.
+        if (!succeeded) return;
         if (qcHandler) window.removeEventListener('keydown', qcHandler);
         closeModal();
         if (onSuccess) onSuccess();
