@@ -2262,6 +2262,22 @@ export async function getExpiringProducts(branchId = null, warningDays = 7) {
     .sort((a, b) => a.daysLeft - b.daysLeft);
 }
 
+// Line total net of any item-level discount (flat ₹ or %) — same formula
+// used throughout db.js/store.js/Reports.js for this. Kept gross of tax
+// here deliberately (unlike computeItemRevenueAndProfit, which must
+// exclude tax since it's used for Profit) — "Revenue Breakdown by
+// Category" is a sales-mix report, not a profit one, so showing the full
+// billed amount per category is the right convention. It must still net
+// out the item's own discount, though, or a heavily-discounted category's
+// revenue/market-share gets overstated relative to full-price categories.
+function categoryLineRevenue(item) {
+  const lineTotal = (item.price || 0) * (item.qty || 0);
+  const discountAmt = item.itemDiscountType === 'pct'
+    ? (lineTotal * (item.itemDiscount || 0) / 100)
+    : ((item.itemDiscount || 0) * (item.qty || 0));
+  return lineTotal - discountAmt;
+}
+
 export async function getCategorySales(branchId = null, startDate = null, endDate = null) {
   const allOrders = await getOrders(branchId, startDate, endDate);
   const orders = allOrders.filter(o => o.status !== 'cancelled');
@@ -2273,7 +2289,7 @@ export async function getCategorySales(branchId = null, startDate = null, endDat
       const cat = item.category || 'Uncategorized';
       if (!catMap[cat]) catMap[cat] = { category: cat, qty: 0, revenue: 0 };
       catMap[cat].qty += item.qty;
-      catMap[cat].revenue += (item.price * item.qty);
+      catMap[cat].revenue += categoryLineRevenue(item);
     });
   });
   // Subtract returns — same fix as getTopProducts above: ensure the
@@ -2286,7 +2302,7 @@ export async function getCategorySales(branchId = null, startDate = null, endDat
       const cat = item.category || 'Uncategorized';
       if (!catMap[cat]) catMap[cat] = { category: cat, qty: 0, revenue: 0 };
       catMap[cat].qty -= item.qty;
-      catMap[cat].revenue -= (item.price * item.qty);
+      catMap[cat].revenue -= categoryLineRevenue(item);
     });
   });
   return Object.values(catMap).sort((a, b) => b.revenue - a.revenue);
