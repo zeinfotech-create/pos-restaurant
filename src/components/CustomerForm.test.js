@@ -3,7 +3,8 @@ import { openCustomerForm } from './CustomerForm';
 
 // Mock DB
 vi.mock('../db.js', () => ({
-  saveCustomer: vi.fn((cust) => ({ id: 'new-id', ...cust }))
+  saveCustomer: vi.fn((cust) => ({ id: 'new-id', ...cust })),
+  getCustomers: vi.fn(() => [])
 }));
 
 // Mock Modal

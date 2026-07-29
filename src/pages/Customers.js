@@ -420,8 +420,8 @@ async function openCustomerDetails(cust) {
               ${cust.image ? `<img src="${cust.image}" style="width:100%;height:100%;object-fit:cover" />` : `<i class="fa-solid fa-user" style="font-size:24px;opacity:0.3"></i>`}
             </div>
             <div>
-              <h2 style="margin:0;font-size:20px">${cust.name}</h2>
-              <p style="margin:4px 0 0 0;font-size:12px;color:var(--text-muted)">${cust.phone} • ${cust.email || 'No email'}</p>
+              <h2 style="margin:0;font-size:20px">${escapeHtml(cust.name)}</h2>
+              <p style="margin:4px 0 0 0;font-size:12px;color:var(--text-muted)">${escapeHtml(cust.phone)} • ${escapeHtml(cust.email || 'No email')}</p>
             </div>
           </div>
           <div style="text-align:right">
@@ -539,7 +539,7 @@ async function openCustomerDetails(cust) {
 function openCreditManagement(cust) {
     const cur = '\u20B9';
     openModal({
-        title: `Manage Credit: ${cust.name}`,
+        title: `Manage Credit: ${escapeHtml(cust.name)}`,
         body: `
           <div style="text-align:center; padding-bottom:24px">
             <div style="font-size:12px; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px">Current Balance</div>
@@ -616,13 +616,26 @@ function openCreditManagement(cust) {
     // Initial style
     updateStyles();
 
-    document.getElementById('saveCreditAdjBtn').onclick = async () => {
+    const saveCreditAdjBtn = document.getElementById('saveCreditAdjBtn');
+    saveCreditAdjBtn.onclick = async () => {
+        if (saveCreditAdjBtn.disabled) return;
         const amt = parseFloat(document.getElementById('manageCreditAmt').value);
         const reason = document.getElementById('manageCreditReason').value.trim() || `${selectedType} adjustment`;
-        
+
         if (!amt || amt <= 0) return showToast('Enter a valid amount', 'error');
 
-        await adjustCustomerCredit(cust.id, amt, selectedType, reason);
+        // adjustCustomerCredit() writes both the balance update AND a new
+        // credit-history row per call — a fast double-click on Save fires
+        // it twice, doubling a REAL financial credit/debit and creating two
+        // history entries for one user action.
+        saveCreditAdjBtn.disabled = true;
+        try {
+            await adjustCustomerCredit(cust.id, amt, selectedType, reason);
+        } catch (err) {
+            saveCreditAdjBtn.disabled = false;
+            showToast(err.message || 'Failed to update credit.', 'error');
+            return;
+        }
         showToast('Credit updated!', 'success');
         closeModal();
         

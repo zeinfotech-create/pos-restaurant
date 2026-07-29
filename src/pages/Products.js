@@ -897,7 +897,7 @@ async function openProductForm(product, container, cur) {
               <i class="fa-solid fa-layer-group"></i>
               <select class="form-select" id="pCategory" style="padding-left:36px">
                 <option value="">Select Category</option>
-                ${(await getCategories()).map(c => '<option value="' + c.name + '" data-id="' + c.id + '" ' + (product?.category === c.name ? 'selected' : '') + '>' + c.name + '</option>').join('')}
+                ${(await getCategories()).map(c => '<option value="' + escapeHtml(c.name) + '" data-id="' + c.id + '" ' + (product?.category === c.name ? 'selected' : '') + '>' + escapeHtml(c.name) + '</option>').join('')}
               </select>
             </div>
           </div>
@@ -1464,7 +1464,7 @@ async function openLabelModal(product, type) {
       ">
         ${config.showStoreName && config.storeName ? `
           <div class="label-store" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '8pt' : '10px'}; font-weight: 800; color: #000; margin-bottom: ${inPrint ? '1mm' : '2px'}; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            ${config.storeName}
+            ${escapeHtml(config.storeName)}
           </div>
         ` : ''}
         
@@ -1488,19 +1488,19 @@ async function openLabelModal(product, type) {
           <div class="label-price-row" style="margin-top: ${inPrint ? '0.5mm' : '2px'}; display: flex; gap: ${inPrint ? '2mm' : '8px'}; align-items: center; justify-content: center; font-family: Arial, sans-serif; font-size: ${inPrint ? '8pt' : '11px'}; font-weight: 700; color: #222; line-height: 1.1; white-space: nowrap;">
             ${config.showMrp ? `
               <span style="${config.strikeMrp ? 'text-decoration: line-through; opacity: 0.7; font-weight: 600;' : ''}">
-                MRP: ${cur}${config.mrpVal}
+                MRP: ${cur}${escapeHtml(String(config.mrpVal))}
               </span>
             ` : ''}
             ${config.showPrice ? `
-              <span>Price: ${cur}${config.priceVal}</span>
+              <span>Price: ${cur}${escapeHtml(String(config.priceVal))}</span>
             ` : ''}
           </div>
         ` : ''}
 
         ${(config.showMfd || config.showExp) ? `
           <div class="label-date-row" style="margin-top: ${inPrint ? '0.5mm' : '2px'}; display: flex; gap: ${inPrint ? '2mm' : '8px'}; align-items: center; justify-content: center; font-family: Arial, sans-serif; font-size: ${inPrint ? '7pt' : '10px'}; font-weight: 600; color: #444; line-height: 1.1; white-space: nowrap;">
-            ${config.showMfd ? `<span>MFD: ${config.mfdVal}</span>` : ''}
-            ${config.showExp ? `<span>EXP: ${config.expVal}</span>` : ''}
+            ${config.showMfd ? `<span>MFD: ${escapeHtml(String(config.mfdVal))}</span>` : ''}
+            ${config.showExp ? `<span>EXP: ${escapeHtml(String(config.expVal))}</span>` : ''}
           </div>
         ` : ''}
       </div>

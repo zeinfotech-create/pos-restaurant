@@ -803,7 +803,7 @@ async function renderPurchaseReport(container, cur) {
               <tr>
                 <td data-label="Date">${new Date(p.date).toLocaleDateString()}</td>
                 <td data-label="ID">${p.id}</td>
-                <td data-label="Supplier">${p.supplierName}</td>
+                <td data-label="Supplier">${escapeHtml(p.supplierName)}</td>
                 <td data-label="Total" class="font-bold text-danger">${cur}${p.total.toFixed(2)}</td>
                 <td>
                   <button class="btn btn-ghost btn-sm purchase-return-btn" data-id="${p.id}">
@@ -882,11 +882,11 @@ async function renderVehicleDeliveryReport(container, cur) {
   function vehicleRowHtml(v) {
     return `
               <tr>
-                <td data-label="Vehicle" class="font-bold">${v.vehicle}</td>
+                <td data-label="Vehicle" class="font-bold">${escapeHtml(v.vehicle)}</td>
                 <td data-label="Deliveries">${v.deliveries}</td>
                 <td data-label="Total Value" class="font-bold text-success">${cur}${v.totalValue.toFixed(2)}</td>
                 <td data-label="Avg / Delivery">${cur}${(v.totalValue / v.deliveries).toFixed(2)}</td>
-                <td><button class="btn btn-ghost btn-sm vehicle-view-btn" data-vehicle="${v.vehicle}"><i class="fa-solid fa-eye"></i> View Orders</button></td>
+                <td><button class="btn btn-ghost btn-sm vehicle-view-btn" data-vehicle="${escapeHtml(v.vehicle)}"><i class="fa-solid fa-eye"></i> View Orders</button></td>
               </tr>
             `;
   }
@@ -1093,12 +1093,12 @@ async function renderOutstandingReport(container, cur) {
   function purchaseOutstandingRowHtml(s) {
     return `
               <tr>
-                <td data-label="Supplier" class="font-bold">${s.supplierName}</td>
+                <td data-label="Supplier" class="font-bold">${escapeHtml(s.supplierName)}</td>
                 <td data-label="Purchases"><span class="badge badge-info">${s.purchaseCount} Purchases</span></td>
                 <td data-label="Total Purchased">${cur}${s.totalPurchased.toFixed(2)}</td>
                 <td data-label="Paid" class="text-success">${cur}${s.totalPaid.toFixed(2)}</td>
                 <td data-label="Outstanding" class="font-bold text-danger" style="font-size:16px">${cur}${s.outstanding.toFixed(2)}</td>
-                <td><button class="btn btn-ghost btn-sm outstanding-view-btn" data-supplier="${s.supplierName}"><i class="fa-solid fa-eye"></i> View Purchases</button></td>
+                <td><button class="btn btn-ghost btn-sm outstanding-view-btn" data-supplier="${escapeHtml(s.supplierName)}"><i class="fa-solid fa-eye"></i> View Purchases</button></td>
               </tr>
             `;
   }
@@ -1120,7 +1120,7 @@ async function renderOutstandingReport(container, cur) {
           const res = paginate(sortedPurchases, modalPage, REPORT_PAGE_SIZE);
           modalPage = res.page;
           openModal({
-            title: `Outstanding Purchases — ${s.supplierName}`,
+            title: `Outstanding Purchases — ${escapeHtml(s.supplierName)}`,
             body: `
               <div class="table-wrap">
                 <table class="responsive-table">
@@ -1770,7 +1770,7 @@ async function renderGSTReport(container, cur) {
     return `
                 <tr>
                   <td data-label="Date">${new Date(o.date).toLocaleDateString()}</td>
-                  <td data-label="Customer">${o.customer?.name || 'Walk-in'}</td>
+                  <td data-label="Customer">${escapeHtml(o.customer?.name || 'Walk-in')}</td>
                   <td data-label="Invoice ID" class="font-mono" style="font-size:11px">${o.id}</td>
                   <td data-label="Taxable Amt">${cur}${(o.subtotal || 0).toFixed(2)}</td>
                   <td data-label="CGST">${cur}${(gstAmt / 2).toFixed(2)}</td>
@@ -1785,7 +1785,7 @@ async function renderGSTReport(container, cur) {
     return `
                 <tr>
                   <td data-label="Date">${new Date(p.date).toLocaleDateString()}</td>
-                  <td data-label="Supplier">${p.supplierName}</td>
+                  <td data-label="Supplier">${escapeHtml(p.supplierName)}</td>
                   <td data-label="Purchase ID" class="font-mono" style="font-size:11px">${p.id}</td>
                   <td data-label="Taxable Amt">${cur}${(p.subtotal || p.total).toFixed(2)}</td>
                   <td data-label="CGST">${cur}${(gstAmt / 2).toFixed(2)}</td>

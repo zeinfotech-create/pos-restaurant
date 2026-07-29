@@ -1,7 +1,8 @@
-import { saveCustomer } from '../db.js';
+import { saveCustomer, getCustomers } from '../db.js';
 import { openModal, closeModal } from './Modal.js';
 import { showToast } from './Toast.js';
 import { MediaService } from '../services/MediaService.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 export function openCustomerForm(cust = null, callback = null) {
   const isEdit = !!cust;
@@ -33,7 +34,7 @@ export function openCustomerForm(cust = null, callback = null) {
           <label class="form-label required">Customer Name</label>
           <div class="search-input-wrap">
             <i class="fa-solid fa-id-card"></i>
-            <input class="form-input" id="cName" value="${cust?.name || ''}" placeholder="John Doe">
+            <input class="form-input" id="cName" value="${escapeHtml(cust?.name || '')}" placeholder="John Doe">
           </div>
         </div>
 
@@ -41,7 +42,7 @@ export function openCustomerForm(cust = null, callback = null) {
           <label class="form-label required">Mobile Number</label>
           <div class="search-input-wrap">
             <i class="fa-solid fa-phone"></i>
-            <input class="form-input" id="cPhone" value="${cust?.phone || ''}" placeholder="10-digit mobile number">
+            <input class="form-input" id="cPhone" value="${escapeHtml(cust?.phone || '')}" placeholder="10-digit mobile number">
           </div>
         </div>
 
@@ -49,7 +50,7 @@ export function openCustomerForm(cust = null, callback = null) {
           <label class="form-label">Email Address</label>
           <div class="search-input-wrap">
             <i class="fa-solid fa-envelope"></i>
-            <input class="form-input" id="cEmail" value="${cust?.email || ''}" placeholder="email@example.com">
+            <input class="form-input" id="cEmail" value="${escapeHtml(cust?.email || '')}" placeholder="email@example.com">
           </div>
         </div>
 
@@ -92,7 +93,9 @@ export function openCustomerForm(cust = null, callback = null) {
     document.getElementById('removeCustImgBtn').style.display = 'none';
   };
 
-  document.getElementById('saveCustBtn').onclick = async () => {
+  const saveCustBtn = document.getElementById('saveCustBtn');
+  saveCustBtn.onclick = async () => {
+    if (saveCustBtn.disabled) return;
     const name = document.getElementById('cName').value.trim();
     const phone = document.getElementById('cPhone').value.trim();
 
@@ -105,14 +108,31 @@ export function openCustomerForm(cust = null, callback = null) {
       return;
     }
 
-    const saved = await saveCustomer({
-      ...cust,
-      name,
-      phone,
-      image: document.getElementById('cImageBase64').value,
-      email: document.getElementById('cEmail').value.trim(),
-      birthday: document.getElementById('cBirthday').value
-    });
+    // Same duplicate-guard class already applied to Categories.js/Suppliers.js
+    // — without it, two customer records sharing a phone number fragment
+    // that person's loyalty/credit history across both.
+    const existingCustomers = await getCustomers();
+    if (existingCustomers.some(c => c.id !== cust?.id && c.phone === phone)) {
+      showToast(`A customer with phone "${phone}" already exists`, 'error');
+      return;
+    }
+
+    saveCustBtn.disabled = true;
+    let saved;
+    try {
+      saved = await saveCustomer({
+        ...cust,
+        name,
+        phone,
+        image: document.getElementById('cImageBase64').value,
+        email: document.getElementById('cEmail').value.trim(),
+        birthday: document.getElementById('cBirthday').value
+      });
+    } catch (err) {
+      saveCustBtn.disabled = false;
+      showToast(err.message || 'Failed to save customer.', 'error');
+      return;
+    }
 
     showToast('Customer saved!', 'success');
     closeModal();
