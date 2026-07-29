@@ -56,17 +56,40 @@ describe('SyncEngine Service', () => {
     expect(syncEngine.checkCapability('cloud_sync')).toBe(true);
   });
 
-  it('should always unlock capabilities in standalone mode — no license/activation concept', () => {
+  it('unlocks everything in standalone mode once a Lifetime key is activated', () => {
     const originalMode = syncEngine.deploymentMode;
     const originalStatus = syncEngine.licenseStatus;
+    const originalActivated = syncEngine.isLifetimeActivated;
     syncEngine.deploymentMode = 'standalone';
+    syncEngine.isLifetimeActivated = true;
 
-    // Even a deliberately locked-looking licenseStatus doesn't matter — standalone
-    // always unlocks everything, regardless of licenseStatus.modules.
+    // Once activated, standalone unlocks everything regardless of
+    // licenseStatus.modules (the activated licenseStatus itself sets these
+    // to full/true anyway, but checkCapability's standalone+activated branch
+    // short-circuits before even looking at modules).
     syncEngine.licenseStatus = { type: 'unactivated', modules: { cloud_sync: false } };
     expect(syncEngine.checkCapability('cloud_sync')).toBe(true);
 
     syncEngine.deploymentMode = originalMode;
     syncEngine.licenseStatus = originalStatus;
+    syncEngine.isLifetimeActivated = originalActivated;
+  });
+
+  it('locks capabilities in standalone mode until a Lifetime key is activated', () => {
+    const originalMode = syncEngine.deploymentMode;
+    const originalStatus = syncEngine.licenseStatus;
+    const originalActivated = syncEngine.isLifetimeActivated;
+    syncEngine.deploymentMode = 'standalone';
+    syncEngine.isLifetimeActivated = false;
+
+    // Un-activated: falls through to the normal licenseStatus.modules check
+    // instead of the standalone short-circuit, so a locked status correctly
+    // stays locked (this is the whole point of the activation gate).
+    syncEngine.licenseStatus = { type: 'unactivated', modules: { cloud_sync: false } };
+    expect(syncEngine.checkCapability('cloud_sync')).toBe(false);
+
+    syncEngine.deploymentMode = originalMode;
+    syncEngine.licenseStatus = originalStatus;
+    syncEngine.isLifetimeActivated = originalActivated;
   });
 });

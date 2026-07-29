@@ -22,6 +22,7 @@ import { showToast } from './components/Toast.js';
 import { renderCustomerDisplay } from './pages/CustomerDisplay.js';
 import { renderQuickPOS } from './pages/QuickPOS.js';
 import { renderCatalog } from './pages/Catalog.js';
+import { renderActivation } from './pages/Activation.js';
 
 const routes = {
     dashboard: renderDashboard,
@@ -44,6 +45,7 @@ const routes = {
     'inventory-log': renderInventoryLog,
     categories: renderCategories,
     catalog: renderCatalog,
+    activation: renderActivation,
 };
 
 let currentPage = 'dashboard';
@@ -53,7 +55,7 @@ export async function navigate(page) {
     console.log(`[Router] Navigating to: ${page}`);
     
     const [mainPage, subPage] = page.split('/');
-    const publicPages = ['customer-display', 'login', 'onboarding'];
+    const publicPages = ['customer-display', 'login', 'onboarding', 'activation'];
 
     // 0. Global Installation Check
     const { getSettings, updateSettings } = await import('./db.js');
@@ -74,6 +76,24 @@ export async function navigate(page) {
             return;
         }
 
+        // Mandatory Lifetime Activation Gate: once locally installed AND logged in,
+        // NOTHING works until a real activation key is verified — no trial grace
+        // period for the desktop build. Gated on being logged in so Logout can
+        // always reach Login instead of bouncing straight back here.
+        if (isAlreadySetUp) {
+            const { syncEngine } = await import('./services/syncEngine.js');
+            const activationExemptPages = ['login', 'onboarding', 'activation'];
+            const loggedInUser = await getCurrentUser();
+            if (loggedInUser && !syncEngine.isLifetimeActivated && !activationExemptPages.includes(mainPage)) {
+                console.log('[Router] Electron: Not activated yet. Forcing Activation gate.');
+                navigate('activation');
+                return;
+            }
+            if (syncEngine.isLifetimeActivated && mainPage === 'activation') {
+                navigate('dashboard');
+                return;
+            }
+        }
     }
 
     if (isElectron && !settings.isInstalled && mainPage !== 'onboarding') {

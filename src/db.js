@@ -434,7 +434,7 @@ export async function hasPermission(action) {
   const [module, detail] = action.includes(':') ? action.split(':') : [action, null];
 
   // Public pages accessible without login
-  if (['login', 'onboarding', 'customer-display'].includes(module)) return true;
+  if (['login', 'onboarding', 'customer-display', 'activation'].includes(module)) return true;
 
   const user = await getCurrentUser();
   if (!user) return false;
