@@ -8,6 +8,18 @@ let catalogFloor = 'All';
 let catalogRow = 'All';
 let catalogRack = 'All';
 let catalogStockFilter = 'All'; // 'All' or 'InStock'
+
+// Worst-of-all-variants status, same rule Products.js's/Reports.js's own
+// overall-status checks use — the aggregate p.stock/p.minStock (a derived
+// sum across variants, see db.js) can hide a single critically-low variant
+// behind a total that still looks fine.
+function getProductOverallStockStatus(p) {
+  if (p.variants && p.variants.length > 0) {
+    const statuses = p.variants.map(v => getStockStatus(v.stock, v.minStock));
+    return statuses.every(s => s === 'out') ? 'out' : (statuses.some(s => s !== 'in') ? 'low' : 'in');
+  }
+  return getStockStatus(p.stock, p.minStock);
+}
 let catalogOfferFilter = 'All'; // 'All' or 'OffersOnly'
 let catalogSort = 'Recent'; // 'Recent', 'LowToHigh', 'HighToLow', 'AtoZ', 'ZtoA'
 
@@ -333,7 +345,7 @@ async function renderGrid(cur) {
   gridArea.innerHTML = `
     <div class="catalog-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px;">
       ${allProducts.map(p => {
-        const status = getStockStatus(p.stock, p.minStock);
+        const status = getProductOverallStockStatus(p);
         let stockColor = status === 'in' ? 'var(--success)' : (status === 'low' ? 'var(--warning)' : 'var(--danger)');
         let stockText = status === 'in' ? 'In Stock' : (status === 'low' ? `Low Stock (${parseFloat(Number(p.stock).toFixed(3))})` : 'Out of Stock');
         
@@ -355,10 +367,9 @@ async function renderGrid(cur) {
           
           origPriceDisplay = minPrice === maxPrice ? `${cur}${minPrice}` : `${cur}${minPrice} - ${maxPrice}`;
           finalPriceDisplay = minFinal === maxFinal ? `${cur}${minFinal}` : `${cur}${minFinal} - ${maxFinal}`;
-          
-          const totalStock = p.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
-          stockColor = totalStock > 10 ? 'var(--success)' : (totalStock > 0 ? 'var(--warning)' : 'var(--danger)');
-          stockText = totalStock > 10 ? 'In Stock' : (totalStock > 0 ? `Low Stock (${parseFloat(Number(totalStock).toFixed(3))})` : 'Out of Stock');
+          // stockColor/stockText already computed above via
+          // getProductOverallStockStatus(p) — a per-variant worst-status
+          // check, not just this product's aggregate p.stock vs a flat 10.
         } else {
           const pPrice = Number(p.price) || 0;
           const pDiscRaw = Number(p.itemDiscount) || 0;

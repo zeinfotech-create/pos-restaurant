@@ -1,4 +1,4 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getMonthlySales, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getMonthlySales, getSuppliers, getPurchases, getPurchasesMonthly, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
@@ -2187,7 +2187,7 @@ async function renderLowStockReport(container, cur) {
     // A single threshold/progress-bar only means something for a product
     // that has one stock number — a variant product's variants can each have
     // their own minStock, so there's no one "threshold" to show a bar against.
-    const threshold = (p.minStock != null && p.minStock > 0) ? p.minStock : 10;
+    const threshold = (p.minStock != null && p.minStock > 0) ? p.minStock : DEFAULT_LOW_STOCK_THRESHOLD;
     const barPct = isVariant ? 100 : Math.min(100, ((p.stock || 0) / threshold) * 100);
     return `
                 <tr>
