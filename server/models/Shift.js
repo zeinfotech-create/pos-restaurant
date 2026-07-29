@@ -18,7 +18,7 @@ const shiftSchema = new mongoose.Schema({
     transactions: { type: Array, default: [] },
     notes: { type: String },
     updatedAt: { type: Date, default: Date.now }
-});
+}, { strict: false });
 
 shiftSchema.index({ licenseKey: 1, branchId: 1, registerId: 1, id: 1 }, { unique: true });
 

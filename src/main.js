@@ -1459,9 +1459,18 @@ async function openRegisterPickerForBranch(branch, branches) {
             `
           });
 
-          document.getElementById('confirmSwitchOpenBtn').onclick = async () => {
+          const confirmSwitchOpenBtn = document.getElementById('confirmSwitchOpenBtn');
+          confirmSwitchOpenBtn.onclick = async () => {
+            if (confirmSwitchOpenBtn.disabled) return;
+            confirmSwitchOpenBtn.disabled = true;
             const bal = document.getElementById('switchOpenBal').value;
-            await db.openRegister(branch.id, sess.user.name || sess.user.username || 'Admin', bal, registerId);
+            try {
+              await db.openRegister(branch.id, sess.user.name || sess.user.username || 'Admin', bal, registerId);
+            } catch (err) {
+              confirmSwitchOpenBtn.disabled = false;
+              showToast('Failed to open register: ' + err.message, 'error');
+              return;
+            }
             closeModal();
             showToast(`Switched to ${escapeHtml(branch.name)} · Register opened!`, 'success');
             setTimeout(() => window.location.reload(), 400);

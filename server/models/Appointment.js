@@ -13,7 +13,7 @@ const appointmentSchema = new mongoose.Schema({
     endTime: { type: Date },
     status: { type: String, default: 'scheduled' },
     updatedAt: { type: Date, default: Date.now }
-});
+}, { strict: false });
 
 appointmentSchema.index({ licenseKey: 1, branchId: 1, id: 1 }, { unique: true });
 

@@ -8,6 +8,6 @@ const branchSchema = new mongoose.Schema({
     phone: { type: String },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
-});
+}, { strict: false });
 
 module.exports = mongoose.model('Branch', branchSchema);
