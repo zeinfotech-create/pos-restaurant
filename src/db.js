@@ -1178,17 +1178,26 @@ export async function saveReturn(ret) {
     const orders = await getOrders();
     const parentOrder = orders.find(o => o.id === ret.orderId);
     if (parentOrder) {
+      // Keyed by id+variantName, not just id — an order can have multiple
+      // lines sharing the same product id but different variants (e.g. a
+      // shirt in "Red" qty 5 and "Blue" qty 3, both id 101), and matching
+      // by id alone conflated them: fully returning one variant made the
+      // OTHER, untouched variant on the same order look fully returned
+      // too, hard-rejecting a completely valid return.
+      const lineKey = (id, variantName) => `${id}::${variantName || ''}`;
       const existingReturns = (await getReturns()).filter(r => r.orderId === ret.orderId && r.id !== ret.id);
       const alreadyReturnedByItem = {};
       existingReturns.forEach(r => {
         r.items.forEach(item => {
-          alreadyReturnedByItem[item.id] = (alreadyReturnedByItem[item.id] || 0) + item.qty;
+          const key = lineKey(item.id, item.variantName);
+          alreadyReturnedByItem[key] = (alreadyReturnedByItem[key] || 0) + item.qty;
         });
       });
       for (const item of ret.items) {
-        const originalItem = parentOrder.items.find(oi => oi.id === item.id);
+        const key = lineKey(item.id, item.variantName);
+        const originalItem = parentOrder.items.find(oi => lineKey(oi.id, oi.variantName) === key);
         const originalQty = originalItem ? originalItem.qty : 0;
-        const alreadyReturned = alreadyReturnedByItem[item.id] || 0;
+        const alreadyReturned = alreadyReturnedByItem[key] || 0;
         const available = originalQty - alreadyReturned;
         if (item.qty > available + 0.001) { // small epsilon for float rounding
           throw new Error(`Cannot return ${item.qty} of "${item.name}" — only ${Math.max(0, available).toFixed(3)} available to return.`);

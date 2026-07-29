@@ -448,7 +448,7 @@ export async function openQuickCheckout(onSuccess = null) {
                     } else {
                         payments = [{ method: ALL_METHODS[0].name, amount: total }];
                     }
-                    updateUI();
+                    refresh();
                 }
                 return;
             }
@@ -591,7 +591,7 @@ export async function openQuickCheckout(onSuccess = null) {
                 } else {
                     payments = [{ method: ALL_METHODS[0].name, amount: total }];
                 }
-                updateUI();
+                refresh();
             };
         });
 

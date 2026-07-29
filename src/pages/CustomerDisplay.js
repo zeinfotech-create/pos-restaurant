@@ -42,6 +42,12 @@ let channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('po
 let currentCart = { items: [], subtotal: 0, tax: 0, discount: 0, total: 0 };
 
 export async function renderCustomerDisplay(container) {
+  // Same window._cdCleanup pattern POS.js/QuickPOS.js use \u2014 without it, every
+  // re-entry to this page (navigate away and back) left the PREVIOUS call's
+  // clock interval running forever against a now-detached #cdTime node, and
+  // silently reassigned (not cleaned up) channel.onmessage each time.
+  if (window._cdCleanup) { window._cdCleanup(); window._cdCleanup = null; }
+
   const settings = await getSettings();
   const cur = settings.currency || '\u20B9';
 
@@ -162,6 +168,11 @@ export async function renderCustomerDisplay(container) {
       }
     };
   }
+
+  window._cdCleanup = () => {
+    if (clockInterval) clearInterval(clockInterval);
+    if (channel) channel.onmessage = null;
+  };
 
   // Add necessary styles dynamically
   if (!document.getElementById('customer-display-styles')) {
