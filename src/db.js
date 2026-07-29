@@ -962,8 +962,20 @@ export async function saveOrder(order) {
   const existingOrder = await getDataById('orders', order.id);
   const isNew = !existingOrder;
 
+  // Save the order record FIRST — by the time this function runs, payment has
+  // already been collected in the real world, so this row IS the sale's
+  // receipt/audit trail. Losing it because a later loyalty/stock write fails
+  // partway through would be worse than a stock-count drift, which a
+  // stock-take can still correct after the fact.
+  await updateData('orders', order);
+
   if (isNew && order.status !== 'cancelled') {
-    // Loyalty and Credit processing for new orders only
+    // Loyalty and Credit processing for new orders only — isolated in its own
+    // try/catch so a failure here (e.g. one adjustCustomerCredit write) can't
+    // also abort the stock-deduction loop below, or make confirmOrder's
+    // caller show a "payment failed" toast for an order that's actually
+    // already saved (see the updateData('orders', order) call above).
+    try {
     if (order.customer && order.customer.id) {
         const customers = await getCustomers();
         const customer = customers.find(c => c.id === order.customer.id);
@@ -1002,29 +1014,40 @@ export async function saveOrder(order) {
             }
         }
     }
+    } catch (err) {
+      console.error(`[saveOrder] Loyalty/credit processing failed for order ${order.id}:`, err);
+    }
+
     const products = await getProducts();
     for (const item of order.items) {
-      const p = products.find(x => x.id === item.id);
-      if (p) {
-        let oldStock = 0;
-        if (item.variantName && p.variants) {
-          const v = p.variants.find(v => v.name === item.variantName);
-          if (v) {
-            oldStock = v.stock || 0;
-            v.stock = (v.stock || 0) - item.qty;
-            p.stock = p.variants.reduce((s, vr) => s + (vr.stock || 0), 0);
+      // Each item's stock write is independent — a transient failure on one
+      // line must not abort the rest of the loop, and the order itself is
+      // already saved above, so there's nothing left to "undo" here; log
+      // loudly instead so a partial failure is traceable rather than silent.
+      try {
+        const p = products.find(x => x.id === item.id);
+        if (p) {
+          let oldStock = 0;
+          if (item.variantName && p.variants) {
+            const v = p.variants.find(v => v.name === item.variantName);
+            if (v) {
+              oldStock = v.stock || 0;
+              v.stock = (v.stock || 0) - item.qty;
+              p.stock = p.variants.reduce((s, vr) => s + (vr.stock || 0), 0);
+            }
+          } else {
+            oldStock = p.stock || 0;
+            p.stock = (p.stock || 0) - item.qty;
           }
-        } else {
-          oldStock = p.stock || 0;
-          p.stock = (p.stock || 0) - item.qty;
+          await updateProduct(p);
+          await logInventoryChange(p.id, item.variantName || null, 'OUT', item.qty, 'Sale (POS)', order.branchId, order.id, oldStock, oldStock - item.qty);
         }
-        await updateProduct(p);
-        await logInventoryChange(p.id, item.variantName || null, 'OUT', item.qty, 'Sale (POS)', order.branchId, order.id, oldStock, oldStock - item.qty);
+      } catch (err) {
+        console.error(`[saveOrder] Stock deduction failed for order ${order.id}, product ${item.id}:`, err);
       }
     }
   }
 
-  await updateData('orders', order);
   return order;
 }
 
