@@ -2751,25 +2751,72 @@ async function exportPurchaseRegisterJson(purchases) {
 
 async function exportGSTR1Json(orders) {
   const settings = await getSettings();
+  const validOrders = orders.filter(o => o.status !== 'cancelled');
   const gstr1 = {
-    gstin: settings.gstNumber || "NOT_PROVIDED", 
+    gstin: settings.gstNumber || "NOT_PROVIDED",
     fp: new Date().toLocaleString('en-IN', { month: '2-digit', year: 'numeric' }).replace('/', ''),
-    gt: orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0),
-    cur_gt: orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0),
+    gt: validOrders.reduce((s, o) => s + (o.total || 0), 0),
+    cur_gt: validOrders.reduce((s, o) => s + (o.total || 0), 0),
     b2b: [],
     b2cs: [],
     hsn: { data: [] }
   };
 
   const hsnMap = {};
+  // b2cs entries are bucketed by tax rate across the whole filing period
+  // (not per-invoice, unlike b2b) — same aggregation shape as hsnMap below,
+  // keyed by rate instead of HSN code.
+  const b2csMap = {};
 
-  orders.filter(o => o.status !== 'cancelled').forEach(o => {
+  // Same taxable-value/tax split computeSalesItemTax() above already uses
+  // (kept inline here since this function works off raw order objects).
+  const itemTaxSplit = (item) => {
+    const itemTax = item.finalTax || 0;
+    const lineTotal = item.price * item.qty;
+    const discountTotal = item.itemDiscountType === 'pct'
+      ? (lineTotal * (item.itemDiscount || 0) / 100)
+      : ((item.itemDiscount || 0) * item.qty);
+    const discountedTotal = Math.max(0, lineTotal - discountTotal);
+    const taxValueNet = item.taxType === 'inclusive' ? discountedTotal - itemTax : discountedTotal;
+    return { taxValueNet, itemTax };
+  };
+
+  validOrders.forEach(o => {
+    // Bucket THIS invoice's own items by their actual tax rate — a single
+    // order can legitimately mix rates (e.g. a 5%-rated and an 18%-rated
+    // product in the same cart), and each rate needs its own itm_det/b2cs
+    // entry built from its own real taxable value and tax. The previous
+    // version used `o.taxRate` for the whole order, which is just the
+    // shop's global default Settings tax rate (Settings > Tax Rate) —
+    // completely unrelated to what any specific order's items were
+    // actually charged, and wrong whenever an order's rate differs from
+    // that default (the common case for a multi-rate catalog).
+    const rateGroups = {};
+    (o.items || []).forEach(item => {
+      const rate = parseFloat(item.taxRate) || 0;
+      const { taxValueNet, itemTax } = itemTaxSplit(item);
+      if (!rateGroups[rate]) rateGroups[rate] = { txval: 0, tax: 0 };
+      rateGroups[rate].txval += taxValueNet;
+      rateGroups[rate].tax += itemTax;
+    });
+
     if (o.customer?.gstin) {
       let b2bEntry = gstr1.b2b.find(ctin => ctin.ctin === o.customer.gstin);
       if (!b2bEntry) {
         b2bEntry = { ctin: o.customer.gstin, inv: [] };
         gstr1.b2b.push(b2bEntry);
       }
+      const itms = Object.entries(rateGroups).map(([rate, g], idx) => ({
+        num: idx + 1,
+        itm_det: {
+          rt: parseFloat(rate),
+          txval: parseFloat(g.txval.toFixed(2)),
+          iamt: 0,
+          camt: parseFloat((g.tax / 2).toFixed(2)),
+          samt: parseFloat((g.tax / 2).toFixed(2)),
+          csamt: 0
+        }
+      }));
       b2bEntry.inv.push({
         inum: o.id,
         idt: new Date(o.date).toLocaleDateString('en-GB'),
@@ -2777,29 +2824,21 @@ async function exportGSTR1Json(orders) {
         pos: settings.stateCode || "33",
         rchrg: "N",
         inv_typ: "R",
-        itms: [{
-          num: 1,
-          itm_det: {
-            rt: o.taxRate || 0,
-            txval: o.subtotal,
-            iamt: 0,
-            camt: (o.tax || 0) / 2,
-            samt: (o.tax || 0) / 2,
-            csamt: 0
-          }
-        }]
+        itms
       });
     } else {
-      gstr1.b2cs.push({
-        sply_ty: "INTER",
-        pos: settings.stateCode || "33",
-        typ: "OE",
-        rt: o.taxRate || 0,
-        txval: (o.subtotal || 0),
-        iamt: 0,
-        camt: (o.tax || 0) / 2,
-        samt: (o.tax || 0) / 2,
-        csamt: 0
+      Object.entries(rateGroups).forEach(([rate, g]) => {
+        if (!b2csMap[rate]) {
+          // A walk-in/no-GSTIN retail sale is intra-state by default (this
+          // app has no separate customer-state field to determine
+          // otherwise) — "INTER" (inter-state, which legally requires IGST
+          // via `iamt`) was inconsistent with camt/samt (CGST+SGST) being
+          // the fields actually populated.
+          b2csMap[rate] = { sply_ty: "INTRA", pos: settings.stateCode || "33", typ: "OE", rt: parseFloat(rate), txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
+        }
+        b2csMap[rate].txval += g.txval;
+        b2csMap[rate].camt += g.tax / 2;
+        b2csMap[rate].samt += g.tax / 2;
       });
     }
 
@@ -2809,16 +2848,7 @@ async function exportGSTR1Json(orders) {
         hsnMap[code] = { hsn_sc: code, desc: item.name, uqc: "NOS", qty: 0, val: 0, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
       }
 
-      const itemTax = item.finalTax || 0;
-      const lineTotal = item.price * item.qty;
-      const discountTotal = item.itemDiscountType === 'pct'
-        ? (lineTotal * (item.itemDiscount || 0) / 100)
-        : ((item.itemDiscount || 0) * item.qty);
-      const discountedTotal = Math.max(0, lineTotal - discountTotal);
-      let taxValueNet = discountedTotal;
-      if (item.taxType === 'inclusive') {
-        taxValueNet = discountedTotal - itemTax;
-      }
+      const { taxValueNet, itemTax } = itemTaxSplit(item);
 
       hsnMap[code].qty += item.qty;
       hsnMap[code].val += taxValueNet + itemTax;
@@ -2828,6 +2858,12 @@ async function exportGSTR1Json(orders) {
     });
   });
 
+  gstr1.b2cs = Object.values(b2csMap).map(b => ({
+    ...b,
+    txval: parseFloat(b.txval.toFixed(2)),
+    camt: parseFloat(b.camt.toFixed(2)),
+    samt: parseFloat(b.samt.toFixed(2))
+  }));
   gstr1.hsn.data = Object.values(hsnMap);
 
   const blob = new Blob([JSON.stringify(gstr1, null, 2)], { type: 'application/json' });

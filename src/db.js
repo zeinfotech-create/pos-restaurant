@@ -2053,7 +2053,17 @@ function computeItemRevenueAndProfit(item) {
   const discountAmt = item.itemDiscountType === 'pct'
     ? (baseLineTotal * (item.itemDiscount || 0) / 100)
     : ((item.itemDiscount || 0) * (item.qty || 0));
-  const revenue = baseLineTotal - discountAmt;
+  const discountedTotal = baseLineTotal - discountAmt;
+  // Revenue (and therefore profit) must exclude GST collected on the
+  // government's behalf — for an inclusive-tax item, item.price already
+  // contains that tax, so back it out the same way store.js's
+  // getCartTotals() does for its own subtotal (preTaxBase = price/(1+rate/100)).
+  // Without this, every sale of an inclusive-tax item (the default tax type
+  // for new products) counted its embedded GST as if it were the shop's own
+  // profit — e.g. a ₹118 item (₹100 + ₹18 GST) with ₹80 cost showed ₹38
+  // profit instead of the correct ₹20.
+  const rate = parseFloat(item.taxRate) || 0;
+  const revenue = item.taxType === 'inclusive' ? discountedTotal / (1 + rate / 100) : discountedTotal;
   const cost = (item.costPrice || 0) * (item.qty || 0);
   return { revenue, profit: revenue - cost };
 }
