@@ -536,8 +536,13 @@ export async function renderDashboard(container) {
 
       const productId = btn.dataset.productId;
       const variantName = btn.dataset.variantName || null;
-      const inputSelector = `.dash-addqty-input[data-product-id="${productId}"]${variantName ? `[data-variant-name="${variantName}"]` : ''}`;
-      const input = container.querySelector(inputSelector);
+      // Match by comparing the decoded .dataset property in JS rather than
+      // splicing variantName into a CSS attribute-selector string — a
+      // variant name containing a literal `"` would otherwise build an
+      // invalid selector and throw, silently breaking this button for that
+      // one variant.
+      const candidates = container.querySelectorAll(`.dash-addqty-input[data-product-id="${CSS.escape(productId)}"]`);
+      const input = Array.from(candidates).find(el => (el.dataset.variantName || '') === (variantName || ''));
       const qty = parseInt(input?.value) || 0;
       if (qty <= 0) {
         if (window.showToast) window.showToast('Enter a valid quantity', 'error');

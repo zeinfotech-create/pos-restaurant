@@ -109,21 +109,37 @@ const DBManager = {
                 continue;
             }
 
-            try {
-                if (wipe) {
+            if (wipe) {
+                try {
                     await this.delete(Model, store, { licenseKey });
+                } catch (err) {
+                    // Don't attempt to import into a store whose wipe itself
+                    // failed — its existing state is unknown, and importing
+                    // on top of it could double up or conflict with whatever
+                    // is still there.
+                    console.error(`[DB] importAll wipe failed for ${store}:`, err.message);
+                    results[store] = { error: `wipe failed: ${err.message}` };
+                    continue;
                 }
+            }
 
-                let count = 0;
-                for (const doc of docs) {
+            // Each doc is imported independently — a single malformed record
+            // used to throw and abort the rest of this store's import
+            // entirely (with wipe already having run), silently losing every
+            // OTHER valid doc in the same store. Now one bad doc is skipped
+            // and counted, the rest still land.
+            let count = 0;
+            let failed = 0;
+            for (const doc of docs) {
+                try {
                     await this.upsert(Model, store, { id: doc.id, licenseKey }, { ...doc, licenseKey });
                     count++;
+                } catch (err) {
+                    failed++;
+                    console.error(`[DB] importAll doc import failed for ${store}/${doc.id}:`, err.message);
                 }
-                results[store] = { imported: count };
-            } catch (err) {
-                console.error(`[DB] importAll error for ${store}:`, err.message);
-                results[store] = { error: err.message };
             }
+            results[store] = failed > 0 ? { imported: count, failed } : { imported: count };
         }
 
         return results;

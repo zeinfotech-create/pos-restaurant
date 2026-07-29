@@ -2098,7 +2098,7 @@ function openShiftSummaryModal(shiftId, cur, allShifts, registers = []) {
           <div class="grid-2">
             <div class="stat-info">
               <div style="font-size:11px;opacity:0.6">Cashier / Register</div>
-              <div class="font-bold">${shift.openedBy || '—'} / ${regName}</div>
+              <div class="font-bold">${escapeHtml(shift.openedBy || '—')} / ${escapeHtml(regName)}</div>
             </div>
             <div class="stat-info">
               <div style="font-size:11px;opacity:0.6">Total Sales</div>
