@@ -861,7 +861,7 @@ export async function getProductStockAcrossBranches(sku) {
 // UTC+5:30) for anything that happened between local midnight and the UTC offset catching
 // up — a sale rung up at 2am IST would get filed under *yesterday* in every date-range
 // report. Always derive the date-only string from local calendar fields instead.
-function localDateOnly(isoString) {
+export function localDateOnly(isoString) {
   if (!isoString) return '';
   const d = new Date(isoString);
   if (isNaN(d.getTime())) return '';

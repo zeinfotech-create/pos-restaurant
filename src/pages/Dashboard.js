@@ -2,7 +2,7 @@
 // Dashboard.js
 // ============================================================
 
-import { getTodaySales, getOrders, getSettings, hasPermission, getProducts, updateProduct, logInventoryChange, getSession, getLowStockProducts } from '../db.js';
+import { getTodaySales, getOrders, getReturns, getSettings, hasPermission, getProducts, updateProduct, logInventoryChange, getSession, getLowStockProducts, localDateOnly } from '../db.js';
 import { store } from '../store.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
 
@@ -18,49 +18,67 @@ export async function renderDashboard(container) {
   const rawOrders = await getOrders(store.branch?.id);
   const allRawOrders = await applySessionFilter(rawOrders, 'date');
   
-  let filteredOrders = allRawOrders;
   const now = new Date();
-  
+
+  // Matches by LOCAL calendar day (via localDateOnly, the same helper db.js
+  // uses internally for its own date filtering) rather than a raw UTC ISO
+  // string prefix — comparing a locally-shifted boundary string against the
+  // order's raw UTC timestamp mismatched for any order placed in the early
+  // hours local time (e.g. IST 00:00-05:30), which UTC still puts on the
+  // previous day, misfiling it into "yesterday" instead of "today". Reused
+  // for returns below so both are filtered by the exact same window.
+  let matchesRange = () => true;
   if (dateRangeType === 'today') {
-    const today = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-    filteredOrders = allRawOrders.filter(o => o.date.startsWith(today));
+    const today = localDateOnly(now);
+    matchesRange = (d) => localDateOnly(d) === today;
   } else if (dateRangeType === 'yesterday') {
     const yest = new Date(now);
     yest.setDate(yest.getDate() - 1);
-    const yStr = new Date(yest.getTime() - (yest.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-    filteredOrders = allRawOrders.filter(o => o.date.startsWith(yStr));
+    const yStr = localDateOnly(yest);
+    matchesRange = (d) => localDateOnly(d) === yStr;
   } else if (dateRangeType === 'last7') {
     const sev = new Date(now);
     sev.setDate(sev.getDate() - 7);
-    filteredOrders = allRawOrders.filter(o => new Date(o.date) >= sev);
+    matchesRange = (d) => new Date(d) >= sev;
   } else if (dateRangeType === 'last30') {
     const thir = new Date(now);
     thir.setDate(thir.getDate() - 30);
-    filteredOrders = allRawOrders.filter(o => new Date(o.date) >= thir);
+    matchesRange = (d) => new Date(d) >= thir;
   } else if (dateRangeType === 'thisMonth') {
-    const monthStr = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().substring(0, 7);
-    filteredOrders = allRawOrders.filter(o => o.date.startsWith(monthStr));
+    const monthStr = localDateOnly(now).substring(0, 7);
+    matchesRange = (d) => localDateOnly(d).startsWith(monthStr);
   } else if (dateRangeType === 'thisYear') {
     const yearStart = new Date(now.getFullYear(), 0, 1);
-    filteredOrders = allRawOrders.filter(o => new Date(o.date) >= yearStart);
+    matchesRange = (d) => new Date(d) >= yearStart;
   } else if (dateRangeType === 'lastYear') {
     const yearStart = new Date(now.getFullYear() - 1, 0, 1);
     const yearEnd = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59);
-    filteredOrders = allRawOrders.filter(o => {
-      const d = new Date(o.date);
-      return d >= yearStart && d <= yearEnd;
-    });
+    matchesRange = (d) => {
+      const dt = new Date(d);
+      return dt >= yearStart && dt <= yearEnd;
+    };
   } else if (dateRangeType === 'custom') {
-    filteredOrders = allRawOrders.filter(o => {
-      const d = o.date.split('T')[0];
-      if (customStartDate && d < customStartDate) return false;
-      if (customEndDate && d > customEndDate) return false;
+    matchesRange = (d) => {
+      const dOnly = localDateOnly(d);
+      if (customStartDate && dOnly < customStartDate) return false;
+      if (customEndDate && dOnly > customEndDate) return false;
       return true;
-    });
+    };
   }
 
+  const filteredOrders = allRawOrders.filter(o => matchesRange(o.date));
   const validOrders = filteredOrders.filter(o => o.status !== 'cancelled');
-  const total = validOrders.reduce((s, o) => s + (o.total || 0), 0);
+
+  // Net headline stats against sales returns in the same window — otherwise
+  // a refunded sale keeps inflating Total Sales/Avg Order Value/the Payment
+  // Breakdown donut indefinitely, same issue Reports.js's Sales Hub already
+  // accounts for.
+  const rawReturns = await getReturns(store.branch?.id);
+  const salesReturns = rawReturns.filter(r => r.type === 'sales' && matchesRange(r.date));
+  const returnsTotal = salesReturns.reduce((s, r) => s + (r.total || 0), 0);
+
+  const grossTotal = validOrders.reduce((s, o) => s + (o.total || 0), 0);
+  const total = grossTotal - returnsTotal;
   const count = filteredOrders.length;
   const avgOrder = count ? (total / count).toFixed(2) : 0;
   
@@ -265,7 +283,11 @@ export async function renderDashboard(container) {
             const m = o.paymentMethod || 'Cash';
             payMap[m] = (payMap[m] || 0) + (o.total || 0);
           });
-          const entries = Object.entries(payMap).sort((a,b) => b[1] - a[1]);
+          salesReturns.forEach(r => {
+            const m = r.refundMethod || 'Cash';
+            payMap[m] = (payMap[m] || 0) - (r.total || 0);
+          });
+          const entries = Object.entries(payMap).filter(([, v]) => v > 0.005).sort((a,b) => b[1] - a[1]);
           const payTotal = entries.reduce((s, [,v]) => s + v, 0);
           if (entries.length === 0) {
             return `<div class="empty-state" style="padding:30px 0"><i class="fa-solid fa-chart-pie"></i><p>No payment data for this period</p></div>`;
