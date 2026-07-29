@@ -628,6 +628,14 @@ const server = http.createServer(async (req, res) => {
             if (res.status === 401) { window.logout(); return null; }
             return res.json();
         }
+        // Store-supplied fields (business name, email) below come straight from
+        // whatever a POS install sends during registration/sync, never
+        // sanitized — without escaping, a crafted store name/email renders as
+        // live HTML in this admin session the moment this tab is opened.
+        function esc(v) {
+            if (v == null) return '';
+            return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
 
         function showTab(tabId) {
             document.querySelectorAll('.view-section').forEach(s => s.classList.remove('active'));
@@ -652,8 +660,8 @@ const server = http.createServer(async (req, res) => {
                     body.innerHTML = d.storeBreakdown.map(s => \`
                         <tr>
                             <td>
-                                <div style="font-weight:700; color:var(--text-main); font-size:14px;">\${s.name}</div>
-                                <div style="font-size:11px; color:var(--text-muted); opacity:0.8;">\${s.licenseKey} · \${s.email}</div>
+                                <div style="font-weight:700; color:var(--text-main); font-size:14px;">\${esc(s.name)}</div>
+                                <div style="font-size:11px; color:var(--text-muted); opacity:0.8;">\${esc(s.licenseKey)} · \${esc(s.email)}</div>
                             </td>
                             <td style="text-align:center; font-weight:600;">\${s.branches}</td>
                             <td style="text-align:center; color:var(--text-muted);">\${s.orderCount}</td>
@@ -673,13 +681,13 @@ const server = http.createServer(async (req, res) => {
                     \`).join('');
                 }
             } else if (tabId === 'subscriptions') {
-                const d = await api('/api/admin/subscriptions');
+                const d = await api('/api/admin/subscriptions'); if (!d) return;
                 document.getElementById('subBody').innerHTML = d.map(s => {
                     const r = s.subscriptionRequest;
-                    return \`<tr><td><b>\${s.branchId}</b><br><small>\${r.email}</small></td><td>\${r.plan}</td><td>₹\${r.amount}</td><td><button class="btn btn-blue" onclick="viewImg('\${r.receiptBase64}')">View</button></td><td><button class="btn btn-green" onclick="approve('\${s.licenseKey}', '\${r.plan}')">Approve</button> <button class="btn btn-red" onclick="reject('\${s.licenseKey}')">Reject</button></td></tr>\`;
+                    return \`<tr><td><b>\${esc(s.branchId)}</b><br><small>\${esc(r.email)}</small></td><td>\${esc(r.plan)}</td><td>₹\${r.amount}</td><td><button class="btn btn-blue" onclick="viewImg('\${r.receiptBase64}')">View</button></td><td><button class="btn btn-green" onclick="approve('\${s.licenseKey}', '\${r.plan}')">Approve</button> <button class="btn btn-red" onclick="reject('\${s.licenseKey}')">Reject</button></td></tr>\`;
                 }).join('') || '<tr><td colspan="5" style="text-align:center;padding:40px;">Clean!</td></tr>';
             } else if (tabId === 'licenses') {
-                const d = await api('/api/admin/licenses');
+                const d = await api('/api/admin/licenses'); if (!d) return;
                 document.getElementById('licBody').innerHTML = d.map(l => {
                   const expiryCell = l.displayExpiryLabel === 'Lifetime'
                     ? '<span style="color:#7c3aed;font-weight:700;">Lifetime</span>'
@@ -690,11 +698,11 @@ const server = http.createServer(async (req, res) => {
                   const branchesCell = isLifetime
                     ? \`<b>\${l.branchLimit ?? 1}</b>\`
                     : \`<div style='display:flex;align-items:center;gap:8px;'><b>\${l.branchLimit ?? 1}</b><button class=\\\"btn\\\" style=\\\"padding:4px 10px;background:#eef2ff;color:#4338ca;\\\" onclick=\\\"editBranchLimit('\${l.licenseKey}', \${l.branchLimit ?? 1})\\\">✏️ Edit</button></div>\`;
-                  return \`<tr><td><b>\${l.businessName || 'N/A'}</b><br><small>\${l.email}</small></td><td><code>\${l.licenseKey}</code></td><td><span class=\\\"badge \${l.status === 'inactive' ? 'badge-inactive' : 'badge-premium'}\\\">\${l.status}</span></td><td>\${expiryCell}</td><td>\${branchesCell}</td><td><div style='display:flex;gap:8px;'><button class=\\\"btn \${l.status === 'inactive' ? 'btn-green' : 'btn-red'}\\\" onclick=\\\"toggleStatus('\${l.licenseKey}', '\${l.status}')\\\">\${l.status === 'inactive' ? 'Activate' : 'Deactivate'}</button><button class=\\\"btn\\\" style=\\\"background:#64748b; color:white;\\\" onclick=\\\"openDeleteModal('\${l.licenseKey}', '\${l.businessName}')\\\">🗑️</button></div></td></tr>\`;
+                  return \`<tr><td><b>\${esc(l.businessName) || 'N/A'}</b><br><small>\${esc(l.email)}</small></td><td><code>\${l.licenseKey}</code></td><td><span class=\\\"badge \${l.status === 'inactive' ? 'badge-inactive' : 'badge-premium'}\\\">\${l.status}</span></td><td>\${expiryCell}</td><td>\${branchesCell}</td><td><div style='display:flex;gap:8px;'><button class=\\\"btn \${l.status === 'inactive' ? 'btn-green' : 'btn-red'}\\\" onclick=\\\"toggleStatus('\${l.licenseKey}', '\${l.status}')\\\">\${l.status === 'inactive' ? 'Activate' : 'Deactivate'}</button><button class=\\\"btn\\\" style=\\\"background:#64748b; color:white;\\\" onclick=\\\"openDeleteModal('\${l.licenseKey}', '\${esc(l.businessName)}')\\\">🗑️</button></div></td></tr>\`;
                 }).join('');
             } else if (tabId === 'admins') {
-                const d = await api('/api/admin/accounts');
-                document.getElementById('adminUsersBody').innerHTML = d.map(a => \`<tr><td>\${a.username}</td><td>\${a.fullName}</td><td>\${a.username !== 'admin' ? '<button class="btn btn-red" onclick="delAdmin(\\''+a.username+'\\')">Delete</button>' : ''}</td></tr>\`).join('');
+                const d = await api('/api/admin/accounts'); if (!d) return;
+                document.getElementById('adminUsersBody').innerHTML = d.map(a => \`<tr><td>\${esc(a.username)}</td><td>\${esc(a.fullName)}</td><td>\${a.username !== 'admin' ? '<button class="btn btn-red" onclick="delAdmin(\\''+a.username+'\\')">Delete</button>' : ''}</td></tr>\`).join('');
             } else if (tabId === 'upgradeKeys') {
                 const [d, licenses] = await Promise.all([
                     api('/api/admin/upgrade-keys'),
@@ -707,12 +715,12 @@ const server = http.createServer(async (req, res) => {
                     const redeemedByCell = (k.redemptions && k.redemptions.length > 0)
                         ? k.redemptions.map(r => {
                             const buyer = licenseByKey[r.licenseKey];
-                            const nameLine = buyer ? \`<b>\${buyer.businessName || 'N/A'}</b><br><small>\${buyer.email || ''}</small><br>\` : '';
+                            const nameLine = buyer ? \`<b>\${esc(buyer.businessName) || 'N/A'}</b><br><small>\${esc(buyer.email)}</small><br>\` : '';
                             return \`\${nameLine}<code>\${r.licenseKey}</code><br><small style="color:#94a3b8;">\${new Date(r.redeemedAt).toLocaleString()}</small>\`;
                           }).join('<hr style="margin:6px 0;border-color:#e5e7eb;">')
                         : '<i style="color:#94a3b8;">not yet redeemed</i>';
                     const issuedToCell = (k.assignedShopName || k.assignedPhone || k.assignedEmail)
-                        ? \`\${k.assignedShopName ? '<b>'+k.assignedShopName+'</b><br>' : ''}\${k.assignedPhone ? '<small>'+k.assignedPhone+'</small><br>' : ''}\${k.assignedEmail ? '<small>'+k.assignedEmail+'</small>' : ''}\`
+                        ? \`\${k.assignedShopName ? '<b>'+esc(k.assignedShopName)+'</b><br>' : ''}\${k.assignedPhone ? '<small>'+esc(k.assignedPhone)+'</small><br>' : ''}\${k.assignedEmail ? '<small>'+esc(k.assignedEmail)+'</small>' : ''}\`
                         : '<i style="color:#94a3b8;">any</i>';
                     const actionsCell = \`<div style="display:flex;gap:8px;">\${k.status === 'active' ? '<button class="btn btn-red" onclick="revokeUpgradeKey(\\''+k.key+'\\')">Revoke</button>' : ''}<button class="btn" style="background:#64748b;color:white;" onclick="deleteUpgradeKey('\${k.key}')">🗑️ Delete</button></div>\`;
                     return \`<tr><td><code>\${k.key}</code></td><td>\${k.planType}</td><td>\${k.usedCount || 0} / \${k.maxUses}</td><td>\${k.boundLicenseKey || '<i>any</i>'}</td><td>\${issuedToCell}</td><td>\${redeemedByCell}</td><td><span class="badge \${statusBadge}">\${k.status}</span></td><td>\${actionsCell}</td></tr>\`;
