@@ -504,24 +504,45 @@ export async function openPurchaseForm(container) {
     const p = products.find(x => String(x.id) === String(pid));
 
     if (!p) { showToast('Product not found', 'error'); return; }
-    if (selectedItems.find(x => String(x.id) === String(pid))) { showToast('Product already added', 'warning'); return; }
 
     // Prefer the product's own recorded Cost Price — only fall back to a rough 80%-of-selling-price
     // guess for products that have never had a cost price set at all.
     const defaultCost = p.costPrice > 0 ? p.costPrice : (p.price || 0) * 0.8;
-    selectedItems.push({ id: p.id, name: p.name, qty: 1, cost: defaultCost });
+
+    // Variant products don't have their own top-level stock — only receiving
+    // against a specific variant (and updating THAT variant's stock, see
+    // completePurchaseBtn below) keeps this consistent with how sales and the
+    // product-edit form both track stock (per-variant, with product.stock
+    // kept only as a derived sum). Add one pending row per variant instead of
+    // a single ambiguous "add N units to this product" row.
+    if (p.variants && p.variants.length > 0) {
+      const missingVariants = p.variants.filter(v => !selectedItems.find(x => String(x.id) === String(pid) && x.variantName === v.name));
+      if (missingVariants.length === 0) { showToast('All variants of this product already added', 'warning'); return; }
+      missingVariants.forEach(v => {
+        selectedItems.push({ id: p.id, name: `${p.name} (${v.name})`, variantName: v.name, qty: 0, cost: defaultCost });
+      });
+    } else {
+      if (selectedItems.find(x => String(x.id) === String(pid))) { showToast('Product already added', 'warning'); return; }
+      selectedItems.push({ id: p.id, name: p.name, qty: 1, cost: defaultCost });
+    }
     renderItems();
   };
 
   document.getElementById('completePurchaseBtn').onclick = async () => {
     if (selectedItems.length === 0) { showToast('Add items to purchase', 'error'); return; }
 
+    // Variant rows start at qty 0 (a product can have several variants added
+    // at once but this purchase may only cover some of them) — drop the ones
+    // left untouched instead of rejecting the whole purchase for them.
+    const itemsToProcess = selectedItems.filter(i => i.qty > 0);
+    if (itemsToProcess.length === 0) { showToast('Enter a quantity greater than 0 for at least one item', 'error'); return; }
+
     // Qty must be positive — a zero/negative quantity here would still log an inventory
     // change tagged "Purchase Received IN" while actually leaving stock unchanged or
     // reducing it, which is the opposite of what a purchase record should ever do.
-    const invalidItem = selectedItems.find(i => !(i.qty > 0) || i.cost < 0);
+    const invalidItem = itemsToProcess.find(i => i.cost < 0);
     if (invalidItem) {
-      showToast(`"${invalidItem.name}": quantity must be greater than 0 and cost can't be negative`, 'error');
+      showToast(`"${invalidItem.name}": cost can't be negative`, 'error');
       return;
     }
 
@@ -535,7 +556,7 @@ export async function openPurchaseForm(container) {
 
     const taxRate = parseFloat(document.getElementById('purTaxRate').value) || 0;
 
-    const subtotal = selectedItems.reduce((s, i) => s + (i.qty * i.cost), 0);
+    const subtotal = itemsToProcess.reduce((s, i) => s + (i.qty * i.cost), 0);
     const taxAmount = subtotal * (taxRate / 100);
     const total = subtotal + taxAmount;
 
@@ -550,7 +571,7 @@ export async function openPurchaseForm(container) {
       supplierGstin: sup.gstin || '',
       supplierInvoiceNo: invNo,
       placeOfSupply: document.getElementById('purPos').value.trim(),
-      items: selectedItems,
+      items: itemsToProcess,
       subtotal,
       taxRate,
       taxAmount,
@@ -560,16 +581,29 @@ export async function openPurchaseForm(container) {
       status: 'Completed'
     });
 
-    // Update Stock Logic
+    // Update Stock Logic — mirrors saveOrder()'s deduction in db.js: a
+    // variant's own stock is the source of truth, with product.stock kept
+    // only as a derived sum, so receiving stock against a variant here stays
+    // consistent with what sales and the product-edit form both read.
     const allProducts = await getProducts();
     const currentUser = await getCurrentUser();
-    for (const item of selectedItems) {
+    for (const item of itemsToProcess) {
       const p = allProducts.find(x => String(x.id) === String(item.id));
       if (p) {
-        const oldStock = p.stock || 0;
-        p.stock = oldStock + item.qty;
+        let oldStock = 0;
+        if (item.variantName && p.variants) {
+          const v = p.variants.find(v => v.name === item.variantName);
+          if (v) {
+            oldStock = v.stock || 0;
+            v.stock = (v.stock || 0) + item.qty;
+            p.stock = p.variants.reduce((s, vr) => s + (vr.stock || 0), 0);
+          }
+        } else {
+          oldStock = p.stock || 0;
+          p.stock = oldStock + item.qty;
+        }
         await updateProduct(p);
-        await logInventoryChange(p.id, null, 'IN', item.qty, 'Purchase Received', newPur.branchId, newPur.id, oldStock, oldStock + item.qty, currentUser?.name);
+        await logInventoryChange(p.id, item.variantName || null, 'IN', item.qty, 'Purchase Received', newPur.branchId, newPur.id, oldStock, oldStock + item.qty, currentUser?.name);
       }
     }
 
