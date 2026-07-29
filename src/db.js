@@ -2423,43 +2423,24 @@ export async function closeRegister(shiftId, closingBalance, notes) {
   shift.closingBalance = Number(closingBalance);
   shift.notes = notes;
 
-  // Calculate actual totals from orders during shift
-  const orders = (await getOrders(shift.branchId)).filter(o =>
-    new Date(o.date) >= new Date(shift.openedAt) &&
-    new Date(o.date) <= new Date(shift.closedAt)
-  );
-
-  shift.sales = orders.reduce((sum, o) => sum + (o.total || 0), 0);
-
-  // Calculate cash sales and other collections
-  shift.cashSales = orders.reduce((sum, o) => {
-    if (o.payments) {
-      return sum + o.payments.filter(p => p.method?.toLowerCase() === 'cash').reduce((s, p) => s + p.amount, 0);
-    }
-    return sum + (o.paymentMethod?.toLowerCase() === 'cash' ? o.total : 0);
-  }, 0);
-
-  // Recalculate all collections dynamically
-  const collections = {};
-  orders.forEach(o => {
-    if (o.payments && o.payments.length > 0) {
-      o.payments.forEach(p => {
-        const method = p.method || 'Cash';
-        collections[method] = (collections[method] || 0) + p.amount;
-      });
-      const totalPaid = o.payments.reduce((s, p) => s + p.amount, 0);
-      const remaining = (o.total || 0) - totalPaid;
-      if (remaining > 0.01) {
-        collections['Credit'] = (collections['Credit'] || 0) + remaining;
-      }
-    } else {
-      const m = o.paymentMethod || 'Cash';
-      collections[m] = (collections[m] || 0) + (o.total || 0);
-    }
-  });
-  shift.collections = collections;
-  shift.ordersCount = orders.length;
-
+  // shift.sales/cashSales/collections/ordersCount are NOT recomputed here —
+  // they're already correctly maintained incrementally by updateShiftSales()
+  // (called from confirmOrder(), saveReturn(), and settleOrderPayment()) as
+  // each event happens against the shift/register it actually belongs to.
+  // A from-scratch recompute at close time was tried previously and was
+  // wrong in three compounding ways: (1) getOrders() only filters by
+  // branchId, never registerId — orders have no registerId field at all —
+  // so on a branch with multiple simultaneous open registers, closing ONE
+  // register's shift pulled in every OTHER register's sales too; (2) it
+  // filtered by `order.date` (when the order was created) rather than when
+  // cash actually moved, so a debt settled in THIS shift for an order
+  // created in an EARLIER shift was silently dropped, and it never
+  // consulted the returns table at all, so a cash refund paid out during
+  // the shift was never subtracted back out; (3) it mis-bucketed a fully
+  // unpaid credit order (payments = [], paymentMethod saved as 'Split')
+  // as ₹-for-₹ collected 'Split' revenue. All three silently corrupted the
+  // cashier's correctly-balanced drawer into a phantom shortage/surplus.
+  // Trusting the live-tracked figures avoids all three at once.
   shift.updatedAt = new Date().toISOString();
   await updateData('shifts', shift);
   return shift;
