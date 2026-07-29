@@ -125,7 +125,7 @@ export async function renderPurchases(container, subPage) {
           </td>
           <td data-label="Date">${p.date ? new Date(p.date).toLocaleDateString() : 'N/A'}</td>
           <td data-label="Purchase ID" class="font-mono text-sm">${p.id || 'N/A'}</td>
-          <td data-label="Invoice #" class="font-mono text-sm">${p.supplierInvoiceNo || 'N/A'}</td>
+          <td data-label="Invoice #" class="font-mono text-sm">${escapeHtml(p.supplierInvoiceNo || 'N/A')}</td>
           <td data-label="Supplier">${escapeHtml(p.supplierName) || 'Unknown Supplier'}</td>
           <td data-label="Total Amount" class="font-bold">\u20B9${p.total.toFixed(2)}</td>
           <td data-label="Status"><span class="badge ${p.status === 'Completed' ? 'badge-success' : 'badge-warning'}">${p.status}</span></td>
@@ -577,6 +577,16 @@ export async function openPurchaseForm(container) {
     if (amountPaid < 0) { showToast('Amount Paid cannot be negative', 'error'); return; }
     if (amountPaid > total) { showToast(`Amount Paid can't exceed the purchase total (${store.settings.currency || '₹'}${total.toFixed(2)})`, 'error'); return; }
 
+    // Same duplicate-guard class already applied to Categories.js/Suppliers.js/
+    // Staff.js/CustomerForm.js — without it, re-recording the same supplier
+    // invoice (e.g. a fast double-click, or re-entering after a UI glitch)
+    // silently double-counts stock received and the supplier's outstanding balance.
+    const existingPurchases = await getPurchases();
+    if (existingPurchases.some(p => String(p.supplierId) === String(supplierId) && (p.supplierInvoiceNo || '').toLowerCase() === invNo.toLowerCase())) {
+      showToast(`Invoice "${invNo}" is already recorded for this supplier`, 'error');
+      return;
+    }
+
     completePurchaseBtn.disabled = true;
     try {
       const newPur = await savePurchase({
@@ -644,7 +654,7 @@ function viewPurchaseDetails(purchase) {
           <div style="font-size:14px;color:var(--text-secondary)">Supplier</div>
           <div class="font-bold">${escapeHtml(purchase.supplierName) || 'Unknown Supplier'}</div>
           <div style="font-size:12px;opacity:0.6">${purchase.date ? new Date(purchase.date).toLocaleString() : 'N/A'}</div>
-          <div style="font-size:12px;margin-top:4px">Invoice #: <span class="font-mono font-bold">${purchase.supplierInvoiceNo || 'N/A'}</span></div>
+          <div style="font-size:12px;margin-top:4px">Invoice #: <span class="font-mono font-bold">${escapeHtml(purchase.supplierInvoiceNo || 'N/A')}</span></div>
         </div>
         ${purchase.billAttachment ? `
           <button class="btn btn-ghost btn-sm" id="viewBillAttachmentBtn">
@@ -712,13 +722,30 @@ function viewPurchaseDetails(purchase) {
     window.open(purchase.billAttachment, '_blank');
   });
 
-  document.getElementById('recordPaymentBtn')?.addEventListener('click', async () => {
+  const recordPaymentBtn = document.getElementById('recordPaymentBtn');
+  recordPaymentBtn?.addEventListener('click', async () => {
+    if (recordPaymentBtn.disabled) return;
     const input = document.getElementById('recordPaymentAmount');
     const amount = parseFloat(input.value) || 0;
     if (amount <= 0) { showToast('Enter a valid payment amount', 'error'); return; }
     if (amount > outstanding + 0.01) { showToast(`Payment can't exceed the outstanding balance (₹${outstanding.toFixed(2)})`, 'error'); return; }
 
-    await savePurchase({ ...purchase, amountPaid: amountPaid + amount });
+    recordPaymentBtn.disabled = true;
+    try {
+      // Re-read the purchase fresh instead of using the stale `purchase`/
+      // `amountPaid` captured at modal-open time — without this, a fast
+      // double-click (or a second payment recorded from another window)
+      // would compute its new total off the same stale amountPaid and
+      // silently discard whichever payment applied second.
+      const freshPurchases = await getPurchases();
+      const freshPurchase = freshPurchases.find(p => p.id === purchase.id);
+      if (!freshPurchase) throw new Error('Purchase record not found.');
+      await savePurchase({ ...freshPurchase, amountPaid: (freshPurchase.amountPaid || 0) + amount });
+    } catch (err) {
+      recordPaymentBtn.disabled = false;
+      showToast(err.message || 'Failed to record payment.', 'error');
+      return;
+    }
     showToast('Payment recorded', 'success');
     closeModal();
     const { navigate } = await import('../router.js');

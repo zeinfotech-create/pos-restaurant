@@ -16,6 +16,12 @@ import { openModal, closeModal } from '../components/Modal.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 
 export async function renderRegister(container) {
+  // Tear down the previous render's duration timer before this one starts —
+  // the router replaces #page-container's innerHTML directly (no 'remove'
+  // event fires on it), so a listener for that event never runs and the
+  // setInterval below would otherwise leak forever across page revisits.
+  if (window._registerCleanup) { window._registerCleanup(); window._registerCleanup = null; }
+
   // Show loading skeleton
   container.innerHTML = `
     <div class="page-header">
@@ -120,7 +126,7 @@ export async function renderRegister(container) {
           </div>
           <div>
             <div style="font-size:11px; opacity:0.6; text-transform:uppercase; letter-spacing:0.5px">Cashier</div>
-            <div class="font-bold text-primary" style="font-size:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:120px">${shift.openedBy || 'Staff'}</div>
+            <div class="font-bold text-primary" style="font-size:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:120px">${escapeHtml(shift.openedBy || 'Staff')}</div>
           </div>
         </div>
       </div>
@@ -269,7 +275,7 @@ export async function renderRegister(container) {
     };
     updateDur();
     const timer = setInterval(updateDur, 60000);
-    container.addEventListener('remove', () => clearInterval(timer));
+    window._registerCleanup = () => clearInterval(timer);
   }
 
   // ── Button Handlers ──────────────────────────────────────────────
@@ -320,14 +326,19 @@ function openOpeningModal(branchId, openedByName, registerId = null) {
     `
   });
 
-  document.getElementById('confirmOpenBtn').onclick = async () => {
+  const confirmOpenBtn = document.getElementById('confirmOpenBtn');
+  confirmOpenBtn.onclick = async () => {
+    if (confirmOpenBtn.disabled) return;
     const bal = parseFloat(document.getElementById('openingBal').value) || 0;
+    const notes = document.getElementById('openingNotes').value.trim();
+    confirmOpenBtn.disabled = true;
     try {
-      await openRegister(branchId, openedByName, bal, registerId);
+      await openRegister(branchId, openedByName, bal, registerId, notes);
       showToast('Register opened successfully!', 'success');
       closeModal();
       window.navigate('register');
     } catch (err) {
+      confirmOpenBtn.disabled = false;
       showToast('Failed to open register: ' + err.message, 'error');
     }
   };
@@ -360,18 +371,22 @@ function openAdjustmentModal(type, shift, branchId) {
     `
   });
 
-  document.getElementById('confirmAdjBtn').onclick = async () => {
+  const confirmAdjBtn = document.getElementById('confirmAdjBtn');
+  confirmAdjBtn.onclick = async () => {
+    if (confirmAdjBtn.disabled) return;
     const amt = parseFloat(document.getElementById('adjAmount').value);
     const rsn = document.getElementById('adjReason').value.trim();
     if (!amt || amt <= 0) return showToast('Please enter a valid amount', 'error');
     if (!rsn) return showToast('Please enter a reason', 'error');
 
+    confirmAdjBtn.disabled = true;
     try {
       await addShiftTransaction(branchId, type, amt, rsn);
       showToast(`Cash ${type} of ${amt.toFixed(2)} recorded`, 'success');
       closeModal();
       window.navigate('register');
     } catch (err) {
+      confirmAdjBtn.disabled = false;
       showToast('Failed to record transaction: ' + err.message, 'error');
     }
   };
@@ -516,15 +531,19 @@ async function openClosingModal(shift, cur, branchId) {
   closingBalInput.addEventListener('input', updateDiscrepancy);
   updateDiscrepancy();
 
-  document.getElementById('confirmCloseBtn').onclick = async () => {
+  const confirmCloseBtn = document.getElementById('confirmCloseBtn');
+  confirmCloseBtn.onclick = async () => {
+    if (confirmCloseBtn.disabled) return;
     const bal = parseFloat(closingBalInput.value) || 0;
     const notes = document.getElementById('closingNotes').value.trim();
+    confirmCloseBtn.disabled = true;
     try {
       await closeRegister(shift.id, bal, notes);
       showToast('Register closed. Shift summary saved.', 'info');
       closeModal();
       window.navigate('register');
     } catch (err) {
+      confirmCloseBtn.disabled = false;
       showToast('Failed to close register: ' + err.message, 'error');
     }
   };
@@ -554,7 +573,7 @@ function openShiftDetailsModal(shiftId, cur, allShifts) {
         <div class="grid-2">
           <div class="stat-info">
             <div style="font-size:11px;opacity:0.6">Cashier</div>
-            <div class="font-bold">${shift.openedBy || '—'}</div>
+            <div class="font-bold">${escapeHtml(shift.openedBy || '—')}</div>
           </div>
           <div class="stat-info">
             <div style="font-size:11px;opacity:0.6">Status</div>

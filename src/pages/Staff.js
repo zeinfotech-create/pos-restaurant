@@ -273,7 +273,7 @@ async function openStaffForm(staff = null, container = null) {
             <label class="form-label required">Full Name</label>
             <div class="search-input-wrap">
               <i class="fa-solid fa-user"></i>
-              <input class="form-input" id="stName" value="${staff?.name || ''}" required placeholder="e.g. John Doe" />
+              <input class="form-input" id="stName" value="${escapeHtml(staff?.name || '')}" required placeholder="e.g. John Doe" />
             </div>
           </div>
 
@@ -281,7 +281,7 @@ async function openStaffForm(staff = null, container = null) {
             <label class="form-label">Specialization</label>
             <div class="search-input-wrap">
               <i class="fa-solid fa-scissors"></i>
-              <input class="form-input" id="stSpec" value="${staff?.specialization || ''}" placeholder="e.g. Hair Stylist, Massage" />
+              <input class="form-input" id="stSpec" value="${escapeHtml(staff?.specialization || '')}" placeholder="e.g. Hair Stylist, Massage" />
             </div>
           </div>
 
@@ -289,7 +289,7 @@ async function openStaffForm(staff = null, container = null) {
             <label class="form-label">Phone Number</label>
             <div class="search-input-wrap">
               <i class="fa-solid fa-phone"></i>
-              <input class="form-input" id="stPhone" value="${staff?.phone || ''}" placeholder="e.g. 9876543210" />
+              <input class="form-input" id="stPhone" value="${escapeHtml(staff?.phone || '')}" placeholder="e.g. 9876543210" />
             </div>
           </div>
 
@@ -339,19 +339,42 @@ async function openStaffForm(staff = null, container = null) {
     removeBtn.style.display = 'none';
   };
 
-  document.getElementById('saveStaffBtn').onclick = async () => {
+  const saveStaffBtn = document.getElementById('saveStaffBtn');
+  saveStaffBtn.onclick = async () => {
+    if (saveStaffBtn.disabled) return;
     const name = document.getElementById('stName').value.trim();
     if (!name) return showToast('Name is required', 'error');
+    const phone = document.getElementById('stPhone').value.trim();
 
-    await saveStaff({
-      ...staff,
-      name,
-      image: base64Input.value,
-      specialization: document.getElementById('stSpec').value.trim(),
-      phone: document.getElementById('stPhone').value.trim(),
-      commissionRate: parseFloat(document.getElementById('stComm').value) || 0,
-      branchId: store.branch?.id || 'b1'
-    });
+    // Same duplicate-guard class already applied to Categories.js/Suppliers.js/
+    // CustomerForm.js — without it, two staff records with the same name/phone
+    // fragment commission/incentive history across both.
+    const existingStaff = await getStaff(store.branch?.id || 'b1');
+    if (existingStaff.some(s => s.id !== staff?.id && s.name.trim().toLowerCase() === name.toLowerCase())) {
+      showToast(`A staff member named "${name}" already exists`, 'error');
+      return;
+    }
+    if (phone && existingStaff.some(s => s.id !== staff?.id && s.phone === phone)) {
+      showToast(`A staff member with phone "${phone}" already exists`, 'error');
+      return;
+    }
+
+    saveStaffBtn.disabled = true;
+    try {
+      await saveStaff({
+        ...staff,
+        name,
+        image: base64Input.value,
+        specialization: document.getElementById('stSpec').value.trim(),
+        phone,
+        commissionRate: parseFloat(document.getElementById('stComm').value) || 0,
+        branchId: store.branch?.id || 'b1'
+      });
+    } catch (err) {
+      saveStaffBtn.disabled = false;
+      showToast(err.message || 'Failed to save staff member.', 'error');
+      return;
+    }
 
     closeModal();
     showToast('Staff details saved', 'success');

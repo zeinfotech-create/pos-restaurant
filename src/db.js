@@ -2296,7 +2296,7 @@ export async function isRegisterOpen(branchId, registerId = null) {
   return !!shift;
 }
 
-export async function openRegister(branchId, userId, openingBalance, registerId = null) {
+export async function openRegister(branchId, userId, openingBalance, registerId = null, openingNotes = '') {
   const rid = registerId || await getCurrentRegisterId();
   const newShift = {
     id: 'SHIFT-' + Date.now(),
@@ -2305,6 +2305,7 @@ export async function openRegister(branchId, userId, openingBalance, registerId 
     openedBy: userId,
     openedAt: new Date().toISOString(),
     openingBalance: Number(openingBalance),
+    openingNotes: openingNotes || '',
     cashSales: 0,
     cardSales: 0,
     upiSales: 0,
