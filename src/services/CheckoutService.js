@@ -347,18 +347,14 @@ export async function openCheckout() {
   function updateUI() {
     const modalBody = document.querySelector('.modal-body');
     if (modalBody) {
-      const { total: newTotal } = getCartTotals();
-      if (payments.length === 1) {
-          payments[0].amount = newTotal;
-      } else {
-          // If multiple, adjust the balance on the last row if possible, 
-          // or just ensure UI renders the new due balance correctly.
-          const currentPaid = payments.reduce((s, p) => s + p.amount, 0);
-          if (Math.abs(currentPaid - newTotal) > 0.01) {
-              // Optionally redistribute here, but for now we just let the UI show the 'Due' amount
-          }
-      }
-      
+      // Every caller of updateUI() already sets `payments` itself before
+      // calling this (applyPaymentAmountChange for a manual amount edit,
+      // an explicit `payments = [...]` reassignment for method/mode/points
+      // changes) — this used to also force payments[0].amount back to the
+      // cart total whenever there was exactly one payment row, which
+      // silently discarded whatever the user had just typed and confirmed
+      // (cash tendered, a partial amount before switching to unpaid, etc.)
+      // the moment they blurred the field.
       modalBody.innerHTML = renderCheckoutUI();
       attachListeners();
     }
@@ -634,7 +630,11 @@ export async function openCheckout() {
           redeemedPoints = 0;
         }
         // Balance payments when points change
-        payments = [{ method: 'Cash', amount: Math.max(0, total - redeemedPoints) }];
+        // Uses the store's own default payment method, not a hardcoded
+        // 'Cash' — a store configured with only UPI/Card (no Cash option
+        // in Settings) would otherwise end up with a payment row whose
+        // method matches no configured method-pill.
+        payments = [{ method: defaultMethod, amount: Math.max(0, total - redeemedPoints) }];
         updateUI();
       };
     }
@@ -645,7 +645,7 @@ export async function openCheckout() {
         const val = parseFloat(e.target.value) || 0;
         const maxPoints = store.selectedCustomer.loyaltyPoints || 0;
         redeemedPoints = Math.min(val, maxPoints, total);
-        payments = [{ method: 'Cash', amount: Math.max(0, total - redeemedPoints) }];
+        payments = [{ method: defaultMethod, amount: Math.max(0, total - redeemedPoints) }];
         updateUI();
       };
     }
