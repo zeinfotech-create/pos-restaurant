@@ -16,6 +16,7 @@ import { lockApp, isAppLocked, getLockState } from './pages/Security.js';
 import { syncEngine } from './services/syncEngine.js';
 import { observeDomForSelects } from './utils/premiumSelect.js';
 import { BackupService } from './services/BackupService.js';
+import { escapeHtml } from './utils/escapeHtml.js';
 
 // Initialize Global Premium Selects hook
 observeDomForSelects();
@@ -846,7 +847,7 @@ async function renderMobileCart() {
              <input type="text" id="mCustSearch" placeholder="Search Customer..." 
                autocomplete="off"
                style="border:none; padding:4px 0; background:transparent; font-weight:700; width:100%; outline:none; font-size:13px; color:var(--text-main)"
-               value="${store.selectedCustomer ? store.selectedCustomer.name : 'Walk-in Customer'}" />
+               value="${escapeHtml(store.selectedCustomer ? store.selectedCustomer.name : 'Walk-in Customer')}" />
              <div id="mCustSuggestions" class="ep-suggestions hidden" style="position:absolute; top:36px; left:-34px; width:calc(100% + 56px); z-index:100; background:#fff; box-shadow:0 10px 25px rgba(0,0,0,0.1); border-radius:8px; border:1px solid var(--border); overflow:hidden"></div>
           </div>
           ${store.selectedCustomer ? `
@@ -1149,8 +1150,8 @@ async function renderMobileCart() {
       custSugs.innerHTML = matches.slice(0, 6).map(c => `
         <div class="cust-suggestion-item" data-id="${c.id}" style="padding:12px; border-bottom:1px solid #f1f5f9; cursor:pointer; display:flex; justify-content:space-between; align-items:center; background:#fff">
           <div style="min-width:0; flex:1">
-            <div style="font-weight:700; color:var(--text-main); font-size:14px; line-height:1.2">${c.name}</div>
-            <div style="font-size:11px; color:#6366f1; font-weight:600">${c.phone || 'No Phone'}</div>
+            <div style="font-weight:700; color:var(--text-main); font-size:14px; line-height:1.2">${escapeHtml(c.name)}</div>
+            <div style="font-size:11px; color:#6366f1; font-weight:600">${escapeHtml(c.phone || 'No Phone')}</div>
           </div>
           <div style="font-size:10px; color:#94a3b8"><i class="fa-solid fa-chevron-right"></i></div>
         </div>

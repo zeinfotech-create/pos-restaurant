@@ -5,6 +5,7 @@ import { openCustomerForm } from '../components/CustomerForm.js';
 import { openQuickCheckout } from '../services/QuickCheckoutService.js';
 import { MediaService } from '../services/MediaService.js';
 import { showToast } from '../components/Toast.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 
 let quickSearchQuery = '';
 let lastAddedCartId = null;
@@ -1214,8 +1215,8 @@ export async function renderQuickPOS(container) {
             return `
             <div class="ep-suggestion-item ${idx === 0 && !currentVal ? 'active' : ''}" data-cust-id="${c.id}" style="padding:10px; font-size:13px; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
                 <div>
-                   <div style="font-weight:700; color:#1e293b">${c.name}</div>
-                   <div style="font-size:11px; color:#6366f1; font-weight:600">${c.phone || 'No Phone'}</div>
+                   <div style="font-weight:700; color:#1e293b">${escapeHtml(c.name)}</div>
+                   <div style="font-size:11px; color:#6366f1; font-weight:600">${escapeHtml(c.phone || 'No Phone')}</div>
                 </div>
                 <div style="font-size:10px; color:#94a3b8"><i class="fa-solid fa-chevron-right"></i></div>
             </div>

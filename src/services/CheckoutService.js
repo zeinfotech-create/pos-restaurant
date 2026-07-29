@@ -305,8 +305,8 @@ export async function openCheckout() {
                              <label class="form-label" style="font-size:10px; font-weight:800; color:var(--danger); text-transform:uppercase">Assigned Customer</label>
                              <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-main); padding:12px 16px; border-radius:12px; border:1px solid var(--border); margin-bottom:16px">
                                <div>
-                                 <div style="font-weight:800; font-size:14px; color:var(--text-main)">${store.selectedCustomer.name}</div>
-                                 <div style="font-size:12px; color:var(--text-muted); font-weight:600">${store.selectedCustomer.phone || 'No Phone'}</div>
+                                 <div style="font-weight:800; font-size:14px; color:var(--text-main)">${escapeHtml(store.selectedCustomer.name)}</div>
+                                 <div style="font-size:12px; color:var(--text-muted); font-weight:600">${escapeHtml(store.selectedCustomer.phone || 'No Phone')}</div>
                                </div>
                                <button type="button" class="btn btn-ghost" id="checkoutChangeCustBtn" style="color:var(--danger); font-size:12px; padding:6px 12px; background:rgba(255, 71, 87, 0.1); border-radius:8px">
                                  <i class="fa-solid fa-rotate" style="margin-right:6px"></i> Change
@@ -384,8 +384,8 @@ export async function openCheckout() {
           <div class="checkout-cust-item" data-id="${c.id}" style="padding:10px 14px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); transition:background 0.15s"
             onmouseover="this.style.background='var(--bg-main)'" onmouseout="this.style.background='transparent'">
             <div>
-              <div style="font-weight:700; font-size:13px">${c.name}</div>
-              <div style="font-size:11px; color:var(--text-muted)">${c.phone || 'No phone'}</div>
+              <div style="font-weight:700; font-size:13px">${escapeHtml(c.name)}</div>
+              <div style="font-size:11px; color:var(--text-muted)">${escapeHtml(c.phone || 'No phone')}</div>
             </div>
             <div style="font-size:11px; color:var(--danger); font-weight:600">Owes: ${cur}${(c.creditBalance || 0).toFixed(2)}</div>
           </div>
@@ -953,8 +953,8 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         ${order.orderSource && order.orderSource !== 'In-Store' ? `<div style="font-size:11px;font-weight:bold;color:var(--primary)">Source: ${order.orderSource}</div>` : ''}
         ${order.customer ? `
           <div style="margin-top:4px;padding-top:4px;border-top:1px dashed var(--border);font-size:12px">
-            <div>Customer: <strong>${order.customer.name}</strong></div>
-            <div>Phone: ${order.customer.phone}</div>
+            <div>Customer: <strong>${escapeHtml(order.customer.name)}</strong></div>
+            <div>Phone: ${escapeHtml(order.customer.phone)}</div>
           </div>
         ` : ''}
       </div>

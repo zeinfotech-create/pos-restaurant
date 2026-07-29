@@ -4,6 +4,7 @@ import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { openCustomerForm } from '../components/CustomerForm.js';
 import { openCheckout } from '../services/CheckoutService.js';
 import { showToast } from '../components/Toast.js';
+import { escapeHtml } from '../utils/escapeHtml.js';
 // ... rest of imports
 
 let searchQuery = '';
@@ -563,7 +564,7 @@ export async function renderCart(cur) {
              <input type="text" id="posCustSearch" placeholder="Search Customer..." 
                autocomplete="off"
                style="border:none; padding:4px 0; background:transparent; font-weight:700; width:100%; outline:none; font-size:13px; color:var(--text-main)"
-               value="${store.selectedCustomer ? store.selectedCustomer.name : 'Walk-in Customer'}" />
+               value="${escapeHtml(store.selectedCustomer ? store.selectedCustomer.name : 'Walk-in Customer')}" />
              <div id="posCustSuggestions" class="ep-suggestions hidden" style="position:absolute; top:36px; left:-34px; width:calc(100% + 56px); z-index:100; background:var(--bg-elevated); box-shadow:var(--shadow-lg); border-radius:12px; border:1px solid var(--border); overflow:hidden"></div>
           </div>
           ${store.selectedCustomer ? `
@@ -932,8 +933,8 @@ export async function renderCart(cur) {
       custSugs.innerHTML = matches.slice(0, 6).map(c => `
         <div class="cust-suggestion-item" data-id="${c.id}" style="padding:10px 12px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition:background 0.15s; background:var(--bg-elevated)" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='var(--bg-elevated)'">
           <div style="min-width:0; flex:1">
-            <div style="font-weight:700; color:var(--text-main); font-size:13px; line-height:1.2">${c.name}</div>
-            <div style="font-size:11px; color:#6366f1; font-weight:600">${c.phone || 'No Phone'}</div>
+            <div style="font-weight:700; color:var(--text-main); font-size:13px; line-height:1.2">${escapeHtml(c.name)}</div>
+            <div style="font-size:11px; color:#6366f1; font-weight:600">${escapeHtml(c.phone || 'No Phone')}</div>
           </div>
           <div style="font-size:10px; color:#94a3b8"><i class="fa-solid fa-chevron-right"></i></div>
         </div>
@@ -1130,7 +1131,7 @@ async function openNewAppointmentForm(cur, appoToEdit = null) {
             <div style="flex:1;position:relative">
               <select class="form-select" id="apCust" style="height:46px;padding-left:12px;border-radius:12px;border:1px solid var(--border);background:var(--bg-elevated)">
                 <option value="">Walk-in / Search Customer...</option>
-                ${customers.map(c => `<option value="${c.id}" ${appoToEdit?.customerId === c.id ? 'selected' : ''}>${c.name} (${c.phone})</option>`).join('')}
+                ${customers.map(c => `<option value="${c.id}" ${appoToEdit?.customerId === c.id ? 'selected' : ''}>${escapeHtml(c.name)} (${escapeHtml(c.phone)})</option>`).join('')}
               </select>
             </div>
             <button type="button" class="btn btn-ghost" id="apAddCustBtn" style="width:46px;height:46px;padding:0;border-radius:12px;border:1px solid var(--border);background:var(--bg-elevated)">
@@ -1151,7 +1152,7 @@ async function openNewAppointmentForm(cur, appoToEdit = null) {
           <label class="form-label" style="display:flex;align-items:center;gap:8px"><i class="fa-solid fa-user-tie text-info"></i> Assigned Staff (Stylist)</label>
           <select class="form-select" id="apStaff" style="height:46px;border-radius:12px;border:1px solid var(--border);background:var(--bg-elevated)">
             <option value="">Any Available Staff</option>
-            ${staff.map(s => `<option value="${s.id}" ${appoToEdit?.staffId === s.id ? 'selected' : ''}>${s.name} (${s.specialization || 'Artist'})</option>`).join('')}
+            ${staff.map(s => `<option value="${s.id}" ${appoToEdit?.staffId === s.id ? 'selected' : ''}>${escapeHtml(s.name)} (${escapeHtml(s.specialization || 'Artist')})</option>`).join('')}
           </select>
         </div>
 

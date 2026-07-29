@@ -497,7 +497,7 @@ async function openCustomerDetails(cust) {
           <td style="font-size:11px">${new Date(h.date).toLocaleDateString()}</td>
           <td><span class="badge ${h.type === 'Credit' ? 'badge-success' : 'badge-danger'}">${h.type}</span></td>
           <td class="font-bold ${h.type === 'Credit' ? 'text-success' : 'text-danger'}">${h.type === 'Credit' ? '+' : '-'}${cur}${h.amount.toLocaleString()}</td>
-          <td style="font-size:11px;color:var(--text-muted)" title="${h.reason}">${h.reason?.substring(0, 15)}...</td>
+          <td style="font-size:11px;color:var(--text-muted)" title="${escapeHtml(h.reason)}">${escapeHtml(h.reason?.substring(0, 15))}...</td>
         </tr>
       `).join('');
 
