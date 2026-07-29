@@ -805,6 +805,11 @@ export async function adjustProductStock(productId, variantName, newStock, reaso
     if (!variant) throw new Error('Variant not found');
     oldStock = Number(variant.stock) || 0;
     variant.stock = countedStock;
+    // product.stock is only ever a derived sum of its variants (see
+    // saveOrder()'s deduction above) — every other consumer (CSV export,
+    // getProductStockAcrossBranches, low-stock reports) reads it directly,
+    // so leaving it stale here would silently desync them from this adjustment.
+    product.stock = product.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
   } else {
     oldStock = Number(product.stock) || 0;
     product.stock = countedStock;
