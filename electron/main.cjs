@@ -241,10 +241,22 @@ function spawnServer(script, serverCwd, userData) {
   return proc;
 }
 
-function startServer() {
+async function startServer() {
   const script    = isDev ? res('server', 'index.js') : path.join(process.resourcesPath, 'server', 'index.js');
   const serverCwd = isDev ? res('server') : path.join(process.resourcesPath, 'server');
   const userData  = app.getPath('userData');
+
+  // Unlike Mongo (bundled portable mongod on port 27017), nothing here ever
+  // checks whether port 3030 is already held by an orphaned server process
+  // from an unclean previous shutdown (crash, Task Manager kill — anything
+  // that skips the app's own 'before-quit' cleanup). Spawning a second
+  // process on top of that just fails to bind (see server/index.js's
+  // server.on('error', ...)) — reuse whatever's already answering instead,
+  // mirroring startMongo()'s existing "use what's already there" pattern.
+  if (await isPortOpen(3030)) {
+    console.log('[Server] Port 3030 already in use — reusing the existing instance instead of spawning a new one.');
+    return;
+  }
 
   // WRITE LOG TO DISK SO WE CAN READ IT
   const logData = `
