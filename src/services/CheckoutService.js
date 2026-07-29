@@ -2,7 +2,7 @@
 // CheckoutService.js — Global checkout and receipt logic
 // ============================================================
 
-import { getProducts, saveOrder, getSettings, saveSettings, updateProduct, updateShiftSales, saveStaffIncentive, updateAppointmentStatus, getReturns, getCustomers } from '../db.js';
+import { getProducts, saveOrder, getSettings, saveSettings, updateProduct, updateShiftSales, saveStaffIncentive, updateAppointmentStatus, getReturns, getCustomers, isRegisterOpen } from '../db.js';
 import { store, getCartTotals, clearCart } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
@@ -416,6 +416,12 @@ export async function openCheckout() {
     const confirmBtn = document.getElementById('confirmPayBtn');
     if (confirmBtn) {
       confirmBtn.onclick = async () => {
+        // Guards against a fast double-click/double-tap firing confirmOrder()
+        // twice concurrently — each run saves its own order and deducts stock
+        // independently, so without this a single sale could be recorded (and
+        // stock decremented) twice.
+        if (confirmBtn.disabled) return;
+
         const paid = payments.reduce((s, p) => s + p.amount, 0);
         const outstanding = Math.max(0, total - redeemedPoints - paid);
         const creditNote = document.getElementById('creditInfo')?.value;
@@ -452,7 +458,12 @@ export async function openCheckout() {
             deliveryVehicle
         });
 
-        await confirmOrder(validPayments, getCartTotals(), settings, cur, confirmData());
+        confirmBtn.disabled = true;
+        try {
+          await confirmOrder(validPayments, getCartTotals(), settings, cur, confirmData());
+        } finally {
+          confirmBtn.disabled = false;
+        }
       };
     }
     document.querySelectorAll('.method-pill').forEach(el => {
@@ -681,6 +692,16 @@ export async function openCheckout() {
 }
 
 export async function confirmOrder(payments, totals, settings, cur, creditData = { isCredit: false, creditInfo: '' }) {
+  // The page-mount check (POS.js/QuickPOS.js) only runs once when the POS
+  // screen first loads — a shift closed from another terminal (or this same
+  // one, another tab) while this cart was already open would otherwise still
+  // let the sale complete and write shift/stock data against a closed shift.
+  const branchId = store.branch?.id || 'b1';
+  if (!(await isRegisterOpen(branchId, store.registerId))) {
+    showToast('Register is closed. Please open the register before completing a sale.', 'error');
+    return;
+  }
+
   const orderItems = store.cart.map(i => {
     // Calculate precise finalTax for this line item based on its type — mirrors store.js's
     // getCartTotals() discountTotal formula so saved orders match what was actually charged.
