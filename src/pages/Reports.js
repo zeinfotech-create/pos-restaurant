@@ -2163,12 +2163,32 @@ function openShiftSummaryModal(shiftId, cur, allShifts, registers = []) {
   });
 }
 
+// Worst-of-all-variants status, same rule Products.js's own overall-status
+// badge uses — checking only the aggregate p.stock/p.minStock (a derived sum
+// across variants, see db.js) against one threshold missed a product where a
+// single variant was critically low while others kept the total looking fine.
+function getProductOverallStockStatus(p) {
+  if (p.variants && p.variants.length > 0) {
+    const statuses = p.variants.map(v => getStockStatus(v.stock, v.minStock));
+    return statuses.every(s => s === 'out') ? 'out' : (statuses.some(s => s !== 'in') ? 'low' : 'in');
+  }
+  return getStockStatus(p.stock, p.minStock);
+}
+
 async function renderLowStockReport(container, cur) {
   const products = await getProducts(currentBranchFilter);
-  const lowStockItems = products.filter(p => getStockStatus(p.stock, p.minStock) !== 'in');
+  const lowStockItems = products.filter(p => getProductOverallStockStatus(p) !== 'in');
   const canExportLow = await hasPermission('reports:export');
 
   function lowStockRowHtml(p) {
+    const isVariant = p.variants && p.variants.length > 0;
+    const status = getProductOverallStockStatus(p);
+    const isOut = status === 'out';
+    // A single threshold/progress-bar only means something for a product
+    // that has one stock number — a variant product's variants can each have
+    // their own minStock, so there's no one "threshold" to show a bar against.
+    const threshold = (p.minStock != null && p.minStock > 0) ? p.minStock : 10;
+    const barPct = isVariant ? 100 : Math.min(100, ((p.stock || 0) / threshold) * 100);
     return `
                 <tr>
                   <td data-label="Product">
@@ -2181,16 +2201,16 @@ async function renderLowStockReport(container, cur) {
                     </div>
                   </td>
                   <td data-label="Category"><span class="badge badge-ghost">${p.category || 'General'}</span></td>
-                  <td data-label="Stock" class="font-bold cursor-help" title="Threshold: 10">
-                    <span class="${p.stock <= 0 ? 'text-danger' : 'text-warning'}">${parseFloat(Number(p.stock || 0).toFixed(3))}</span>
+                  <td data-label="Stock" class="font-bold cursor-help" title="${isVariant ? 'Threshold varies by variant' : `Threshold: ${threshold}`}">
+                    <span class="${isOut ? 'text-danger' : 'text-warning'}">${parseFloat(Number(p.stock || 0).toFixed(3))}${isVariant ? ' (Total)' : ''}</span>
                   </td>
                   <td data-label="Status">
                     <div style="display:flex;align-items:center;gap:8px;justify-content:flex-start">
                       <div style="flex:1;background:var(--bg-main);height:6px;border-radius:3px;overflow:hidden;width:80px">
-                        <div style="width:${Math.min(100, ((p.stock || 0) / 10 * 100))}%;background:${(p.stock || 0) <= 2 ? 'var(--danger)' : 'var(--warning)'};height:100%"></div>
+                        <div style="width:${barPct}%;background:${isOut ? 'var(--danger)' : 'var(--warning)'};height:100%"></div>
                       </div>
-                      <span style="font-size:10px;font-weight:700;color:${(p.stock || 0) <= 2 ? 'var(--danger)' : 'var(--warning)'}">
-                        ${(p.stock || 0) <= 0 ? 'OUT' : 'LOW'}
+                      <span style="font-size:10px;font-weight:700;color:${isOut ? 'var(--danger)' : 'var(--warning)'}">
+                        ${isOut ? 'OUT' : 'LOW'}
                       </span>
                     </div>
                   </td>
