@@ -1026,6 +1026,10 @@ async function openProductForm(product, container, cur) {
               <input type="checkbox" id="isReturnableToggle" ${product?.isReturnable !== false ? 'checked' : ''} style="width:18px;height:18px" />
               <span style="font-size:12px; font-weight:600"><i class="fa-solid fa-rotate-left mr-4"></i> Returnable</span>
            </label>
+           <label style="display:flex; align-items:center; gap:8px; padding:10px; background:var(--bg-app); border-radius:8px; border:1px solid var(--border); cursor:pointer">
+              <input type="checkbox" id="allowNegativeStockToggle" ${product?.allowNegativeStock ? 'checked' : ''} style="width:18px;height:18px" />
+              <span style="font-size:12px; font-weight:600"><i class="fa-solid fa-triangle-exclamation mr-4"></i> Sell When Out of Stock</span>
+           </label>
         </div>
         <div id="variantList"></div>
       `)}
@@ -1266,6 +1270,7 @@ async function openProductForm(product, container, cur) {
         const itemDiscount = parseFloat(document.getElementById('pItemDiscount').value) || 0;
         const itemDiscountType = document.getElementById('pItemDiscountType').value;
         const isReturnable = document.getElementById('isReturnableToggle').checked;
+        const allowNegativeStock = document.getElementById('allowNegativeStockToggle').checked;
 
         let finalPrice = 0;
         let finalCost = 0;
@@ -1334,7 +1339,7 @@ async function openProductForm(product, container, cur) {
 
         const payload = {
           ...product, name: name_val, sku, barcode, price: finalPrice, costPrice: finalCost, stock: finalStock, minStock: finalMinStock, category, subCategory, emoji,
-          image, variants: finalVariants, hsnCode, taxType, taxRate, itemDiscount, itemDiscountType, isReturnable, mrp, expiryDate, manufacturingDate,
+          image, variants: finalVariants, hsnCode, taxType, taxRate, itemDiscount, itemDiscountType, isReturnable, allowNegativeStock, mrp, expiryDate, manufacturingDate,
           location: { floor, row, rack }
         };
 

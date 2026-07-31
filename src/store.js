@@ -1,4 +1,4 @@
-import { db, KEYS, getSettings, getCurrentBranch, getCurrentUser, getCurrentRegisterId } from './db.js';
+import { db, KEYS, getSettings, getCurrentBranch, getCurrentUser, getCurrentRegisterId, getProducts } from './db.js';
 import { showToast } from './components/Toast.js';
 
 export const store = {
@@ -71,8 +71,11 @@ export function addToCart(product, variant = null, qty = 1) {
     // If it's a weighed item and internal call (qty=1), we might want to still check.
     // But usually for weight, we pass the exact weight.
     if (!isWeighed && currentQty + qty > availableStock) {
-        showToast(`Only ${availableStock} items in stock`, 'warning');
-        return;
+        if (!product.allowNegativeStock) {
+            showToast(`Only ${availableStock} items in stock`, 'warning');
+            return;
+        }
+        showToast(`${product.name} is out of stock — selling anyway`, 'warning');
     }
 
     const roundedQty = parseFloat(parseFloat(qty).toFixed(3));
@@ -126,7 +129,7 @@ export function updateCartItem(cartId, fields) {
     renderCartEvent();
 }
 
-export function updateQty(cartId, delta) {
+export async function updateQty(cartId, delta) {
     const item = store.cart.find(i => i.cartId === cartId);
     if (!item) return;
 
@@ -137,8 +140,18 @@ export function updateQty(cartId, delta) {
     const unit = (item.unit || '').toLowerCase();
     const isWeighed = unit === 'kg' || unit === 'g' || unit === 'kilogram' || unit === 'gram';
     if (!isWeighed && delta > 0 && item.qty + delta > item.originalStock) {
-        showToast(`Limit reached: ${item.originalStock} in stock`, 'warning');
-        return;
+        // item.allowNegativeStock is a snapshot from whenever this item was
+        // added to the cart — if the product's toggle was flipped ON *after*
+        // that (a very normal thing to do mid-shift when an item runs out),
+        // the stale snapshot would still block it. Re-check the live product
+        // record here, at the boundary, instead of trusting the snapshot.
+        const liveProduct = (await getProducts()).find(p => String(p.id) === String(item.id));
+        const allowNegative = liveProduct ? liveProduct.allowNegativeStock : item.allowNegativeStock;
+        if (!allowNegative) {
+            showToast(`Limit reached: ${item.originalStock} in stock`, 'warning');
+            return;
+        }
+        showToast(`${item.name} is out of stock — selling anyway`, 'warning');
     }
 
     item.qty = parseFloat((item.qty + delta).toFixed(3));
