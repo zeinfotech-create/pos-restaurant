@@ -29,11 +29,64 @@ export async function renderQuickPOS(container) {
         <i class="fa-solid fa-lock" style="font-size:64px;margin-bottom:24px;opacity:0.2"></i>
         <h2 class="font-bold">Register is Closed</h2>
         <p class="mb-24 text-muted">You must open the shift before starting a sale.</p>
-        <button class="btn btn-primary" onclick="window.navigate('register')">
-          <i class="fa-solid fa-key"></i> Open Register Shift
-        </button>
+        <div class="flex gap-12">
+          <button class="btn btn-primary" onclick="window.navigate('register')">
+            <i class="fa-solid fa-key"></i> Open Register Shift
+          </button>
+          <button class="btn btn-ghost" id="qpChangeRegisterBtn">
+            <i class="fa-solid fa-right-from-bracket"></i> Change Register
+          </button>
+          <button class="btn btn-ghost" id="qpBackBtn">
+            <i class="fa-solid fa-arrow-left"></i> Back
+          </button>
+        </div>
       </div>
     `;
+
+    document.getElementById('qpBackBtn').addEventListener('click', () => {
+      window.navigate('dashboard');
+    });
+
+    document.getElementById('qpChangeRegisterBtn').addEventListener('click', () => {
+      import('../db.js').then(async db => {
+        const registers = await db.getBranchRegisters(branchId);
+
+        import('../components/Modal.js').then(({ openModal, closeModal }) => {
+          openModal({
+            title: '<i class="fa-solid fa-cash-register"></i> Select Register',
+            body: `
+              <div style="display:flex;flex-direction:column;gap:10px;padding:4px">
+                ${registers.length === 0
+                ? '<p style="text-align:center;padding:24px;opacity:0.6">No registers found for this branch.</p>'
+                : registers.map(r => {
+                    const isCurrent = r.id === registerId;
+                    return `
+                    <button class="btn btn-ghost reg-pick-btn" data-id="${r.id}" style="justify-content:flex-start;height:54px;padding:0 20px;border:1px solid ${isCurrent ? 'var(--primary)' : 'var(--border)'}">
+                      <i class="fa-solid fa-cash-register mr-12" style="color:var(--success)"></i>
+                      <div class="font-bold">
+                        ${escapeHtml(r.name)}
+                        ${isCurrent ? '<span style="font-size:9px; background:var(--primary-light); color:var(--primary); padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">CURRENT</span>' : ''}
+                      </div>
+                    </button>
+                  `;
+                  }).join('')}
+              </div>
+            `,
+            footer: `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`
+          });
+
+          document.querySelectorAll('.reg-pick-btn').forEach(btn => {
+            btn.onclick = async () => {
+              const session = await db.getSession();
+              await db.setSession(session.user, session.branch, btn.dataset.id);
+              closeModal();
+              window.location.reload();
+            };
+          });
+        });
+      });
+    });
+
     return;
   }
 
