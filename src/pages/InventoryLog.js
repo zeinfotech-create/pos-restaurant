@@ -435,7 +435,10 @@ function renderLogRows(logs, products) {
         </td>
         <td data-label="Type"><span class="badge ${l.type === 'IN' ? 'badge-success' : 'badge-danger'}" style="font-size:10px; font-weight:700; width:60px; text-align:center">${l.type}</span></td>
         <td data-label="Movement" style="font-size:13px; font-weight:600">
-           ${l.oldStock !== null ? `<span style="opacity:0.6">${l.oldStock}</span> <i class="fa-solid fa-arrow-right mx-8" style="font-size:10px;opacity:0.3"></i> <b class="${typeClass}">${l.newStock}</b>` : `<b class="${typeClass}">${sign}${l.qtyChange}</b>`}
+           ${l.oldStock !== null ? `
+             <div><span style="opacity:0.6">${l.oldStock}</span> <i class="fa-solid fa-arrow-right mx-8" style="font-size:10px;opacity:0.3"></i> <b class="${typeClass}">${l.newStock}</b></div>
+             <div class="${typeClass}" style="font-size:11px; font-weight:700; opacity:0.85; margin-top:2px">${sign}${l.qtyChange} ${escapeHtml(p?.unit || 'pcs')}</div>
+           ` : `<b class="${typeClass}">${sign}${l.qtyChange}</b> <span class="text-muted" style="font-size:11px; font-weight:500">${escapeHtml(p?.unit || 'pcs')}</span>`}
         </td>
         <td data-label="Reason" style="font-size:12px; max-width:200px">${renderReasonCell(l.reason)}</td>
         <td data-label="Performed By">
