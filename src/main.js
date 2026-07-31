@@ -1618,8 +1618,9 @@ window.addEventListener('sync-settings-updated', async (e) => {
 window.logout = () => {
   import('./db.js').then(async db => {
     // Record logout time in login activity before clearing session
+    let session = null;
     try {
-      const session = await db.getSession();
+      session = await db.getSession();
       if (session?.loginAt) {
         const allActivity = await db.getLoginActivity();
         const activeEntry = allActivity.find(a => a.loginAt === session.loginAt && a.status === 'active');
@@ -1633,6 +1634,9 @@ window.logout = () => {
       }
     } catch (e) {
       console.warn('[Logout] Failed to record activity:', e);
+    }
+    if (session?.user) {
+      window.syncEngine?.notifyLogoutSession(session.user.id || session.user.userId);
     }
     await db.clearSession();
     await db.updateData('internal', { id: 'app_lock', val: false });

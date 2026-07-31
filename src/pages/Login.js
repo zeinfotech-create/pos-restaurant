@@ -308,9 +308,11 @@ export function renderLogin(container) {
 
     if (currentStep === 'register') {
       container.querySelectorAll('.register-option-btn').forEach(btn => {
-        btn.onclick = () => {
-          selectedRegisterId = btn.dataset.id;
-          finalizeLogin();
+        btn.onclick = async () => {
+          const rId = btn.dataset.id;
+          const reg = cloudRegisters.find(r => (r.id || r.registerId || r._id) === rId);
+          selectedRegisterId = rId;
+          await attemptFinalize(rId, reg?.name);
         };
       });
       document.getElementById('backToBranchBtn').onclick = () => {
@@ -320,9 +322,28 @@ export function renderLogin(container) {
       };
       const finishBtn = document.getElementById('finishLoginBtn');
       if (finishBtn) {
-        finishBtn.onclick = () => finalizeLogin();
+        finishBtn.onclick = () => attemptFinalize(selectedRegisterId);
       }
     }
+  }
+
+  // Guards finalizeLogin() with a one-register-at-a-time check for this user
+  // (see syncEngine.checkActiveSession) so a rejected login never touches the
+  // register that's already active elsewhere.
+  async function attemptFinalize(registerId, registerName) {
+    if (registerId) {
+      showLoginLoading();
+      const bIdStr = selectedBranch?.id || selectedBranch?.branchId || selectedBranch?._id;
+      const check = await window.syncEngine?.checkActiveSession(
+        authenticatedUser.id, registerId, registerName, bIdStr, selectedBranch?.name
+      ) || { allowed: true };
+      if (!check.allowed) {
+        hideLoginLoading();
+        showToast(check.message || 'This user is already logged in on another register.', 'error');
+        return;
+      }
+    }
+    finalizeLogin();
   }
 
   function showLoginLoading() {

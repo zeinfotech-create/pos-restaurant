@@ -1,13 +1,11 @@
 import { db, getSettings, getDeviceId, updateData, deleteData, getDataById, updateSettings, getOrders, saveOrder, updateOrder, clearStore, read, KEYS, getCachedLicenseStatus, saveCachedLicenseStatus, getDeletedTombstones, clearExpiredTombstones, verifyLocalUser } from '../db.js';
 import { showSuspendedOverlay } from './LicenseService.js';
 
-// TODO: replace with the real, permanent public URL of your vendor-only
-// license-signing server (see D:\zeinfotech-admin-panel, a project deliberately
-// kept separate from this one — it holds the RSA private key that signs
-// Lifetime activation tokens, which must never ship inside this app). Until
-// you have a real domain/host for it, this only works when that server is
-// also running locally on the SAME machine as pos-lite (e.g. your own testing).
-const LICENSE_SERVER_URL = 'http://127.0.0.1:4000';
+// Real, permanent public URL of the vendor-only license-signing server
+// (see D:\zeinfotech-admin-panel, a project deliberately kept separate from
+// this one — it holds the RSA private key that signs Lifetime activation
+// tokens, which must never ship inside this app). Deployed on Render.
+const LICENSE_SERVER_URL = 'https://zeinfotech-admin-panel.onrender.com';
 
 class SyncEngine {
     constructor() {
@@ -453,6 +451,48 @@ class SyncEngine {
             }));
         } catch (err) {
             console.warn('SyncEngine: Failed to notify login activity (non-fatal):', err.message);
+        }
+    }
+
+    // Asks the hub whether this user already has a live session on a
+    // different register before finalizeLogin() commits to one. Fails open
+    // (allowed: true) when there's no live hub connection to ask — a genuinely
+    // offline standalone device shouldn't be blocked from logging in over a
+    // check it has no way to perform.
+    async checkActiveSession(userId, registerId, registerName, branchId, branchName) {
+        if (!this.isConnected || this.ws?.readyState !== WebSocket.OPEN) {
+            console.warn('[SyncEngine] checkActiveSession: no live hub connection, failing open (allowed).');
+            return { allowed: true };
+        }
+        return new Promise((resolve) => {
+            const requestId = 'as-' + Date.now();
+            this.pendingRequests.set(requestId, { resolve: (msg) => {
+                console.log('[SyncEngine] checkActiveSession result:', msg);
+                resolve(msg);
+            } });
+            this.ws.send(JSON.stringify({
+                type: 'pos_check_active_session',
+                requestId, userId, registerId, registerName, branchId, branchName
+            }));
+
+            setTimeout(() => {
+                if (this.pendingRequests.has(requestId)) {
+                    this.pendingRequests.delete(requestId);
+                    console.warn('[SyncEngine] checkActiveSession: timed out waiting for hub, failing open (allowed).');
+                    resolve({ allowed: true });
+                }
+            }, 5000);
+        });
+    }
+
+    // Fire-and-forget: frees this user's active-session slot on the hub right
+    // away on manual logout, instead of waiting for the socket to close.
+    notifyLogoutSession(userId) {
+        try {
+            if (!this.isConnected || this.ws?.readyState !== WebSocket.OPEN) return;
+            this.ws.send(JSON.stringify({ type: 'pos_logout_session', userId }));
+        } catch (err) {
+            console.warn('SyncEngine: Failed to notify logout session (non-fatal):', err.message);
         }
     }
 

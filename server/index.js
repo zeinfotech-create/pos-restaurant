@@ -512,6 +512,14 @@ function getDefaultSettings(licenseKey, branchId = null) {
 // ============================================================
 const clientMap = new Map(); // licenseKey -> Set<ws>
 
+// Active-session-per-user registry — `${licenseKey}::${userId}` -> { ws, registerId,
+// registerName, branchId, branchName, loginAt }. In-memory only (per hub process): a
+// hub restart clears it, which is fine since every connected client re-registers and
+// re-selects a register on reconnect. Freed on explicit logout (pos_logout_session)
+// or when the owning ws disconnects (ws.on('close')), so a crashed/closed client
+// never permanently locks its register slot.
+const activeUserSessions = new Map();
+
 // Helper to send JSON messages securely
 function send(ws, obj) {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -1541,6 +1549,66 @@ wss.on('connection', (ws, req) => {
                     break;
                 }
 
+                // --------------------------------------------------------
+                // pos_check_active_session — enforce one-register-at-a-time
+                // per user. Called right before finalizeLogin() commits to a
+                // register, so a rejected login never touches the other
+                // register's live session.
+                // --------------------------------------------------------
+                case 'pos_check_active_session': {
+                    const { requestId, userId, registerId, registerName, branchId, branchName } = msg;
+                    if (!userId) {
+                        send(ws, { type: 'pos_active_session_result', requestId, allowed: true });
+                        break;
+                    }
+
+                    // Keyed by userId alone, NOT licenseKey — two clients of the
+                    // same standalone shop can legitimately register under
+                    // different licenseKey values (see the standalone hub
+                    // identity notes elsewhere in this file), so partitioning by
+                    // licenseKey too made the same user on two registers never
+                    // collide, silently defeating this whole check.
+                    const key = String(userId);
+                    const existing = activeUserSessions.get(key);
+                    const staleOrSameRegister = !existing
+                        || existing.ws === ws
+                        || existing.ws.readyState !== WebSocket.OPEN
+                        || existing.registerId === registerId;
+
+                    console.log(`[Hub][ActiveSession] check user=${userId} register=${registerId} existing=${existing ? `${existing.registerId} (open=${existing.ws.readyState === WebSocket.OPEN})` : 'none'} -> ${staleOrSameRegister ? 'allow' : 'BLOCK'}`);
+
+                    if (!staleOrSameRegister) {
+                        send(ws, {
+                            type: 'pos_active_session_result',
+                            requestId,
+                            allowed: false,
+                            message: `This user is already logged in on Register "${existing.registerName || existing.registerId || 'another device'}". Please log out there first.`
+                        });
+                        break;
+                    }
+
+                    activeUserSessions.set(key, { ws, registerId, registerName, branchId, branchName, loginAt: new Date() });
+                    ws._activeSessionKey = key;
+                    send(ws, { type: 'pos_active_session_result', requestId, allowed: true });
+                    break;
+                }
+
+                // --------------------------------------------------------
+                // pos_logout_session — frees this user's active-session slot
+                // immediately on manual logout (see window.logout in main.js),
+                // instead of waiting for the ws.on('close') cleanup below.
+                // --------------------------------------------------------
+                case 'pos_logout_session': {
+                    const { userId } = msg;
+                    if (!userId) break;
+                    const key = String(userId);
+                    if (activeUserSessions.get(key)?.ws === ws) {
+                        activeUserSessions.delete(key);
+                        console.log(`[Hub][ActiveSession] freed user=${userId} (explicit logout)`);
+                    }
+                    break;
+                }
+
                 case 'pos_get_login_activities': {
                     const { requestId, limit = 100 } = msg;
                     if (!licenseKey) break;
@@ -1739,6 +1807,9 @@ wss.on('connection', (ws, req) => {
 
     ws.on('close', () => {
         unregisterClient(ws);
+        if (ws._activeSessionKey && activeUserSessions.get(ws._activeSessionKey)?.ws === ws) {
+            activeUserSessions.delete(ws._activeSessionKey);
+        }
         console.log(`[Hub] Client disconnected. Remaining: ${wss.clients.size}`);
     });
 

@@ -187,9 +187,18 @@ export async function renderPOS(container) {
   };
   window.addEventListener('license-status-changed', onLicenseUpdate);
 
+  // The product catalog syncs down from the hub asynchronously — if this page
+  // is opened right after login/register-open, renderProductGrid() above can
+  // run before that sync lands in IndexedDB, showing "No products found"
+  // even though the catalog is populated moments later (visible on Products
+  // page by then, but POS never re-rendered to pick it up). Refresh the grid
+  // whenever a sync finishes while this page is mounted.
+  const onSyncApplied = () => { renderProductGrid(); };
+  window.addEventListener('sync-full-state-applied', onSyncApplied);
 
   const cleanup = () => {
     window.removeEventListener('license-status-changed', onLicenseUpdate);
+    window.removeEventListener('sync-full-state-applied', onSyncApplied);
     if (observer) observer.disconnect();
   };
   window._posCleanup = cleanup;
