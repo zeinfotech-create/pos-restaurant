@@ -979,6 +979,36 @@ async function renderOutstandingReport(container, cur) {
   const customers = Object.values(creditMap).sort((a, b) => b.totalOutstanding - a.totalOutstanding);
   const totalSalesOutstanding = customers.reduce((s, c) => s + c.totalOutstanding, 0);
 
+  // Calendar-month grouping — reuses the per-order/per-purchase balances already
+  // computed above rather than re-deriving them, so this can never drift out of
+  // sync with the by-customer/by-supplier totals above it.
+  const monthlyMap = {};
+  function ensureMonth(d) {
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    if (!monthlyMap[key]) {
+      monthlyMap[key] = {
+        label: d.toLocaleString('en', { month: 'long', year: 'numeric' }),
+        sortKey: d.getFullYear() * 12 + d.getMonth(),
+        salesOutstanding: 0,
+        purchaseOutstanding: 0
+      };
+    }
+    return monthlyMap[key];
+  }
+  customers.forEach(c => {
+    c.orders.forEach(o => {
+      if (o.balance <= 0.01) return;
+      ensureMonth(new Date(o.date)).salesOutstanding += o.balance;
+    });
+  });
+  suppliers.forEach(s => {
+    s.purchases.forEach(p => {
+      if (p.outstanding <= 0.01) return;
+      ensureMonth(new Date(p.date)).purchaseOutstanding += p.outstanding;
+    });
+  });
+  const monthlyRows = Object.values(monthlyMap).sort((a, b) => b.sortKey - a.sortKey);
+
   outstandingSalesPage = 1;
   outstandingPurchasePage = 1;
   const canExportOut = await hasPermission('reports:export');
@@ -996,6 +1026,32 @@ async function renderOutstandingReport(container, cur) {
           <div class="stat-label">Purchase Outstanding (owed BY you to suppliers)</div>
           <div class="stat-value text-danger" style="font-size:32px">${cur}${totalPurchaseOutstanding.toFixed(2)}</div>
         </div>
+      </div>
+    </div>
+
+    <div class="card mb-16">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold"><i class="fa-solid fa-calendar-days mr-8"></i> Monthly Outstanding Summary</div>
+        ${canExportOut ? tableExportButtonsHtml('outstanding-monthly') : ''}
+      </div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Month</th><th>Sales Outstanding</th><th>Purchase Outstanding</th><th>Net Outstanding</th></tr></thead>
+          <tbody id="outstandingMonthlyBody">
+            ${monthlyRows.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:40px;opacity:0.5">No outstanding balances in any month. Great! 💎</td></tr>' :
+              monthlyRows.map(m => {
+                const net = m.salesOutstanding - m.purchaseOutstanding;
+                return `
+                <tr>
+                  <td data-label="Month" class="font-bold">${m.label}</td>
+                  <td data-label="Sales Outstanding" style="color:var(--warning)">${cur}${m.salesOutstanding.toFixed(2)}</td>
+                  <td data-label="Purchase Outstanding" class="text-danger">${cur}${m.purchaseOutstanding.toFixed(2)}</td>
+                  <td data-label="Net Outstanding" class="font-bold" style="color:${net >= 0 ? 'var(--success)' : 'var(--danger)'}">${net >= 0 ? '+' : '-'}${cur}${Math.abs(net).toFixed(2)}</td>
+                </tr>
+              `;
+              }).join('')}
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -1166,6 +1222,18 @@ async function renderOutstandingReport(container, cur) {
 
   renderSalesOutstandingRows();
   renderPurchaseOutstandingRows();
+  const outstandingMonthlyTableEl = document.getElementById('outstandingMonthlyBody').closest('table');
+  wireTableExport('outstanding-monthly', outstandingMonthlyTableEl, 'Monthly Outstanding Summary', () => monthlyRows.map(m => {
+    const net = m.salesOutstanding - m.purchaseOutstanding;
+    return `
+      <tr>
+        <td data-label="Month" class="font-bold">${m.label}</td>
+        <td data-label="Sales Outstanding" style="color:var(--warning)">${cur}${m.salesOutstanding.toFixed(2)}</td>
+        <td data-label="Purchase Outstanding" class="text-danger">${cur}${m.purchaseOutstanding.toFixed(2)}</td>
+        <td data-label="Net Outstanding" class="font-bold" style="color:${net >= 0 ? 'var(--success)' : 'var(--danger)'}">${net >= 0 ? '+' : '-'}${cur}${Math.abs(net).toFixed(2)}</td>
+      </tr>
+    `;
+  }).join(''));
   wireTableExport('outstanding-sales', outstandingSalesTableEl, 'Sales Outstanding by Customer', () => customers.map(salesOutstandingRowHtml).join(''));
   wireTableExport('outstanding-purchase', outstandingPurchaseTableEl, 'Purchase Outstanding by Supplier', () => suppliers.map(purchaseOutstandingRowHtml).join(''));
 }
