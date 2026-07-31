@@ -1,6 +1,14 @@
 import { db, getSettings, getDeviceId, updateData, deleteData, getDataById, updateSettings, getOrders, saveOrder, updateOrder, clearStore, read, KEYS, getCachedLicenseStatus, saveCachedLicenseStatus, getDeletedTombstones, clearExpiredTombstones, verifyLocalUser } from '../db.js';
 import { showSuspendedOverlay } from './LicenseService.js';
 
+// TODO: replace with the real, permanent public URL of your vendor-only
+// license-signing server (see D:\zeinfotech-admin-panel, a project deliberately
+// kept separate from this one — it holds the RSA private key that signs
+// Lifetime activation tokens, which must never ship inside this app). Until
+// you have a real domain/host for it, this only works when that server is
+// also running locally on the SAME machine as pos-lite (e.g. your own testing).
+const LICENSE_SERVER_URL = 'http://127.0.0.1:4000';
+
 class SyncEngine {
     constructor() {
         this.ws = null;
@@ -129,7 +137,7 @@ class SyncEngine {
         const email = trimmedContact;
 
         try {
-            const res = await fetch('http://127.0.0.1:3030/api/license/activate-lifetime', {
+            const res = await fetch(`${LICENSE_SERVER_URL}/api/license/activate-lifetime`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ licenseKey, key, deviceFingerprint, phone, email })
@@ -145,7 +153,7 @@ class SyncEngine {
             await this.init();
             return { success: true };
         } catch (e) {
-            return { success: false, message: 'Could not reach the local hub: ' + e.message };
+            return { success: false, message: 'Could not reach the license server: ' + e.message };
         }
     }
 
