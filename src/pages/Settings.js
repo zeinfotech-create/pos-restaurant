@@ -324,11 +324,11 @@ export async function renderSettings(container) {
                   </label>
                   ${s.storeLogo ? `<button type="button" class="btn btn-ghost" id="removeLogoBtn" style="font-size:12px; color:var(--danger)">Remove</button>` : ''}
                 </div>
-                <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-top:10px">
+                <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin-top:10px">
                   <input type="checkbox" id="sShowLogoOnReceipt" ${s.showLogoOnReceipt ? 'checked' : ''} />
                   <label class="form-label" style="margin:0" for="sShowLogoOnReceipt">Print logo on receipt</label>
                 </div>
-                <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-top:10px">
+                <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin-top:10px">
                   <input type="checkbox" id="sPrintBarcodeOnReceipt" ${s.printBarcodeOnReceipt ? 'checked' : ''} />
                   <label class="form-label" style="margin:0" for="sPrintBarcodeOnReceipt">Print order ID barcode on receipt</label>
                 </div>
