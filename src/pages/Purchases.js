@@ -1,10 +1,11 @@
-import { getPurchases, getSuppliers, getProducts, savePurchase, updateProduct, getCurrentBranch, getCurrentUser, deletePurchase, hasPermission, logInventoryChange, getPurchaseReturnedTotals } from '../db.js';
+import { getPurchases, getSuppliers, getProducts, savePurchase, updateProduct, getCurrentBranch, getCurrentUser, deletePurchase, hasPermission, logInventoryChange, getPurchaseReturnedTotals, getSettings } from '../db.js';
 import { store } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { initDateRangePicker, getDefaultRange } from '../utils/dateRangeHelper.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
+import { printReceiptHtml } from '../services/CheckoutService.js';
 
 let currentPage = 1;
 const itemsPerPage = 10;
@@ -443,10 +444,11 @@ export async function openPurchaseForm(container) {
       <div class="form-grid mt-24 pt-20" style="border-top:1px solid var(--border)">
         <div class="form-group">
           <label class="form-label">Purchase Tax Rate (%)</label>
-          <div class="search-input-wrap">
-            <i class="fa-solid fa-percent"></i>
-            <input class="form-input" type="number" id="purTaxRate" value="0" placeholder="e.g. 18" style="padding-left:36px" />
-          </div>
+          <select class="form-select" id="purTaxRate" ${!store.settings.availableTaxes?.length ? 'disabled' : ''}>
+            ${store.settings.availableTaxes?.length
+              ? store.settings.availableTaxes.map(t => `<option value="${t}" ${t == 0 ? 'selected' : ''}>${t}%</option>`).join('')
+              : `<option value="0">No tax rates configured — add one in Settings</option>`}
+          </select>
         </div>
         <div class="form-group">
           <label class="form-label">Amount Paid to Supplier Now</label>
@@ -455,6 +457,12 @@ export async function openPurchaseForm(container) {
             <input class="form-input" type="number" id="purAmountPaid" value="0" placeholder="0.00" min="0" style="padding-left:36px" />
           </div>
           <p class="form-help-text">Leave as 0 if this is fully on credit — the unpaid balance shows up in the Outstanding report.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Paid Via</label>
+          <select class="form-select" id="purPaymentMethod">
+            ${(store.settings.paymentMethods?.length ? store.settings.paymentMethods : ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Cheque']).map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')}
+          </select>
         </div>
         <div class="form-group" style="display:flex; align-items:center; justify-content:flex-end">
            <div style="text-align:right">
@@ -589,6 +597,7 @@ export async function openPurchaseForm(container) {
 
     completePurchaseBtn.disabled = true;
     try {
+      const currentUser = await getCurrentUser();
       const newPur = await savePurchase({
         date: new Date().toISOString(),
         supplierId,
@@ -602,6 +611,8 @@ export async function openPurchaseForm(container) {
         taxAmount,
         total,
         amountPaid,
+        paymentMethod: document.getElementById('purPaymentMethod').value,
+        recordedBy: currentUser?.name || '',
         billAttachment,
         status: 'Completed'
       });
@@ -611,7 +622,6 @@ export async function openPurchaseForm(container) {
       // only as a derived sum, so receiving stock against a variant here stays
       // consistent with what sales and the product-edit form both read.
       const allProducts = await getProducts();
-      const currentUser = await getCurrentUser();
       for (const item of itemsToProcess) {
         const p = allProducts.find(x => String(x.id) === String(item.id));
         if (p) {
@@ -728,13 +738,23 @@ async function viewPurchaseDetails(purchase) {
         </div>
       ` : ''}
     `,
-    footer: `<button class="btn btn-primary" onclick="closeModal()">Close Details</button>`
+    footer: `
+      <button class="btn btn-ghost" id="printVoucherBtn"><i class="fa-solid fa-print mr-4"></i> Print Voucher</button>
+      <button class="btn btn-primary" onclick="closeModal()">Close Details</button>
+    `
   });
 
   // Wired here (not inlined into the button's HTML) since the attachment is a base64 data
   // URI and can be several MB — far too large to embed as an onclick attribute value.
   document.getElementById('viewBillAttachmentBtn')?.addEventListener('click', () => {
     window.open(purchase.billAttachment, '_blank');
+  });
+
+  document.getElementById('printVoucherBtn')?.addEventListener('click', async () => {
+    const settings = await getSettings(purchase.branchId);
+    const cur = settings.currency || '₹';
+    const html = renderPurchaseVoucherHtml(purchase, settings, cur, returnedTotal, amountPaid, outstanding);
+    await printReceiptHtml(html, `Purchase Voucher - ${purchase.id}`);
   });
 
   const recordPaymentBtn = document.getElementById('recordPaymentBtn');
@@ -778,4 +798,45 @@ async function viewPurchaseDetails(purchase) {
     const { navigate } = await import('../router.js');
     await navigate('purchases');
   });
+}
+
+// Internal record for the shop's own files — NOT a document for the supplier
+// (their own invoice is the real proof of sale). Reuses the same .receipt
+// classes as the sales receipt so it prints consistently on the same
+// thermal/A4 printer setup without needing its own stylesheet.
+function renderPurchaseVoucherHtml(purchase, settings, cur, returnedTotal, amountPaid, outstanding) {
+  const itemRows = purchase.items.map(i => `
+    <div class="receipt-row">
+      <span>${escapeHtml(i.name)} x${i.qty}</span>
+      <span>${cur}${(i.qty * i.cost).toFixed(2)}</span>
+    </div>
+  `).join('');
+
+  return `
+    <div class="receipt">
+      <div class="receipt-header">
+        <div class="receipt-store-name">${escapeHtml(settings.storeName || 'Store')}</div>
+        <div style="font-size:10.5px;opacity:0.8;margin-top:4px">${escapeHtml(settings.storeAddress || '')}</div>
+        <div style="font-size:13px;font-weight:800;margin-top:8px;letter-spacing:0.5px">PURCHASE VOUCHER</div>
+        <div style="font-size:10px;opacity:0.6">(Internal record — not a supplier invoice)</div>
+      </div>
+      <div class="receipt-divider"></div>
+      <div class="receipt-row"><span>Supplier</span><span class="font-bold">${escapeHtml(purchase.supplierName || 'Unknown')}</span></div>
+      <div class="receipt-row"><span>Invoice #</span><span>${escapeHtml(purchase.supplierInvoiceNo || 'N/A')}</span></div>
+      <div class="receipt-row"><span>Date</span><span>${purchase.date ? new Date(purchase.date).toLocaleString() : 'N/A'}</span></div>
+      <div class="receipt-divider"></div>
+      ${itemRows}
+      <div class="receipt-divider"></div>
+      <div class="receipt-row"><span>Subtotal</span><span>${cur}${(purchase.subtotal || purchase.total).toFixed(2)}</span></div>
+      ${purchase.taxAmount > 0 ? `<div class="receipt-row"><span>Tax (${purchase.taxRate}%)</span><span>${cur}${purchase.taxAmount.toFixed(2)}</span></div>` : ''}
+      <div class="receipt-row" style="font-weight:800"><span>Total</span><span>${cur}${purchase.total.toFixed(2)}</span></div>
+      ${returnedTotal > 0 ? `<div class="receipt-row"><span>Returned</span><span>-${cur}${returnedTotal.toFixed(2)}</span></div>` : ''}
+      <div class="receipt-divider"></div>
+      <div class="receipt-row"><span>Paid Via</span><span>${escapeHtml(purchase.paymentMethod || 'N/A')}</span></div>
+      <div class="receipt-row" style="font-weight:800"><span>Amount Paid</span><span>${cur}${amountPaid.toFixed(2)}</span></div>
+      <div class="receipt-row" style="font-weight:800"><span>Outstanding</span><span>${cur}${outstanding.toFixed(2)}</span></div>
+      <div class="receipt-divider"></div>
+      <div class="receipt-footer">Recorded by: ${escapeHtml(purchase.recordedBy || '-')}</div>
+    </div>
+  `;
 }

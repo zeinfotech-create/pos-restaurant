@@ -946,8 +946,10 @@ async function renderMobileCart() {
             <div>
               <label style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase">Tax Rate</label>
               <div style="display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
-                <select class="form-input" id="m-ie-tax-${item.cartId}" style="height:38px;font-size:14px;border:none;flex:1;min-width:0">
-                  ${(settings.availableTaxes || [0, 5, 12, 18, 28]).map(t => `<option value="${t}" ${item.taxRate == t ? 'selected' : ''}>${t}%</option>`).join('')}
+                <select class="form-input" id="m-ie-tax-${item.cartId}" style="height:38px;font-size:14px;border:none;flex:1;min-width:0" ${!settings.availableTaxes?.length ? 'disabled' : ''}>
+                  ${settings.availableTaxes?.length
+                    ? settings.availableTaxes.map(t => `<option value="${t}" ${item.taxRate == t ? 'selected' : ''}>${t}%</option>`).join('')
+                    : `<option value="0">No rates — add in Settings</option>`}
                 </select>
                 <button class="m-ie-tax-type-btn" data-id="${item.cartId}" data-type="exclusive"
                   style="padding:0 8px;height:38px;border:none;border-left:1px solid var(--border);font-size:10px;font-weight:700;

@@ -985,8 +985,10 @@ async function openProductForm(product, container, cur) {
                 <option value="exclusive" ${(product?.taxType || 'inclusive') === 'exclusive' ? 'selected' : ''}>Exclusive (+)</option>
                 <option value="inclusive" ${(product?.taxType || 'inclusive') === 'inclusive' ? 'selected' : ''}>Inclusive</option>
               </select>
-              <select class="form-select" id="pTaxRate" style="width:100px">
-                ${(settings.availableTaxes || [0, 5, 12, 18, 28]).map(t => '<option value="' + t + '" ' + ((product?.taxRate ?? 0) == t ? 'selected' : '') + '>' + t + '%</option>').join('')}
+              <select class="form-select" id="pTaxRate" style="width:100px" ${!settings.availableTaxes?.length ? 'disabled' : ''}>
+                ${settings.availableTaxes?.length
+                  ? settings.availableTaxes.map(t => '<option value="' + t + '" ' + ((product?.taxRate ?? 0) == t ? 'selected' : '') + '>' + t + '%</option>').join('')
+                  : '<option value="0">No rates — add in Settings</option>'}
               </select>
             </div>
           </div>

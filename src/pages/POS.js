@@ -684,8 +684,10 @@ export async function renderCart(cur) {
               <div>
                 <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;display:block">Tax Rate</label>
                 <div style="display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;height:32px">
-                  <select id="ie-tax-${item.cartId}" style="border:none;flex:1;min-width:0;font-size:13px;padding:0 4px;background:transparent;color:var(--text-main);outline:none">
-                    ${(settings.availableTaxes || [0, 5, 12, 18, 28]).map(t => `<option value="${t}" ${item.taxRate == t ? 'selected' : ''}>${t}%</option>`).join('')}
+                  <select id="ie-tax-${item.cartId}" style="border:none;flex:1;min-width:0;font-size:13px;padding:0 4px;background:transparent;color:var(--text-main);outline:none" ${!settings.availableTaxes?.length ? 'disabled' : ''}>
+                    ${settings.availableTaxes?.length
+                      ? settings.availableTaxes.map(t => `<option value="${t}" ${item.taxRate == t ? 'selected' : ''}>${t}%</option>`).join('')
+                      : `<option value="0">No rates — add in Settings</option>`}
                   </select>
                   <button class="ie-tax-type-btn" data-id="${item.cartId}" data-type="exclusive" style="width:36px;border:none;border-left:1px solid var(--border);font-size:10px;font-weight:800;background:${(item.taxType||'exclusive')==='exclusive'?'var(--primary)':'transparent'};color:${(item.taxType||'exclusive')==='exclusive'?'#fff':'var(--text-muted)'}">EXC</button>
                   <button class="ie-tax-type-btn" data-id="${item.cartId}" data-type="inclusive" style="width:36px;border:none;border-left:1px solid var(--border);font-size:10px;font-weight:800;background:${(item.taxType||'exclusive')==='inclusive'?'var(--primary)':'transparent'};color:${(item.taxType||'exclusive')==='inclusive'?'#fff':'var(--text-muted)'}">INC</button>
@@ -1523,8 +1525,10 @@ async function openCustomItemModal(cur) {
           </div>
           <div class="form-group">
             <label class="form-label">Tax Rate (%)</label>
-            <select id="customItemTax" class="form-select">
-              ${(settings.availableTaxes || [0, 5, 12, 18, 28]).map(t => `<option value="${t}" ${t == settings.taxRate ? 'selected' : ''}>${t}%</option>`).join('')}
+            <select id="customItemTax" class="form-select" ${!settings.availableTaxes?.length ? 'disabled' : ''}>
+              ${settings.availableTaxes?.length
+                ? settings.availableTaxes.map(t => `<option value="${t}" ${t == settings.taxRate ? 'selected' : ''}>${t}%</option>`).join('')
+                : `<option value="0">No rates — add in Settings</option>`}
             </select>
           </div>
         </div>
