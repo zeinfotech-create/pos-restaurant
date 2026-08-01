@@ -3960,11 +3960,16 @@ tr.selected-row td {
     visibility: visible !important;
   }
 
-  /* Receipt: Responsive to all paper sizes */
+  /* Receipt: Responsive to all paper sizes.
+     Font sizes below are in `vw` (1vw = 1% of the actual print page width),
+     not a fixed px/mm value, so the same receipt scales continuously with
+     whatever paper is selected — 58mm/80mm thermal roll, A4, Letter, etc. —
+     instead of only having two hard sizes (narrow vs. a single ">150mm"
+     breakpoint) that left A4/Letter looking like a tiny receipt marooned in
+     a mostly-blank page. Calibrated so an 80mm thermal roll renders the same
+     size as before (14px on ~302px-wide page ≈ 4.6vw). */
   .receipt {
     width: 100% !important;
-    max-width: 80mm !important;
-    /* Standard POS width */
     margin: 0 auto !important;
     padding: 1mm 3mm 3mm 3mm !important;
     box-shadow: none !important;
@@ -3972,9 +3977,21 @@ tr.selected-row td {
     visibility: visible !important;
     color: #000 !important;
     background: #fff !important;
-    font-size: 14px !important;
+    font-size: 4.6vw !important;
     box-sizing: border-box !important;
     overflow: hidden !important;
+  }
+
+  .receipt-store-name {
+    font-size: 6.3vw !important;
+  }
+
+  .receipt-row {
+    font-size: 4.1vw !important;
+  }
+
+  .receipt-total-row {
+    font-size: 5.3vw !important;
   }
 
   /* Real cause of "right side text cut off": tables default to
@@ -4010,25 +4027,6 @@ tr.selected-row td {
   .receipt * {
     max-width: 100% !important;
     box-sizing: border-box !important;
-  }
-
-  /* A4 / Invoice Mode - If the page is wide enough, make it look more like an invoice */
-  @media (min-width: 150mm) {
-    .receipt {
-      max-width: 140mm !important;
-      /* A5-ish or centered A4 */
-      padding: 20mm !important;
-      border: 1px solid #eee !important;
-    }
-
-    .receipt-store-name {
-      font-size: 28px !important;
-    }
-
-    .receipt-row {
-      font-size: 16px !important;
-      margin: 8px 0 !important;
-    }
   }
 
   /* Individual elements visibility — force full-black, full-opacity text.
