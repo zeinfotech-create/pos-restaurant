@@ -1079,18 +1079,23 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
       <div class="receipt-row" style="font-weight:800; font-size:14px"><span>Total:</span><span>${cur}${subtotal.toFixed(2)}</span></div>
       ${order.discount > 0 ? `<div class="receipt-row"><span>Discount ${order.globalDiscountType === 'pct' ? `(${order.globalDiscountRaw}%)` : ''}</span><span>-${cur}${order.discount.toFixed(2)}</span></div>` : ''}
 
-      <div class="receipt-divider"></div>
-      ${(order.groupedTaxes || order.grossGroupedTaxes) && (order.groupedTaxes?.length > 0 || order.grossGroupedTaxes?.length > 0) ?
-      (order.grossGroupedTaxes || order.groupedTaxes).map(t => renderGstSplit(t.rate, t.amount, cur)).join('')
-      : order.tax > 0 ? renderGstSplit(taxRate, order.tax, cur) : ''
-    }
-
-      ${order.roundOff && Math.abs(order.roundOff) > 0.001 ? `
-        <div class="receipt-row">
-          <span>Round Off</span>
-          <span>${order.roundOff > 0 ? '+' : ''}${cur}${order.roundOff.toFixed(2)}</span>
-        </div>
-      ` : ''}
+      ${(() => {
+        const hasGroupedTax = (order.groupedTaxes?.length > 0 || order.grossGroupedTaxes?.length > 0);
+        const taxHtml = hasGroupedTax
+          ? (order.grossGroupedTaxes || order.groupedTaxes).map(t => renderGstSplit(t.rate, t.amount, cur)).join('')
+          : (order.tax > 0 ? renderGstSplit(taxRate, order.tax, cur) : '');
+        const roundOffHtml = (order.roundOff && Math.abs(order.roundOff) > 0.001) ? `
+          <div class="receipt-row">
+            <span>Round Off</span>
+            <span>${order.roundOff > 0 ? '+' : ''}${cur}${order.roundOff.toFixed(2)}</span>
+          </div>
+        ` : '';
+        // Skip this divider entirely when there's no tax/round-off content —
+        // otherwise it sits directly above the Net Amt divider below with
+        // nothing between them, printing as one doubled-up dashed line.
+        if (!taxHtml && !roundOffHtml) return '';
+        return `<div class="receipt-divider"></div>${taxHtml}${roundOffHtml}`;
+      })()}
 
       <div class="receipt-divider"></div>
       <div class="receipt-total-row"><span>Net Amt ${cur}:</span><span>${total.toFixed(2)}</span></div>

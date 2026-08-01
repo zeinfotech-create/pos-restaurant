@@ -3966,7 +3966,7 @@ tr.selected-row td {
     max-width: 80mm !important;
     /* Standard POS width */
     margin: 0 auto !important;
-    padding: 1mm 8mm 3mm 0mm !important;
+    padding: 1mm 3mm 3mm 3mm !important;
     box-shadow: none !important;
     border: none !important;
     visibility: visible !important;
