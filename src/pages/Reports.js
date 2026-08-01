@@ -2696,7 +2696,11 @@ function buildTaxInvoiceHtml(order, settings, cur) {
     <div class="tax-invoice-block" style="border:2px solid #333; border-radius:6px; padding:16px; margin:0 auto 24px; page-break-after:always; font-family:Arial,Helvetica,sans-serif; color:#111; background:#fff; max-width:720px;">
       <div style="text-align:center; border:1px solid #999; border-radius:24px; padding:10px 14px 8px; margin-bottom:10px; position:relative;">
         <div style="position:absolute; left:14px; top:10px; font-size:10px; font-weight:bold;">GSTIN : ${settings.gstNumber || 'Not Provided'}</div>
-        <div style="position:absolute; right:14px; top:10px; font-size:10px; font-weight:bold;">Cell : ${settings.storePhone || ''}</div>
+        <div style="position:absolute; right:14px; top:10px; font-size:10px; font-weight:bold; text-align:right;">
+          Cell : ${[settings.storePhone, settings.storeAltPhone].filter(Boolean).join(', ')}
+          ${settings.storeFax ? `<br/>Fax : ${settings.storeFax}` : ''}
+          ${settings.email ? `<br/>Email : ${settings.email}` : ''}
+        </div>
         <div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-top:16px;">
           ${settings.storeLogo ? `<img src="${settings.storeLogo}" style="width:42px; height:42px; object-fit:contain; border-radius:50%; flex-shrink:0;" />` : ''}
           <div>

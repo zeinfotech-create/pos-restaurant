@@ -958,11 +958,27 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         <div class="receipt-store-name">${storeName}</div>
         ${settings.storeNameSubtitle ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-top:1px">(${settings.storeNameSubtitle})</div>` : ''}
         <div style="font-size:10.5px;opacity:0.8;margin-top:4px;white-space:normal;word-wrap:break-word">${settings.storeAddress || ''}</div>
-        ${(settings.storePhone || settings.gstNumber) ? `
-        <div class="receipt-row" style="font-size:9.5px; opacity:0.7; text-align:left; flex-wrap:wrap">
-          <span>${settings.storePhone ? `Tel: ${settings.storePhone}` : ''}</span>
-          <span style="${settings.storePhone && settings.gstNumber ? 'border-left:1px dashed #000; padding-left:8px;' : ''}">${settings.gstNumber ? `GST: ${settings.gstNumber}` : ''}</span>
-        </div>` : ''}
+        ${(() => {
+          // .receipt-row is a `justify-content:space-between` flex row — fine
+          // for exactly 2 items (its usual use), but spreads 3-4 unevenly
+          // across a wrapped line. Contact details are a plain left-aligned
+          // block instead, one line per group, joined with a plain text
+          // separator (a CSS border here rendered as odd stray marks at this
+          // font size instead of a visible line).
+          const phoneNumbers = [settings.storePhone, settings.storeAltPhone].filter(Boolean).join(', ');
+          const line1 = phoneNumbers ? `Tel: ${phoneNumbers}` : '';
+          const line2 = [
+            settings.storeFax ? `Fax: ${settings.storeFax}` : '',
+            settings.email ? `Email: ${settings.email}` : '',
+            settings.gstNumber ? `GST: ${settings.gstNumber}` : ''
+          ].filter(Boolean).join('  |  ');
+          if (!line1 && !line2) return '';
+          return `
+        <div style="font-size:9.5px; opacity:0.7; text-align:left">
+          ${line1 ? `<div>${line1}</div>` : ''}
+          ${line2 ? `<div>${line2}</div>` : ''}
+        </div>`;
+        })()}
         <div class="receipt-row" style="font-size:11px; opacity:0.7; text-align:left;">
           <span>BILL NO: ${order.dailyNumber || order.id}</span>
           <span>${new Date(dateStr).toLocaleString('en-IN')}</span>

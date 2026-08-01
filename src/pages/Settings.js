@@ -282,9 +282,25 @@ export async function renderSettings(container) {
                 <label class="form-label">Store Address</label>
                 <input class="form-input" id="sStoreAddress" value="${escapeHtml(s.storeAddress)}" placeholder="123 Main Street, City" />
               </div>
-              <div class="form-group">
-                <label class="form-label">Store Phone</label>
-                <input class="form-input" id="sStorePhone" value="${escapeHtml(s.storePhone)}" placeholder="e.g. 0413-2225777" />
+              <div class="form-grid">
+                <div class="form-group mb-0">
+                  <label class="form-label">Store Phone</label>
+                  <input class="form-input" id="sStorePhone" value="${escapeHtml(s.storePhone)}" placeholder="e.g. 0413-2225777" />
+                </div>
+                <div class="form-group mb-0">
+                  <label class="form-label">Alternative Phone (optional)</label>
+                  <input class="form-input" id="sStoreAltPhone" value="${escapeHtml(s.storeAltPhone || '')}" placeholder="e.g. 0413-2225778" />
+                </div>
+              </div>
+              <div class="form-grid">
+                <div class="form-group mb-0">
+                  <label class="form-label">Store Email (optional)</label>
+                  <input type="email" class="form-input" id="sStoreEmail" value="${escapeHtml(s.email || '')}" placeholder="e.g. yourshop@example.com" />
+                </div>
+                <div class="form-group mb-0">
+                  <label class="form-label">Fax (optional)</label>
+                  <input class="form-input" id="sStoreFax" value="${escapeHtml(s.storeFax || '')}" placeholder="e.g. 0413-2225779" />
+                </div>
               </div>
               <div class="form-group">
                 <label class="form-label">GSTIN (optional)</label>
@@ -796,6 +812,9 @@ export async function renderSettings(container) {
       storeNameSubtitle: container.querySelector('#sStoreNameSubtitle')?.value.trim() || '',
       storeAddress,
       storePhone,
+      storeAltPhone: container.querySelector('#sStoreAltPhone')?.value.trim() || '',
+      storeFax: container.querySelector('#sStoreFax')?.value.trim() || '',
+      email: container.querySelector('#sStoreEmail')?.value.trim() || '',
       gstNumber: container.querySelector('#sGstNumber').value.trim(),
       upiId: container.querySelector('#sUpiId').value.trim(),
       storeLogo,
