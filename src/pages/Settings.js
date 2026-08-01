@@ -990,39 +990,57 @@ function setupDangerZone(container) {
       confirmBtn.onclick = async () => {
         showToast('Resetting system...', 'info');
 
-        // Wipe IndexedDB
-        await db.clear(KEYS.PRODUCTS);
-        await db.clear(KEYS.ORDERS);
-        await db.clear(KEYS.SETTINGS);
-        await db.clear(KEYS.BRANCHES);
-        await db.clear(KEYS.USERS);
-        await db.clear(KEYS.CUSTOMERS);
-        await db.clear(KEYS.SUPPLIERS);
-        await db.clear(KEYS.PURCHASES);
-        await db.clear(KEYS.SESSION);
-        await db.clear(KEYS.REGISTERS);
-        await db.clear(KEYS.SHIFTS);
-        await db.clear(KEYS.FLOORS);
-        await db.clear(KEYS.TABLES);
-        await db.clear(KEYS.ACTIVE_ORDERS);
-        await db.clear(KEYS.LOYALTY_HISTORY);
-        await db.clear(KEYS.STAFF);
-        await db.clear(KEYS.STAFF_INCENTIVES);
-        await db.clear(KEYS.RETURNS);
-        await db.clear(KEYS.CATEGORIES);
-        await db.clear(KEYS.INVENTORY_LOGS);
+        closeModal();
+        const overlay = document.createElement('div');
+        overlay.id = 'system-reset-loading-overlay';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;display:flex;justify-content:center;align-items:center;background:rgba(0,0,0,0.75);z-index:10000;';
+        overlay.innerHTML = `<div style="text-align:center;color:#fff;">
+          <i class="fa-solid fa-spinner fa-spin" style="font-size:52px;margin-bottom:16px;display:block;"></i>
+          <div style="font-size:18px;font-weight:600;letter-spacing:0.5px;">Wiping data…</div>
+        </div>`;
+        document.body.appendChild(overlay);
 
-        // Wipe all localStorage
-        localStorage.clear();
+        try {
+          // Wipe business/transactional data only — deliberately NOT KEYS.SETTINGS
+          // (holds licenseKey/networkId/isInstalled: clearing it made router.js's
+          // `!settings.isInstalled` check force Onboarding instead of Login after
+          // every reset, and silently dropped the shop's activated license) and
+          // NOT KEYS.USERS/BRANCHES/REGISTERS (needed for the login screen's
+          // credential + branch/register selection to actually succeed right
+          // after a reset, instead of landing on a working login with nothing
+          // to log into).
+          //
+          // KEYS.FLOORS/KEYS.TABLES/KEYS.ACTIVE_ORDERS used to be cleared here
+          // too, but none of those three names exist on the KEYS object (dead
+          // leftover from a removed table-management concept) — db.clear(undefined)
+          // threw, which silently aborted every clear() after it AND the
+          // redirect-to-login below, since none of this was wrapped in a
+          // try/catch. That's the actual reason a reset never reached the
+          // login screen.
+          await db.clear(KEYS.PRODUCTS);
+          await db.clear(KEYS.ORDERS);
+          await db.clear(KEYS.CUSTOMERS);
+          await db.clear(KEYS.SUPPLIERS);
+          await db.clear(KEYS.PURCHASES);
+          await db.clear(KEYS.SESSION);
+          await db.clear(KEYS.SHIFTS);
+          await db.clear(KEYS.LOYALTY_HISTORY);
+          await db.clear(KEYS.STAFF);
+          await db.clear(KEYS.STAFF_INCENTIVES);
+          await db.clear(KEYS.RETURNS);
+          await db.clear(KEYS.CATEGORIES);
+          await db.clear(KEYS.INVENTORY_LOGS);
+        } catch (err) {
+          console.error('[Danger Zone] Reset encountered an error (continuing to redirect anyway):', err);
+        }
 
-        // Visual feedback
-        document.body.style.transition = 'opacity 1s';
-        document.body.style.opacity = '0';
-
+        // The loading overlay stays on screen (covering the reload) until the
+        // new page has fully replaced this one — no separate fade-out needed.
         setTimeout(() => {
-          // Redirect to root which will trigger onboarding
+          // Session is cleared but isInstalled/license/users/branches survive,
+          // so the router lands on Login rather than Onboarding.
           window.location.href = '/';
-        }, 1500);
+        }, 1000);
       };
     };
   };
