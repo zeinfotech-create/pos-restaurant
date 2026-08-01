@@ -334,6 +334,11 @@ export async function renderSettings(container) {
                 </div>
               </div>
               <div class="form-group">
+                <label class="form-label">Receipt Header (optional)</label>
+                <input class="form-input" id="sReceiptHeader" value="${escapeHtml(s.receiptHeader || '')}" placeholder="e.g. Since 1998" />
+                <p class="form-help-text">Shown above the store name/logo on receipts, tax invoices, and anywhere else the header is printed.</p>
+              </div>
+              <div class="form-group">
                 <label class="form-label">Receipt Footer</label>
                 <input class="form-input" id="sReceiptFooter" value="${s.receiptFooter || ''}" placeholder="Thank you for shopping!" />
               </div>
@@ -820,6 +825,7 @@ export async function renderSettings(container) {
       storeLogo,
       showLogoOnReceipt: container.querySelector('#sShowLogoOnReceipt')?.checked || false,
       printBarcodeOnReceipt: container.querySelector('#sPrintBarcodeOnReceipt')?.checked || false,
+      receiptHeader: container.querySelector('#sReceiptHeader')?.value.trim() || '',
       receiptFooter: container.querySelector('#sReceiptFooter').value.trim(),
       currency: container.querySelector('#sCurrency').value,
       availableTaxes: JSON.parse(container.querySelector('#sAvailableTaxes').value || '[]'),

@@ -1494,6 +1494,7 @@ export async function saveSettings(settings) {
       // Branding
       storeName: dataToSave.storeName || globalRecord.storeName,
       storeAddress: dataToSave.storeAddress || globalRecord.storeAddress,
+      receiptHeader: dataToSave.receiptHeader || globalRecord.receiptHeader,
       receiptFooter: dataToSave.receiptFooter || globalRecord.receiptFooter,
       theme: dataToSave.theme || globalRecord.theme,
       // Financial Master Data - MUST PROPOAGATE TO GLOBAL

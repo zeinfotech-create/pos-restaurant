@@ -2701,7 +2701,8 @@ function buildTaxInvoiceHtml(order, settings, cur) {
           ${settings.storeFax ? `<br/>Fax : ${settings.storeFax}` : ''}
           ${settings.email ? `<br/>Email : ${settings.email}` : ''}
         </div>
-        <div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-top:16px;">
+        ${settings.receiptHeader ? `<div style="font-size:11px; font-weight:600; opacity:0.85; margin-top:16px;">${settings.receiptHeader}</div>` : ''}
+        <div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-top:${settings.receiptHeader ? '4px' : '16px'};">
           ${settings.storeLogo ? `<img src="${settings.storeLogo}" style="width:42px; height:42px; object-fit:contain; border-radius:50%; flex-shrink:0;" />` : ''}
           <div>
             <div style="font-size:22px; font-weight:800; letter-spacing:0.5px; line-height:1.15;">${storeName}</div>

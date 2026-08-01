@@ -954,6 +954,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
   return `
     <div class="receipt">
       <div class="receipt-header">
+        ${settings.receiptHeader ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-bottom:4px">${settings.receiptHeader}</div>` : ''}
         ${settings.showLogoOnReceipt && settings.storeLogo ? `<img src="${settings.storeLogo}" style="max-width:80px; max-height:80px; object-fit:contain; margin-bottom:6px" />` : ''}
         <div class="receipt-store-name">${storeName}</div>
         ${settings.storeNameSubtitle ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-top:1px">(${settings.storeNameSubtitle})</div>` : ''}
