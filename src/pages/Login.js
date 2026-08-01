@@ -304,6 +304,7 @@ export function renderLogin(container) {
         authenticatedUser = null;
         updateUI();
       };
+      setupOptionKeyNav('.branch-option-btn');
     }
 
     if (currentStep === 'register') {
@@ -324,7 +325,36 @@ export function renderLogin(container) {
       if (finishBtn) {
         finishBtn.onclick = () => attemptFinalize(selectedRegisterId);
       }
+      setupOptionKeyNav('.register-option-btn');
     }
+  }
+
+  // Arrow Up/Down moves focus between the (non-disabled) branch/register
+  // buttons for this step; Enter then fires the focused button's own click
+  // handler via the browser's native "Enter activates the focused button"
+  // behavior — no separate Enter handling needed.
+  let optionKeyNavHandler = null;
+  function setupOptionKeyNav(selector) {
+    // container is reused across every updateUI() re-render in this login
+    // session — without removing the previous step's listener first, going
+    // back and forth between steps would stack up duplicate handlers and
+    // move focus multiple slots per arrow press.
+    if (optionKeyNavHandler) container.removeEventListener('keydown', optionKeyNavHandler);
+
+    const btns = Array.from(container.querySelectorAll(selector)).filter(b => !b.disabled);
+    if (btns.length === 0) return;
+
+    const startBtn = btns.find(b => b.textContent.includes('LAST USED') || b.textContent.includes('CURRENT')) || btns[0];
+    let idx = btns.indexOf(startBtn);
+    startBtn.focus();
+
+    optionKeyNavHandler = (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      idx = e.key === 'ArrowDown' ? (idx + 1) % btns.length : (idx - 1 + btns.length) % btns.length;
+      btns[idx].focus();
+    };
+    container.addEventListener('keydown', optionKeyNavHandler);
   }
 
   // Guards finalizeLogin() with a one-register-at-a-time check for this user
