@@ -13,6 +13,10 @@ dist
 dist-ssr
 *.local
 
+# Customer release watermarking — customer names + markers, never commit
+scripts/release-registry.json
+releases/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

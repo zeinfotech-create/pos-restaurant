@@ -36,6 +36,8 @@
       "to": "server/",
       "filter": [
         "**/*",
+        "!.env",
+        "!.env.*",
         "!node_modules/.cache",
         "!node_modules/.bin",
         "!node_modules/**/*.md",
