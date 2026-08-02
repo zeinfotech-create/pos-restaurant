@@ -172,7 +172,11 @@ class SyncEngine {
             const res = await fetch(`${LICENSE_SERVER_URL}/api/license/activate-lifetime`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ licenseKey, key, deviceFingerprint, phone, email })
+                // storeName: without it the admin panel's Licenses/Upgrade Keys
+                // tables have nothing to show but "N/A" for who this license
+                // belongs to — the activation request is the only point this
+                // server ever hears from this shop at all.
+                body: JSON.stringify({ licenseKey, key, deviceFingerprint, phone, email, storeName: settings.storeName || '' })
             });
             const data = await res.json();
             if (!data.success) return { success: false, message: data.error || 'Activation failed' };
