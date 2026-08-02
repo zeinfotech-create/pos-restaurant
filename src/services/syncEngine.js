@@ -118,6 +118,40 @@ class SyncEngine {
         }
     }
 
+    // Opportunistic revocation check — deliberately NOT part of the offline
+    // verification path above. checkLifetimeActivation() (purely local
+    // signature check) stays the authoritative answer to "does this device
+    // work right now", so a shop with no internet for weeks keeps working
+    // exactly as before. This only ever ADDS a hard stop when the server is
+    // reachable AND explicitly says the license was revoked — any other
+    // outcome (offline, timeout, server error) is silently ignored, never
+    // treated as "not valid". Fired-and-forgotten from init(); never awaited
+    // by anything that would block the UI on it.
+    async checkRevocationStatus() {
+        if (this.deploymentMode !== 'standalone' || !this.isLifetimeActivated) return;
+        try {
+            const settings = await getSettings();
+            const licenseKey = settings.licenseKey || 'LOCAL_EXE';
+            const res = await fetch(`${LICENSE_SERVER_URL}/api/license/check-status`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ licenseKey }),
+                signal: AbortSignal.timeout(6000)
+            });
+            if (!res.ok) return; // server hiccup — not a revocation signal
+            const data = await res.json();
+            if (data.valid === false) {
+                console.warn('[SyncEngine] Lifetime license revoked by server — locking to Activation gate.');
+                this.isLifetimeActivated = false;
+                await updateSettings({ lifetimeToken: null });
+                if (typeof window.navigate === 'function') window.navigate('activation');
+            }
+        } catch (e) {
+            // Offline / unreachable / aborted — exactly the case this must never
+            // punish for. Do nothing.
+        }
+    }
+
     async activateLifetimeKey(key, contact = '') {
         if (!window.electronAPI?.getMachineFingerprint) {
             return { success: false, message: 'Lifetime activation is only available in the desktop app.' };
@@ -191,6 +225,14 @@ class SyncEngine {
             console.log('SyncEngine: Running in STANDALONE mode. Local hub enabled.');
 
             await this.checkLifetimeActivation();
+
+            // Fire-and-forget: never block boot/UI on this. Re-checked every 6
+            // hours the app stays open (matching the earlier reminderInterval/
+            // autoSyncInterval cleanup above) so a shop that's usually online
+            // still gets caught within a session, not just at next cold start.
+            this.checkRevocationStatus();
+            if (this.revocationCheckInterval) clearInterval(this.revocationCheckInterval);
+            this.revocationCheckInterval = setInterval(() => this.checkRevocationStatus(), 6 * 60 * 60 * 1000);
 
             if (this.isLifetimeActivated) {
                 this.licenseStatus = {

@@ -2,7 +2,7 @@
 // Settings.js
 // ============================================================
 
-import { getSettings, getGlobalSettings, saveSettings, isIndustryImported, importIndustryProducts, mergeDuplicateProducts, getSessionTheme, updateSettings, getOrders, updateOrder, getCurrentUser, getCurrentBranch, saveBranch, getBusinessFeatures, hasPermission, verifyLocalUser, read, KEYS, getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory, hashPassword } from '../db.js';
+import { db, getSettings, getGlobalSettings, saveSettings, isIndustryImported, importIndustryProducts, mergeDuplicateProducts, getSessionTheme, updateSettings, getOrders, updateOrder, getCurrentUser, getCurrentBranch, saveBranch, getBusinessFeatures, hasPermission, verifyLocalUser, read, KEYS, getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory, hashPassword } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { reloadSettings, store } from '../store.js';
 import { openModal, closeModal, showConfirm, showAlert } from '../components/Modal.js';
@@ -603,9 +603,19 @@ export async function renderSettings(container) {
             <div class="font-bold mb-16 text-danger" style="font-size:16px; display:flex; align-items:center; gap:8px">
               <i class="fa-solid fa-triangle-exclamation"></i> Danger Zone
             </div>
-            <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px">This action will permanently delete all local data, including users, branches, orders, and products. This cannot be undone.</p>
+            <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px">Permanently deletes all business data — orders, products, customers, suppliers, purchases, inventory logs, etc. Your license, users, and branches are kept intact, so you land back on the Login screen afterward, not onboarding. This cannot be undone.</p>
             <button class="btn" id="accountDeletionBtn" style="background:var(--danger); color:#fff; border:none; padding:12px 20px; font-weight:700; border-radius:10px; cursor:pointer">
               <i class="fa-solid fa-trash-can"></i> Delete All Data & Reset System
+            </button>
+          </div>
+
+          <div class="card mt-16" style="border:2px solid rgba(239,68,68,0.4); background:rgba(239,68,68,0.08)">
+            <div class="font-bold mb-16 text-danger" style="font-size:16px; display:flex; align-items:center; gap:8px">
+              <i class="fa-solid fa-skull-crossbones"></i> Delete Account
+            </div>
+            <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px">Permanently deletes <b>everything</b> stored on this device — business data AND your license key, users, and branches. This device reverts to a fresh, un-onboarded install. This cannot be undone.</p>
+            <button class="btn" id="deleteAccountBtn" style="background:var(--danger); color:#fff; border:none; padding:12px 20px; font-weight:700; border-radius:10px; cursor:pointer">
+              <i class="fa-solid fa-skull-crossbones"></i> Delete Account
             </button>
           </div>
         </div>
@@ -1064,6 +1074,108 @@ function setupDangerZone(container) {
         setTimeout(() => {
           // Session is cleared but isInstalled/license/users/branches survive,
           // so the router lands on Login rather than Onboarding.
+          window.location.href = '/';
+        }, 1000);
+      };
+    };
+  };
+
+  const deleteAccountBtn = document.getElementById('deleteAccountBtn');
+  if (!deleteAccountBtn) return;
+
+  deleteAccountBtn.onclick = () => {
+    // Stage 1
+    openModal({
+      title: 'Delete Account',
+      body: `
+        <div style="text-align:center; padding: 20px 0;">
+          <i class="fa-solid fa-skull-crossbones text-danger" style="font-size: 64px; margin-bottom: 24px;"></i>
+          <h2 style="margin-bottom:12px; color:var(--danger)">This is more than a data reset!</h2>
+          <p style="font-size:15px; line-height:1.6; color:var(--text-muted); margin-bottom:32px">
+            This deletes <b>everything</b> on this device — your license key, users, and branches, not just
+            business data. This device will need to be onboarded from scratch afterward.
+          </p>
+          <div style="display:flex; gap:16px; justify-content:center;">
+            <button class="btn btn-ghost" onclick="closeModal()" style="flex:1">Cancel</button>
+            <button class="btn btn-primary" id="confirmDeleteAcctStep1" style="flex:1; background:var(--danger); border-color:var(--danger)">Proceed Anyway</button>
+          </div>
+        </div>
+      `,
+      footer: ''
+    });
+
+    document.getElementById('confirmDeleteAcctStep1').onclick = () => {
+      // Stage 2
+      openModal({
+        title: 'Confirm Account Deletion',
+        body: `
+          <div style="text-align:center; padding: 20px 0;">
+            <p style="font-size:14px; margin-bottom:24px">To confirm, please type the word <b>DELETE</b> in the box below:</p>
+            <input type="text" id="deleteAcctWordInput" class="form-input" placeholder="Type DELETE" style="text-align:center; font-size:18px; font-weight:800; letter-spacing:4px">
+            <div style="display:flex; gap:16px; justify-content:center; margin-top:32px">
+              <button class="btn btn-ghost" onclick="closeModal()" style="flex:1">Go Back</button>
+              <button class="btn btn-primary" id="confirmDeleteAcctStep2" disabled style="flex:1; background:var(--danger); border-color:var(--danger); opacity:0.5">Delete Account</button>
+            </div>
+          </div>
+        `,
+        footer: ''
+      });
+
+      const input = document.getElementById('deleteAcctWordInput');
+      const confirmBtn = document.getElementById('confirmDeleteAcctStep2');
+
+      input.oninput = () => {
+        const isMatch = input.value.trim().toUpperCase() === 'DELETE';
+        confirmBtn.disabled = !isMatch;
+        confirmBtn.style.opacity = isMatch ? '1' : '0.5';
+      };
+
+      confirmBtn.onclick = async () => {
+        showToast('Deleting account...', 'info');
+
+        closeModal();
+        const overlay = document.createElement('div');
+        overlay.id = 'account-delete-loading-overlay';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;display:flex;justify-content:center;align-items:center;background:rgba(0,0,0,0.75);z-index:10000;';
+        overlay.innerHTML = `<div style="text-align:center;color:#fff;">
+          <i class="fa-solid fa-spinner fa-spin" style="font-size:52px;margin-bottom:16px;display:block;"></i>
+          <div style="font-size:18px;font-weight:600;letter-spacing:0.5px;">Deleting account…</div>
+        </div>`;
+        document.body.appendChild(overlay);
+
+        try {
+          // Wipe the local hub's own Mongo tenant data FIRST — router.js's
+          // checkElectronInstallState() asks the hub's /api/install-check
+          // (a global, unfiltered count of the 'users' collection) and
+          // self-heals settings.isInstalled back to true if the hub still
+          // has ANY admin, even after IndexedDB is wiped clean below. Reuses
+          // the same /api/standalone-reset endpoint onboarding itself calls
+          // before a fresh install — it already clears 'users'/'branches'/
+          // etc. for licenseKey 'LOCAL_EXE' (only 'admins'/'upgrade_keys',
+          // platform-level collections, are deliberately skipped).
+          try {
+            const hubToken = window.electronAPI?.getHubToken ? await window.electronAPI.getHubToken() : null;
+            const resetRes = await fetch('http://localhost:3030/api/standalone-reset', {
+              method: 'POST',
+              headers: hubToken ? { 'X-Hub-Token': hubToken } : {}
+            });
+            if (!resetRes.ok) throw new Error(`HTTP ${resetRes.status}`);
+          } catch (hubErr) {
+            console.warn('[Danger Zone] Could not reset hub tenant data (continuing with local wipe anyway):', hubErr.message);
+          }
+
+          // Deletes and recreates the whole local IndexedDB database in one
+          // shot (same call onboarding's completeInstallation() uses to start
+          // from a clean slate) — unlike the selective per-store db.clear()
+          // calls above, this leaves nothing behind: license, users, and
+          // branches all go too, so the router's `!settings.isInstalled`
+          // check correctly sends this device back to Onboarding.
+          await db.resetDatabase();
+        } catch (err) {
+          console.error('[Danger Zone] Account deletion encountered an error (continuing to redirect anyway):', err);
+        }
+
+        setTimeout(() => {
           window.location.href = '/';
         }, 1000);
       };
