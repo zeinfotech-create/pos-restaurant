@@ -101,9 +101,9 @@ class SyncEngine {
 
     // ── Lifetime Offline License ────────────────────────────────────────────
     async checkLifetimeActivation() {
-        if (!window.electronAPI?.verifyLifetimeToken) { this.isLifetimeActivated = false; return; }
+        if (!window.electronAPI?.verifyLifetimeToken) { console.warn('[Lifetime] No electronAPI.verifyLifetimeToken — not Electron?'); this.isLifetimeActivated = false; return; }
         const settings = await getSettings();
-        if (!settings?.lifetimeToken) { this.isLifetimeActivated = false; return; }
+        if (!settings?.lifetimeToken) { console.warn('[Lifetime] No lifetimeToken stored in settings.'); this.isLifetimeActivated = false; return; }
         try {
             const result = await window.electronAPI.verifyLifetimeToken(settings.lifetimeToken);
             // The token's signature+fingerprint alone aren't enough — it must also be
@@ -113,7 +113,14 @@ class SyncEngine {
             // that never actually verified a key of its own.
             const licenseKey = settings.licenseKey || 'LOCAL_EXE';
             this.isLifetimeActivated = !!result?.valid && result.payload?.licenseKey === licenseKey;
+            console.log('[Lifetime] checkLifetimeActivation:', {
+                verifyResult: result,
+                settingsLicenseKey: licenseKey,
+                tokenPayloadLicenseKey: result?.payload?.licenseKey,
+                isLifetimeActivated: this.isLifetimeActivated
+            });
         } catch (e) {
+            console.error('[Lifetime] checkLifetimeActivation threw:', e);
             this.isLifetimeActivated = false;
         }
     }
@@ -181,7 +188,15 @@ class SyncEngine {
             const data = await res.json();
             if (!data.success) return { success: false, message: data.error || 'Activation failed' };
 
+            console.log('[Lifetime] Activation succeeded, saving token. licenseKey used:', licenseKey);
             await updateSettings({ lifetimeToken: data.token, licenseKey });
+            const verifyImmediately = await getSettings();
+            console.log('[Lifetime] Immediately re-read settings after save:', {
+                lifetimeTokenSaved: !!verifyImmediately.lifetimeToken,
+                licenseKeySaved: verifyImmediately.licenseKey,
+                settingsId: verifyImmediately.id,
+                settingsBranchId: verifyImmediately.branchId
+            });
             await window.electronAPI.markLifetimeActivated();
             this.isLifetimeActivated = true;
 

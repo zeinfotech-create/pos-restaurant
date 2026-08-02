@@ -262,8 +262,26 @@ const server = http.createServer(async (req, res) => {
     // this install's own onboarding declined them.
     if (req.url === '/api/standalone-reset' && req.method === 'POST') {
         if (!checkHubAdminToken(req, res)) return;
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
         try {
-            const licenseKey = 'LOCAL_EXE';
+            // Onboarding's own call (before this install has ever had a real
+            // key) sends no body, so it still defaults to 'LOCAL_EXE'. But
+            // Settings.js's Danger Zone "Delete Account" button reuses this
+            // same endpoint on an ALREADY-activated device — that device's hub
+            // data lives under its real generated licenseKey (e.g. 'POS-XXXXX'),
+            // never 'LOCAL_EXE', so wiping only the placeholder left that real
+            // tenant's user record sitting in the hub forever. The next boot's
+            // checkElectronInstallState() (unfiltered "does ANY user exist"
+            // check) then saw that leftover user and skipped Onboarding
+            // entirely — silently keeping the device on an empty licenseKey.
+            let licenseKey = 'LOCAL_EXE';
+            try {
+                const parsed = JSON.parse(body || '{}');
+                if (parsed.licenseKey && typeof parsed.licenseKey === 'string') licenseKey = parsed.licenseKey;
+            } catch (e) { /* no/invalid body — keep the LOCAL_EXE default */ }
+
             const skip = new Set(['admins', 'upgrade_keys']); // platform-level, not per-install business data
             const results = {};
             for (const [store, Model] of Object.entries(ModelMap)) {
@@ -275,13 +293,15 @@ const server = http.createServer(async (req, res) => {
                     results[store] = { error: err.message };
                 }
             }
-            console.log('[Server] Standalone hub reset before fresh onboarding:', results);
+            console.log(`[Server] Standalone hub reset (licenseKey: ${licenseKey}):`, results);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ success: true, results }));
         } catch (err) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ success: false, error: err.message }));
         }
+        });
+        return;
     }
 
     // Standalone Registration: Called after onboarding to persist the admin

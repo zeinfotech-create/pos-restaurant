@@ -1403,10 +1403,18 @@ export async function getSettings(branchId = null) {
     branchId: (branchS ? branchS.branchId : globalS.branchId) || null
   };
 
-  // Recover licenseKey from session if missing or still using the GLOBAL placeholder
+  // Recover licenseKey from session if missing or still using the GLOBAL placeholder.
+  // 'LOCAL_EXE' is excluded from ever being adopted here too — it's the hub's
+  // own internal tenant tag for standalone installs (server/index.js's
+  // /api/standalone-register hardcodes it), never a real per-device identity.
+  // A login that only succeeded via the hub-fallback path returns a user
+  // object carrying that same 'LOCAL_EXE' — adopting it here previously let
+  // it permanently overwrite this device's own settings.licenseKey with the
+  // placeholder, which then made every later lifetime-activation attempt look
+  // like it was coming from a device that had never finished onboarding.
   if (!finalSettings.licenseKey || finalSettings.licenseKey === 'GLOBAL') {
     const session = await getSession();
-    if (session?.user?.licenseKey) {
+    if (session?.user?.licenseKey && session.user.licenseKey !== 'LOCAL_EXE') {
         finalSettings.licenseKey = session.user.licenseKey;
     }
   }

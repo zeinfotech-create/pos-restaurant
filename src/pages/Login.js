@@ -222,9 +222,17 @@ export function renderLogin(container) {
               // Unconditionally trusting it here previously let a stale/
               // mismatched value on the login response silently fragment
               // this same install's data across multiple MongoDB "tenants".
+              // 'LOCAL_EXE' is additionally excluded even when this device
+              // has no key yet — it's the hub's own internal tenant tag for
+              // not-yet-onboarded standalone installs (server/index.js's
+              // /api/standalone-register hardcodes it), never a real
+              // per-device identity. Adopting it here permanently stuck this
+              // device's settings.licenseKey on the placeholder, which then
+              // made every later lifetime-activation attempt look like it
+              // was coming from a device that had never finished onboarding.
               const currentSettings = await getSettings();
               const userLicenseKey = res.licenseKey || res.user?.licenseKey;
-              if (userLicenseKey && !currentSettings.licenseKey) {
+              if (userLicenseKey && userLicenseKey !== 'LOCAL_EXE' && !currentSettings.licenseKey) {
                 updateSettings({
                   licenseKey: userLicenseKey,
                   networkId: res.networkId || userLicenseKey

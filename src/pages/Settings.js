@@ -1150,14 +1150,24 @@ function setupDangerZone(container) {
           // self-heals settings.isInstalled back to true if the hub still
           // has ANY admin, even after IndexedDB is wiped clean below. Reuses
           // the same /api/standalone-reset endpoint onboarding itself calls
-          // before a fresh install — it already clears 'users'/'branches'/
-          // etc. for licenseKey 'LOCAL_EXE' (only 'admins'/'upgrade_keys',
-          // platform-level collections, are deliberately skipped).
+          // before a fresh install — it clears 'users'/'branches'/etc. for
+          // whichever licenseKey this device is ACTUALLY on right now (only
+          // 'admins'/'upgrade_keys', platform-level collections, are
+          // deliberately skipped). Must be read before the local wipe below —
+          // an already-activated device's hub data lives under its real
+          // generated licenseKey (e.g. 'POS-XXXXX'), never the 'LOCAL_EXE'
+          // placeholder, so clearing only LOCAL_EXE left that real tenant's
+          // user record in the hub forever, making the NEXT boot's
+          // checkElectronInstallState() skip Onboarding entirely and silently
+          // strand the device on an empty licenseKey.
           try {
+            const currentSettings = await getSettings();
+            const currentLicenseKey = currentSettings.licenseKey || 'LOCAL_EXE';
             const hubToken = window.electronAPI?.getHubToken ? await window.electronAPI.getHubToken() : null;
             const resetRes = await fetch('http://localhost:3030/api/standalone-reset', {
               method: 'POST',
-              headers: hubToken ? { 'X-Hub-Token': hubToken } : {}
+              headers: { 'Content-Type': 'application/json', ...(hubToken ? { 'X-Hub-Token': hubToken } : {}) },
+              body: JSON.stringify({ licenseKey: currentLicenseKey })
             });
             if (!resetRes.ok) throw new Error(`HTTP ${resetRes.status}`);
           } catch (hubErr) {
