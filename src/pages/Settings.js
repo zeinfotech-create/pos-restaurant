@@ -516,6 +516,21 @@ export async function renderSettings(container) {
                 <input type="checkbox" id="sShowSignatureLine" ${s.showSignatureLine ? 'checked' : ''} />
                 <label class="form-label" style="margin:0" for="sShowSignatureLine">Show signature line on receipt</label>
               </div>
+              <div class="form-group">
+                <label class="form-label">Signature Image (optional)</label>
+                <div style="display:flex; align-items:center; gap:12px">
+                  <div id="signaturePreview" style="width:56px; height:56px; border-radius:8px; border:1px dashed var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; background:var(--bg-elevated); flex-shrink:0">
+                    ${s.signatureImage ? `<img src="${s.signatureImage}" style="width:100%; height:100%; object-fit:contain" />` : `<i class="fa-solid fa-signature" style="opacity:0.3"></i>`}
+                  </div>
+                  <input type="hidden" id="sSignatureImageBase64" value="${s.signatureImage || ''}" />
+                  <label class="btn btn-ghost" style="cursor:pointer; font-size:12px">
+                    <i class="fa-solid fa-upload mr-6"></i> Upload
+                    <input type="file" id="sSignatureImageFile" accept="image/*" style="display:none" />
+                  </label>
+                  <button type="button" class="btn btn-ghost" id="removeSignatureBtn" style="font-size:12px; color:var(--danger); ${s.signatureImage ? '' : 'display:none'}">Remove</button>
+                </div>
+                <p class="form-help-text">A scanned/digital signature printed above "Authorized Signatory" — leave blank to just print the line.</p>
+              </div>
               <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
                 <input type="checkbox" id="sShowTermsOnReceipt" ${s.showTermsOnReceipt ? 'checked' : ''} />
                 <label class="form-label" style="margin:0" for="sShowTermsOnReceipt">Show Terms &amp; Conditions on receipt</label>
@@ -847,6 +862,12 @@ export async function renderSettings(container) {
     });
   });
 
+  // Reassigned further below once the Printing tab's live-preview pane is
+  // set up — declared here (no-op default) so earlier listeners in this
+  // function (e.g. the Signature Image upload handler) can safely call it
+  // regardless of setup order, without a temporal-dead-zone/scope error.
+  let updateLivePreview = () => {};
+
   // Helper for per-tab saving
   const handleSave = async (tabName, data) => {
     console.log(`[Settings] Attempting to save ${tabName} data:`, data);
@@ -875,6 +896,29 @@ export async function renderSettings(container) {
     container.querySelector('#sStoreLogoBase64').value = '';
     container.querySelector('#logoPreview').innerHTML = `<i class="fa-solid fa-image" style="opacity:0.3"></i>`;
     container.querySelector('#sStoreLogoFile').value = '';
+  });
+
+  // Signature Image upload/remove — same pattern as Store Logo above
+  container.querySelector('#sSignatureImageFile')?.addEventListener('change', async (e) => {
+    try {
+      const base64 = await MediaService.handleImageUpload(e);
+      if (base64) {
+        container.querySelector('#sSignatureImageBase64').value = base64;
+        container.querySelector('#signaturePreview').innerHTML = `<img src="${base64}" style="width:100%; height:100%; object-fit:contain" />`;
+        const removeBtn = container.querySelector('#removeSignatureBtn');
+        if (removeBtn) removeBtn.style.display = '';
+        updateLivePreview();
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+  container.querySelector('#removeSignatureBtn')?.addEventListener('click', (e) => {
+    container.querySelector('#sSignatureImageBase64').value = '';
+    container.querySelector('#signaturePreview').innerHTML = `<i class="fa-solid fa-signature" style="opacity:0.3"></i>`;
+    container.querySelector('#sSignatureImageFile').value = '';
+    e.currentTarget.style.display = 'none';
+    updateLivePreview();
   });
 
   container.querySelector('#toggleAdvancedConnectionBtn')?.addEventListener('click', async () => {
@@ -971,6 +1015,7 @@ export async function renderSettings(container) {
       printCopies: Math.min(5, Math.max(1, parseInt(container.querySelector('#sPrintCopies')?.value, 10) || 1)),
       showPrintPreview: container.querySelector('#sShowPrintPreview')?.checked !== false,
       showSignatureLine: container.querySelector('#sShowSignatureLine')?.checked || false,
+      signatureImage: container.querySelector('#sSignatureImageBase64')?.value || '',
       showTermsOnReceipt: container.querySelector('#sShowTermsOnReceipt')?.checked || false,
       receiptTerms: container.querySelector('#sReceiptTerms')?.value.trim() || '',
       printerName: container.querySelector('#sPrinterName')?.value || '',
@@ -1035,7 +1080,7 @@ export async function renderSettings(container) {
       payments: [{ method: 'Cash', amount: 897 }],
       discount: 0
     };
-    const updateLivePreview = async () => {
+    updateLivePreview = async () => {
       const paperSize = container.querySelector('#sPaperSize')?.value || 'thermal-80';
       const previewSettings = {
         ...s,
@@ -1046,6 +1091,7 @@ export async function renderSettings(container) {
         receiptHeader: container.querySelector('#sReceiptHeader')?.value || '',
         receiptFooter: container.querySelector('#sReceiptFooter')?.value || '',
         showSignatureLine: container.querySelector('#sShowSignatureLine')?.checked || false,
+        signatureImage: container.querySelector('#sSignatureImageBase64')?.value || s.signatureImage,
         showTermsOnReceipt: container.querySelector('#sShowTermsOnReceipt')?.checked || false,
         receiptTerms: container.querySelector('#sReceiptTerms')?.value || '',
         receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1',

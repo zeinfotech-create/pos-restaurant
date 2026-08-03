@@ -1132,18 +1132,20 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
         </div>
       ` : ''}
 
-      <div style="text-align:center; font-size:12px; opacity:0.75; border-top:1px solid #ddd; padding-top:12px">${escapeHtml(settings.receiptFooter || 'Thank you for your business!')}</div>
       ${settings.showTermsOnReceipt && settings.receiptTerms ? `
-        <div style="margin-top:14px; padding-top:10px; border-top:1px dashed #999; text-align:center">
+        <div style="text-align:left">
           <div style="font-size:10px; font-weight:700; letter-spacing:0.5px; opacity:0.6; margin-bottom:4px">TERMS &amp; CONDITIONS</div>
           <div style="font-size:11px; opacity:0.7">${escapeHtml(settings.receiptTerms)}</div>
         </div>
       ` : ''}
       ${settings.showSignatureLine ? `
         <div style="margin-top:24px; text-align:right; font-size:12px">
+          ${settings.signatureImage ? `<img src="${settings.signatureImage}" style="max-width:220px; max-height:50px; object-fit:contain; margin-left:auto; display:block" />` : ''}
           <div style="border-top:1px solid #000; width:220px; margin-left:auto; padding-top:4px">Authorized Signatory</div>
         </div>
       ` : ''}
+      <!-- Footer message always prints last, after Terms/Signature, not before them -->
+      <div style="text-align:center; font-size:12px; opacity:0.75; margin-top:14px; border-top:1px solid #ddd; padding-top:12px">${escapeHtml(settings.receiptFooter || 'Thank you for your business!')}</div>
     </div>
   `;
 }
@@ -1392,18 +1394,20 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
           <svg class="receipt-barcode" data-barcode-value="${order.id}"></svg>
         </div>
       ` : ''}
-      <div class="receipt-footer">${settings.receiptFooter || 'Thank you for your business!'}</div>
       ${settings.showTermsOnReceipt && settings.receiptTerms ? `
-        <div style="margin-top:12px; padding-top:8px; border-top:1px dashed currentColor; text-align:center">
+        <div style="text-align:left">
           <div style="font-size:9px; font-weight:700; letter-spacing:0.5px; opacity:0.6; margin-bottom:3px">TERMS &amp; CONDITIONS</div>
           <div class="receipt-terms" style="font-size:10px; opacity:0.75">${escapeHtml(settings.receiptTerms)}</div>
         </div>
       ` : ''}
       ${settings.showSignatureLine ? `
         <div class="receipt-signature" style="margin-top:20px; text-align:right; font-size:11px">
+          ${settings.signatureImage ? `<img src="${settings.signatureImage}" style="max-width:60%; max-height:40px; object-fit:contain; margin-left:auto; display:block" />` : ''}
           <div style="border-top:1px solid currentColor; width:60%; margin-left:auto; padding-top:4px">Authorized Signatory</div>
         </div>
       ` : ''}
+      <!-- Footer message always prints last, after Terms/Signature, not before them -->
+      <div class="receipt-footer" style="margin-top:12px; padding-top:8px; border-top:1px dashed currentColor">${settings.receiptFooter || 'Thank you for your business!'}</div>
     </div>
   `;
 }

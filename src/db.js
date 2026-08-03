@@ -395,6 +395,7 @@ const DEFAULT_SETTINGS = {
   printCopies: 1,
   showPrintPreview: true,
   showSignatureLine: false,
+  signatureImage: '',
   showTermsOnReceipt: false,
   receiptTerms: '',
   printerName: '', // '' = system default printer
