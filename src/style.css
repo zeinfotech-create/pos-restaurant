@@ -3035,21 +3035,51 @@ table {
   font-size: 12px;
 }
 
-/* Theme 2 — a more formal, boxed invoice look. Scoped entirely to this class
-   (added to .receipt only when settings.receiptTheme === 'theme2' — see
-   CheckoutService.js's renderReceiptBody()) so Theme 1's markup/behavior is
-   completely untouched when this class isn't present. */
+/* Theme 2 — a deliberately DIFFERENT-LOOKING "formal ticket" style, not just
+   a color/spacing tweak: serif font instead of Theme 1's monospace, a bold
+   double-border frame around the whole receipt, full grid borders on the
+   item table (Theme 1's table only has a single header underline), and a
+   large boxed total. Scoped entirely to this class (added to .receipt only
+   when settings.receiptTheme === 'theme2' — see CheckoutService.js's
+   renderReceiptBody()) so Theme 1's markup/behavior is completely untouched
+   when this class isn't present. */
+.receipt-theme2 {
+  font-family: Georgia, 'Times New Roman', serif;
+  border: 3px double #000;
+  padding: 20px;
+}
+.receipt-theme2 .receipt-header {
+  border-bottom: 3px double #000;
+  padding-bottom: 10px;
+}
 .receipt-theme2 .receipt-store-name {
+  font-size: 22px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 2px;
 }
 .receipt-theme2 .receipt-divider {
-  border-top: 2px solid #000;
+  border-top: 3px double #000;
+  margin: 14px 0;
+}
+.receipt-theme2 table {
+  border: 2px solid #000 !important;
+}
+.receipt-theme2 table th,
+.receipt-theme2 table td {
+  border: 1px solid #000 !important;
+  padding: 5px !important;
 }
 .receipt-theme2 .receipt-total-row {
-  border: 1px solid #000;
-  padding: 6px 8px;
-  border-radius: 4px;
+  border: 2px solid #000;
+  background: #f2f2f2;
+  padding: 10px;
+  font-size: 18px;
+  border-radius: 0;
+}
+.receipt-theme2 .receipt-footer {
+  border-top: 2px dashed #000;
+  padding-top: 10px;
+  font-style: italic;
 }
 
 /* A4/A5 tax-invoice layout (CheckoutService.js's renderInvoiceBody(),
@@ -3067,14 +3097,23 @@ table {
   border-radius: var(--radius);
 }
 
-/* Theme 2 for the A4/A5 invoice — same "formal/boxed" idea as the thermal
-   layout's .receipt-theme2, adapted to a full invoice: a bordered frame
-   around the whole page and zebra-striped item rows instead of the plain
-   white background Theme 1 uses. The accent-color swap (title/table header
-   to black) is done inline in renderInvoiceBody() since those are computed
-   per-render, not fixed CSS. */
+/* Theme 2 for the A4/A5 invoice — same "deliberately different, not just
+   recolored" goal as the thermal layout's .receipt-theme2: serif font, a
+   bold double-border frame around the whole page, full grid borders on the
+   item table (Theme 1's table only has row-separator lines, no vertical
+   borders), and zebra-striped rows. The accent-color swap (title/table
+   header to black) is done inline in renderInvoiceBody() since those are
+   computed per-render, not fixed CSS. */
 .invoice-a4-theme2 {
+  font-family: Georgia, 'Times New Roman', serif;
+  border: 3px double #000;
+}
+.invoice-a4-theme2 table {
   border: 2px solid #000;
+}
+.invoice-a4-theme2 th,
+.invoice-a4-theme2 td {
+  border: 1px solid #000 !important;
 }
 .invoice-a4-theme2 tbody tr:nth-child(even) {
   background: #f5f5f5;
