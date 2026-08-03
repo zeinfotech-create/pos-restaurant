@@ -959,9 +959,189 @@ function renderGstSplit(rate, amount, cur) {
 }
 
 /**
+ * Converts a rupee amount to words (Indian numbering — Lakh/Crore), for the
+ * "Invoice Amount in Words" line on the A4/A5 invoice layout.
+ */
+function numberToWordsINR(num) {
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+    'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+  const twoDigits = (n) => n < 20 ? ones[n] : tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '');
+  const threeDigits = (n) => n < 100 ? twoDigits(n) : ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + twoDigits(n % 100) : '');
+  const convert = (n) => {
+    if (n === 0) return 'Zero';
+    let result = '';
+    const crore = Math.floor(n / 10000000); n %= 10000000;
+    const lakh = Math.floor(n / 100000); n %= 100000;
+    const thousand = Math.floor(n / 1000); n %= 1000;
+    if (crore) result += threeDigits(crore) + ' Crore ';
+    if (lakh) result += threeDigits(lakh) + ' Lakh ';
+    if (thousand) result += threeDigits(thousand) + ' Thousand ';
+    if (n) result += threeDigits(n);
+    return result.trim();
+  };
+
+  const rupees = Math.floor(num);
+  const paise = Math.round((num - rupees) * 100);
+  let words = convert(rupees) + ' Rupees';
+  if (paise > 0) words += ' and ' + convert(paise) + ' Paise';
+  return words + ' Only';
+}
+
+/**
+ * A4/A5 tax-invoice-style layout — visually distinct from the thermal-roll
+ * receipt below (proper item table with HSN/GST columns, Bill To block,
+ * amount-in-words), used only when settings.paperSize is 'a4' or 'a5' (see
+ * the branch at the top of renderReceiptBody()). "Shipping To" and a
+ * separate due-date field are deliberately not included — pos-lite doesn't
+ * store a billing/shipping address split or a due-date concept for retail
+ * sales, unlike the invoicing software this layout is modeled after.
+ */
+async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
+  const allReturns = includeReturns ? (await getReturns()).filter(r => r.orderId === order.id) : [];
+  const totalReturned = allReturns.reduce((s, r) => s + (r.total || 0), 0);
+
+  const subtotal = order.subtotal || order.items.reduce((s, i) => s + (i.price * i.qty), 0);
+  let tax = order.tax || 0;
+  if (!order.tax || order.tax === 0) {
+    tax = order.items.reduce((sum, i) => {
+      const iPrice = i.price || 0, iQty = i.qty || 0, iTaxRate = i.taxRate || 0;
+      if (iTaxRate <= 0) return sum;
+      const iDiscount = i.itemDiscountType === 'pct' ? (iPrice * iQty * (i.itemDiscount || 0) / 100) : ((i.itemDiscount || 0) * iQty);
+      return sum + (((iPrice * iQty) - iDiscount) * iTaxRate / 100);
+    }, 0);
+  }
+  const total = order.total || (subtotal + tax - (order.discount || 0));
+  const netTotal = total - totalReturned;
+  const dateStr = order.date || order.createdAt || new Date().toISOString();
+  const storeName = order.storeName || settings.storeName || 'Store';
+  const hasHsn = order.items.some(i => i.hsnCode);
+
+  return `
+    <div class="invoice-a4">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid var(--primary); padding-bottom:12px; margin-bottom:16px">
+        <div>
+          ${settings.receiptHeader ? `<div style="font-size:12px;font-weight:600;opacity:0.8">${escapeHtml(settings.receiptHeader)}</div>` : ''}
+          <div style="font-size:22px;font-weight:800">${escapeHtml(storeName)}</div>
+          <div style="font-size:12px;opacity:0.75;margin-top:4px">${escapeHtml(settings.storeAddress || '')}</div>
+          <div style="font-size:12px;opacity:0.75">
+            ${[settings.storePhone, settings.storeAltPhone].filter(Boolean).map(p => `Ph. no.: ${escapeHtml(p)}`).join(', ')}
+          </div>
+          ${settings.email ? `<div style="font-size:12px;opacity:0.75">Email: ${escapeHtml(settings.email)}</div>` : ''}
+          ${settings.gstNumber ? `<div style="font-size:12px;opacity:0.75">GSTIN: ${escapeHtml(settings.gstNumber)}</div>` : ''}
+        </div>
+        ${settings.showLogoOnReceipt && settings.storeLogo ? `<img src="${settings.storeLogo}" style="max-width:90px; max-height:90px; object-fit:contain" />` : ''}
+      </div>
+
+      <div style="text-align:center; font-size:20px; font-weight:800; color:var(--primary); margin-bottom:16px">TAX INVOICE</div>
+
+      <div style="display:flex; justify-content:space-between; gap:16px; margin-bottom:16px; font-size:13px">
+        <div>
+          <div style="font-weight:700; margin-bottom:4px">Bill To:</div>
+          <div style="font-weight:700">${order.customer ? escapeHtml(order.customer.name) : 'Walk-in Customer'}</div>
+          ${order.customer?.phone ? `<div>Contact No.: ${escapeHtml(order.customer.phone)}</div>` : ''}
+        </div>
+        <div style="text-align:right">
+          <div>Invoice No.: <strong>${escapeHtml(String(order.dailyNumber || order.id))}</strong></div>
+          <div>Date: ${new Date(dateStr).toLocaleDateString('en-IN')}</div>
+          <div>Time: ${new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
+        </div>
+      </div>
+
+      <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:16px">
+        <thead>
+          <tr style="background:var(--primary); color:white">
+            <th style="text-align:left; padding:6px">#</th>
+            <th style="text-align:left; padding:6px">Item name</th>
+            ${hasHsn ? '<th style="text-align:left; padding:6px">HSN/SAC</th>' : ''}
+            <th style="text-align:center; padding:6px">Qty</th>
+            <th style="text-align:right; padding:6px">Price/unit</th>
+            <th style="text-align:right; padding:6px">Discount</th>
+            <th style="text-align:right; padding:6px">GST</th>
+            <th style="text-align:right; padding:6px">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${order.items.map((i, idx) => {
+            const itemQty = parseFloat(parseFloat(i.qty || 0).toFixed(3));
+            const itemPrice = i.price || 0;
+            const itemTaxRate = i.taxRate || 0;
+            const baseLineTotal = itemPrice * itemQty;
+            const itemDiscountAmt = i.itemDiscountType === 'pct' ? (baseLineTotal * (i.itemDiscount || 0) / 100) : ((i.itemDiscount || 0) * itemQty);
+            const exclusiveSubtotal = baseLineTotal - itemDiscountAmt;
+            const taxAmount = i.taxType === 'inclusive' ? 0 : (exclusiveSubtotal * itemTaxRate / 100);
+            const itemLineTotal = exclusiveSubtotal + taxAmount;
+            return `
+              <tr style="border-bottom:1px solid #ddd">
+                <td style="padding:6px">${idx + 1}</td>
+                <td style="padding:6px; font-weight:600">${escapeHtml(i.name)}</td>
+                ${hasHsn ? `<td style="padding:6px">${escapeHtml(i.hsnCode || '')}</td>` : ''}
+                <td style="text-align:center; padding:6px">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}</td>
+                <td style="text-align:right; padding:6px">${cur}${itemPrice.toFixed(2)}</td>
+                <td style="text-align:right; padding:6px">${cur}${itemDiscountAmt.toFixed(2)}${itemDiscountAmt > 0 && i.itemDiscountType === 'pct' ? ` (${i.itemDiscount}%)` : ''}</td>
+                <td style="text-align:right; padding:6px">${cur}${taxAmount.toFixed(2)}${itemTaxRate > 0 ? ` (${itemTaxRate}%)` : ''}</td>
+                <td style="text-align:right; padding:6px; font-weight:600">${cur}${itemLineTotal.toFixed(2)}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight:700; border-top:2px solid #000">
+            <td style="padding:6px" colspan="${hasHsn ? 3 : 2}">Total</td>
+            <td style="text-align:center; padding:6px">${order.items.reduce((s, i) => s + (parseFloat(i.qty) || 0), 0)}</td>
+            <td></td>
+            <td></td>
+            <td style="text-align:right; padding:6px">${cur}${tax.toFixed(2)}</td>
+            <td style="text-align:right; padding:6px">${cur}${total.toFixed(2)}</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div style="display:flex; justify-content:space-between; gap:24px; font-size:13px; margin-bottom:16px">
+        <div style="flex:1">
+          <div style="font-weight:700">Invoice Amount in Words</div>
+          <div style="margin-top:4px">${numberToWordsINR(netTotal)}</div>
+        </div>
+        <div style="flex:0 0 220px">
+          <div style="display:flex; justify-content:space-between"><span>Sub Total</span><span>${cur}${subtotal.toFixed(2)}</span></div>
+          ${order.discount > 0 ? `<div style="display:flex; justify-content:space-between"><span>Discount</span><span>-${cur}${order.discount.toFixed(2)}</span></div>` : ''}
+          ${tax > 0 ? `<div style="display:flex; justify-content:space-between"><span>Tax</span><span>${cur}${tax.toFixed(2)}</span></div>` : ''}
+          ${totalReturned > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--danger)"><span>Returned</span><span>-${cur}${totalReturned.toFixed(2)}</span></div>` : ''}
+          <div style="display:flex; justify-content:space-between; font-weight:800; font-size:15px; border-top:1px solid #000; margin-top:4px; padding-top:4px"><span>Total</span><span>${cur}${netTotal.toFixed(2)}</span></div>
+        </div>
+      </div>
+
+      <div style="font-size:12px; margin-bottom:16px">
+        <div style="font-weight:700; margin-bottom:4px">Payment Status</div>
+        ${(order.payments || []).map(p => `<div style="display:flex; justify-content:space-between"><span>${escapeHtml(p.method)}</span><span>${cur}${p.amount.toFixed(2)}</span></div>`).join('')}
+        ${(!order.payments || order.payments.length === 0) ? `<div style="display:flex; justify-content:space-between"><span>${escapeHtml(order.paymentMethod || 'Unpaid')}</span><span>${cur}${total.toFixed(2)}</span></div>` : ''}
+      </div>
+
+      ${settings.printBarcodeOnReceipt ? `
+        <div style="text-align:center; margin:12px 0">
+          <svg class="receipt-barcode" data-barcode-value="${order.id}"></svg>
+        </div>
+      ` : ''}
+
+      <div style="text-align:center; font-size:12px; opacity:0.75; border-top:1px solid #ddd; padding-top:12px">${escapeHtml(settings.receiptFooter || 'Thank you for your business!')}</div>
+      ${settings.showTermsOnReceipt && settings.receiptTerms ? `<div style="font-size:11px; opacity:0.7; text-align:center; margin-top:6px">${escapeHtml(settings.receiptTerms)}</div>` : ''}
+      ${settings.showSignatureLine ? `
+        <div style="margin-top:32px; text-align:right; font-size:12px">
+          <div style="border-top:1px solid #000; width:220px; margin-left:auto; padding-top:4px">Authorized Signatory</div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+/**
  * Helper to render standardized receipt body
  */
 export async function renderReceiptBody(order, settings, cur, includeReturns = true) {
+  if (settings.paperSize === 'a4' || settings.paperSize === 'a5') {
+    return renderInvoiceBody(order, settings, cur, includeReturns);
+  }
   const allReturns = includeReturns ? (await getReturns()).filter(r => r.orderId === order.id) : [];
   const totalReturned = allReturns.reduce((s, r) => s + (r.total || 0), 0);
   

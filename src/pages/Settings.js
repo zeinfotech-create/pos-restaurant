@@ -524,7 +524,7 @@ export async function renderSettings(container) {
         <div style="flex:0 0 340px; position:sticky; top:0">
           <div class="card" style="padding:16px; background:var(--bg-elevated)">
             <div class="font-bold mb-16" style="font-size:14px"><i class="fa-solid fa-eye" style="color:var(--secondary)"></i> Live Preview</div>
-            <div id="printPreviewWrap" style="background:#f1f1f1; border-radius:8px; padding:16px; display:flex; justify-content:center; max-height:70vh; overflow-y:auto">
+            <div id="printPreviewWrap" style="background:#f1f1f1; border-radius:8px; padding:16px; display:flex; justify-content:center; max-height:70vh; overflow-y:auto; overflow-x:auto">
               <div id="printPreviewPane" style="background:white; color:black; box-shadow:0 1px 4px rgba(0,0,0,0.15)"></div>
             </div>
             <p class="form-help-text" style="margin-top:10px">Updates instantly as you change settings — uses sample data, not a real order.</p>
@@ -1018,8 +1018,10 @@ export async function renderSettings(container) {
       discount: 0
     };
     const updateLivePreview = async () => {
+      const paperSize = container.querySelector('#sPaperSize')?.value || 'thermal-80';
       const previewSettings = {
         ...s,
+        paperSize,
         storeLogo: container.querySelector('#sStoreLogoBase64')?.value || s.storeLogo,
         showLogoOnReceipt: container.querySelector('#sShowLogoOnReceipt')?.checked || false,
         printBarcodeOnReceipt: container.querySelector('#sPrintBarcodeOnReceipt')?.checked || false,
@@ -1030,16 +1032,21 @@ export async function renderSettings(container) {
         receiptTerms: container.querySelector('#sReceiptTerms')?.value || '',
         receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1'
       };
-      const paperSize = container.querySelector('#sPaperSize')?.value || 'thermal-80';
+      const isA4A5 = paperSize === 'a4' || paperSize === 'a5';
       const targetWidth = PAPER_WIDTHS[paperSize] || '80mm';
-      printPreviewPane.style.width = targetWidth;
+      printPreviewPane.style.width = isA4A5 ? 'auto' : targetWidth;
       printPreviewPane.innerHTML = await renderReceiptBody(sampleOrder, previewSettings, s.currency || '₹', false);
       renderReceiptBarcodes(printPreviewPane);
       // .receipt's own CSS caps it at max-width:320px (sized for the thermal
-      // roll widths it was designed for) — override per paper size so A4/A5
-      // actually render wider here instead of getting clamped to that cap.
-      const receiptEl = printPreviewPane.querySelector('.receipt');
-      if (receiptEl) { receiptEl.style.maxWidth = targetWidth; receiptEl.style.width = targetWidth; }
+      // roll widths it was designed for) — override per paper size so it
+      // matches the selected roll width here in the preview. The A4/A5
+      // invoice layout (.invoice-a4) already sizes itself and doesn't need
+      // this — trying to force-fit it into the same narrow width would just
+      // squash its wider table.
+      if (!isA4A5) {
+        const receiptEl = printPreviewPane.querySelector('.receipt');
+        if (receiptEl) { receiptEl.style.maxWidth = targetWidth; receiptEl.style.width = targetWidth; }
+      }
     };
     container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms, input[name="sReceiptTheme"]').forEach(el => {
       el.addEventListener('input', updateLivePreview);
