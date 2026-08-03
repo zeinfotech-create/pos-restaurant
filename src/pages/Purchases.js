@@ -674,6 +674,7 @@ async function viewPurchaseDetails(purchase) {
           <div class="font-bold">${escapeHtml(purchase.supplierName) || 'Unknown Supplier'}</div>
           <div style="font-size:12px;opacity:0.6">${purchase.date ? new Date(purchase.date).toLocaleString() : 'N/A'}</div>
           <div style="font-size:12px;margin-top:4px">Invoice #: <span class="font-mono font-bold">${escapeHtml(purchase.supplierInvoiceNo || 'N/A')}</span></div>
+          ${purchase.recordedBy ? `<div style="font-size:11px;opacity:0.6;margin-top:2px">Recorded by: ${escapeHtml(purchase.recordedBy)}</div>` : ''}
         </div>
         ${purchase.billAttachment ? `
           <button class="btn btn-ghost btn-sm" id="viewBillAttachmentBtn">

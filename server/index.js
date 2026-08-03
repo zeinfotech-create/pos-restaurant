@@ -3,6 +3,44 @@
 // Pure WebSocket (ws) + MongoDB/Mongoose backend (port 3030)
 // Compatible with syncEngine.js which uses raw new WebSocket(url)
 // ============================================================
+//
+// ── IDENTITY MODEL: 'LOCAL_EXE' vs a device's real licenseKey ───────────
+// This hub deliberately juggles TWO different identity concepts at once —
+// documenting both here since it's caused real confusion (and bugs) more
+// than once:
+//
+//   1. 'LOCAL_EXE' — a fixed, SHARED placeholder tenant tag that every
+//      standalone/Electron install is registered under during onboarding
+//      (see /api/standalone-register below, and Onboarding.js's client-side
+//      call to it). It exists because the hub needs SOME licenseKey to
+//      partition data under before a device has activated a real Lifetime
+//      key of its own. It is NOT a per-device identity — every
+//      not-yet-activated standalone install on a given hub shares it.
+//
+//   2. This device's own real licenseKey — a random `POS-XXXXXXX` value
+//      generated once by getDeviceId() during completeInstallation() (see
+//      pos-lite's src/db.js), stored in this device's local IndexedDB
+//      settings, and used everywhere else in the app (sync partitioning,
+//      lifetime-activation requests, etc.) as the actual per-device/per-shop
+//      identity.
+//
+// The bug class this produces: anything that reads a login/registration
+// response's `licenseKey` and blindly adopts it into local settings can end
+// up copying 'LOCAL_EXE' (the SHARED placeholder) into a field that's
+// supposed to hold this device's UNIQUE identity — silently merging this
+// device's data into the shared placeholder tenant, or making later
+// lifetime-activation attempts look like they're coming from a device that
+// never finished onboarding. src/db.js's getSettings() recovery logic and
+// Login.js's adopt-on-login logic both explicitly guard against adopting
+// 'LOCAL_EXE' for this reason — if you add a new place that reads a
+// licenseKey off a server response and writes it into local settings,
+// apply the same guard there.
+//
+// A full redesign (e.g. never using a shared placeholder at all) would
+// remove this footgun at the root, but touches onboarding, hub registration,
+// and every place that currently branches on 'LOCAL_EXE' — left as a
+// documented, guarded-against quirk rather than a rewrite.
+// ─────────────────────────────────────────────────────────────────────────
 
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 

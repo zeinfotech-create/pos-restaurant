@@ -7,6 +7,29 @@ import { showSuspendedOverlay } from './LicenseService.js';
 // tokens, which must never ship inside this app). Deployed on Render.
 const LICENSE_SERVER_URL = 'https://zeinfotech-admin-panel.onrender.com';
 
+// Settings fields that live ONLY in this device's own local record and must
+// never be overwritten by a synced copy from the hub — the hub's own
+// MongoDB 'settings' collection either never stores these at all
+// (lifetimeToken, syncHubIp) or must not be trusted as authoritative for
+// them (licenseKey/networkId/deploymentMode: this machine's own identity
+// and mode, not something the network should dictate). Kept as ONE shared
+// list + helper, used by both sync-merge paths below, so a future
+// device-local field only needs to be added here once — this is exactly
+// the kind of field (lifetimeToken) that used to be missing from one of the
+// two merge sites, silently wiping a just-saved lifetime activation token
+// the moment a hub sync landed.
+const DEVICE_LOCAL_SETTINGS_FIELDS = ['syncHubIp', 'deploymentMode', 'lifetimeToken'];
+function preserveDeviceLocalSettings(mergedData, local) {
+    if (!local) return;
+    if (local.licenseKey) {
+        mergedData.licenseKey = local.licenseKey;
+        mergedData.networkId = local.licenseKey;
+    }
+    for (const field of DEVICE_LOCAL_SETTINGS_FIELDS) {
+        if (local[field]) mergedData[field] = local[field];
+    }
+}
+
 class SyncEngine {
     constructor() {
         this.ws = null;
@@ -190,13 +213,6 @@ class SyncEngine {
 
             console.log('[Lifetime] Activation succeeded, saving token. licenseKey used:', licenseKey);
             await updateSettings({ lifetimeToken: data.token, licenseKey });
-            const verifyImmediately = await getSettings();
-            console.log('[Lifetime] Immediately re-read settings after save:', {
-                lifetimeTokenSaved: !!verifyImmediately.lifetimeToken,
-                licenseKeySaved: verifyImmediately.licenseKey,
-                settingsId: verifyImmediately.id,
-                settingsBranchId: verifyImmediately.branchId
-            });
             await window.electronAPI.markLifetimeActivated();
             this.isLifetimeActivated = true;
 
@@ -876,20 +892,7 @@ class SyncEngine {
                                     }
 
                                     if (store === 'settings' && (data.id === 'global_settings' || data.branchId === currentSettings.branchId)) {
-                                        if (currentSettings.licenseKey) {
-                                            mergedData.licenseKey = currentSettings.licenseKey;
-                                            mergedData.networkId = currentSettings.licenseKey;
-                                        }
-                                        if (currentSettings.syncHubIp) {
-                                            mergedData.syncHubIp = currentSettings.syncHubIp;
-                                        }
-                                        // deploymentMode is per-DEVICE (this machine is Electron/standalone
-                                        // or a browser/cloud tab), never per-license — the synced copy from
-                                        // Mongo must never overwrite it, or Electron logins silently switch
-                                        // to the cloud verify path and lose their local branch/register data.
-                                        if (currentSettings.deploymentMode) {
-                                            mergedData.deploymentMode = currentSettings.deploymentMode;
-                                        }
+                                        preserveDeviceLocalSettings(mergedData, currentSettings);
                                     }
                                     if (store === 'settings') {
                                         // Check if we have a pending local version that hasn't been confirmed by server yet
@@ -997,11 +1000,11 @@ class SyncEngine {
                 }
                 if (isSafeToOverwrite) {
                     const mergedData = { ...data, isSynced: true };
-                    // deploymentMode is per-device, never synced from the server copy (see the
-                    // same guard in the pos_full_state handler above for why).
-                    if (store === 'settings' && local?.deploymentMode) {
-                        mergedData.deploymentMode = local.deploymentMode;
-                    }
+                    // Same device-local-only fields protected in the pos_full_state
+                    // handler above (see preserveDeviceLocalSettings), and for the
+                    // same reason: a broadcasted "update" from any device on this
+                    // tenant would otherwise wipe them here too.
+                    if (store === 'settings') preserveDeviceLocalSettings(mergedData, local);
                     await updateData(store, mergedData, true);
                     window.dispatchEvent(new CustomEvent('data-synced', { detail: { store, id: data.id } }));
                 }

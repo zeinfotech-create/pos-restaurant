@@ -915,6 +915,15 @@ export async function renderSettings(container) {
       return showToast('Master PIN must be 4 to 6 digits!', 'error');
     }
 
+    // Nudge, don't block — an existing install may already rely on a weak
+    // PIN, and this field never round-trips the current plaintext value (it
+    // stores/re-reads only the hash) to check retroactively, so this can
+    // only warn at the moment a NEW pin is actually being typed in.
+    const COMMON_WEAK_PINS = new Set(['0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999', '1234', '123456', '0123', '4321']);
+    if (pin && (COMMON_WEAK_PINS.has(pin) || /^(\d)\1+$/.test(pin))) {
+      showToast('That PIN is easy to guess (repeated/sequential digits) — consider a less predictable one.', 'warning');
+    }
+
     await handleSave('Security', {
       autoLockMinutes: parseInt(document.getElementById('sAutoLock').value) || 0,
       settingsLockEnabled: lockEnabled,
