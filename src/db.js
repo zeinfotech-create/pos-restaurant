@@ -1416,6 +1416,19 @@ export async function getSettings(branchId = null) {
     const session = await getSession();
     if (session?.user?.licenseKey && session.user.licenseKey !== 'LOCAL_EXE') {
         finalSettings.licenseKey = session.user.licenseKey;
+    } else if (finalSettings.isInstalled) {
+      // No cloud session to recover a key from, but this device has already
+      // completed onboarding — it's not mid-install, it's a real device stuck
+      // on the placeholder (completeInstallation()'s old `||` fallback used to
+      // lock installs onto 'GLOBAL' permanently instead of generating a real
+      // id). getDeviceId() is idempotent — reuses this device's own identity
+      // record if one exists, only mints a new one if it truly never had one
+      // — so this can't collide with another device. Persisted immediately
+      // (not left in-memory only) so every later read/activation sees the
+      // real key, not just this one call.
+      finalSettings.licenseKey = await getDeviceId();
+      finalSettings.networkId = finalSettings.licenseKey;
+      await saveSettings({ ...finalSettings });
     }
   }
 
@@ -2928,7 +2941,34 @@ export async function getDeviceId() {
   const existing = await db.get(KEYS.SESSION, 'pos_identity_id');
   if (existing) return existing.val;
 
-  const id = 'POS-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+  // Derived from this machine's stable hardware fingerprint, NOT random —
+  // a purely random id meant "Delete Account"/"Delete All Data & Reset
+  // System" (which wipes this whole IndexedDB, including this very record)
+  // made the SAME physical device look like a brand-new one on its next
+  // activation. The license server's replay check already recognizes it as
+  // the same device via deviceFingerprint (so it never over-consumed an
+  // upgrade key's activation slots), but each reset still minted a fresh
+  // licenseKey, so the server ended up with a separate License record per
+  // reset instead of reusing one — this is what let "same device, one
+  // license" testing pile up multiple active-looking License rows in the
+  // admin panel. Deriving the id from the same fingerprint instead makes it
+  // reproducible across resets, so the device consolidates back onto one
+  // License record once it re-activates.
+  let id;
+  try {
+    const fingerprint = await window.electronAPI?.getMachineFingerprint?.();
+    if (fingerprint) {
+      let hash = 0;
+      for (let i = 0; i < fingerprint.length; i++) {
+        hash = ((hash << 5) - hash + fingerprint.charCodeAt(i)) | 0;
+      }
+      id = 'POS-' + Math.abs(hash).toString(36).toUpperCase().padStart(7, '0').slice(0, 7);
+    }
+  } catch (e) {
+    console.warn('[DeviceId] Could not read machine fingerprint, falling back to random id:', e.message);
+  }
+  if (!id) id = 'POS-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+
   await db.put(KEYS.SESSION, { id: 'pos_identity_id', val: id });
   return id;
 }
