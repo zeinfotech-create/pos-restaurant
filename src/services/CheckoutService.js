@@ -1126,12 +1126,6 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
         ${(!order.payments || order.payments.length === 0) ? `<div style="display:flex; justify-content:space-between"><span>${escapeHtml(order.paymentMethod || 'Unpaid')}</span><span>${cur}${total.toFixed(2)}</span></div>` : ''}
       </div>
 
-      ${settings.printBarcodeOnReceipt ? `
-        <div style="text-align:center; margin:12px 0">
-          <svg class="receipt-barcode" data-barcode-value="${order.id}"></svg>
-        </div>
-      ` : ''}
-
       ${settings.showTermsOnReceipt && settings.receiptTerms ? `
         <div style="text-align:left">
           <div style="font-size:10px; font-weight:700; letter-spacing:0.5px; opacity:0.6; margin-bottom:4px">TERMS &amp; CONDITIONS</div>
@@ -1144,7 +1138,12 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
           <div style="border-top:1px solid #000; width:220px; margin-left:auto; padding-top:4px">Authorized Signatory</div>
         </div>
       ` : ''}
-      <!-- Footer message always prints last, after Terms/Signature, not before them -->
+      <!-- Barcode + footer message always print last, right next to each other -->
+      ${settings.printBarcodeOnReceipt ? `
+        <div style="text-align:center; margin:14px 0 0">
+          <svg class="receipt-barcode" data-barcode-value="${order.id}"></svg>
+        </div>
+      ` : ''}
       <div style="text-align:center; font-size:12px; opacity:0.75; margin-top:14px; border-top:1px solid #ddd; padding-top:12px">${escapeHtml(settings.receiptFooter || 'Thank you for your business!')}</div>
     </div>
   `;
@@ -1389,11 +1388,6 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         ` : ''}
       </div>
       <div class="receipt-divider"></div>
-      ${settings.printBarcodeOnReceipt ? `
-        <div class="receipt-barcode-wrap" style="text-align:center; margin:8px 0">
-          <svg class="receipt-barcode" data-barcode-value="${order.id}"></svg>
-        </div>
-      ` : ''}
       ${settings.showTermsOnReceipt && settings.receiptTerms ? `
         <div style="text-align:left">
           <div style="font-size:9px; font-weight:700; letter-spacing:0.5px; opacity:0.6; margin-bottom:3px">TERMS &amp; CONDITIONS</div>
@@ -1406,7 +1400,12 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
           <div style="border-top:1px solid currentColor; width:60%; margin-left:auto; padding-top:4px">Authorized Signatory</div>
         </div>
       ` : ''}
-      <!-- Footer message always prints last, after Terms/Signature, not before them -->
+      <!-- Barcode + footer message always print last, right next to each other -->
+      ${settings.printBarcodeOnReceipt ? `
+        <div class="receipt-barcode-wrap" style="text-align:center; margin:12px 0 0">
+          <svg class="receipt-barcode" data-barcode-value="${order.id}"></svg>
+        </div>
+      ` : ''}
       <div class="receipt-footer" style="margin-top:12px; padding-top:8px; border-top:1px dashed currentColor">${settings.receiptFooter || 'Thank you for your business!'}</div>
     </div>
   `;
