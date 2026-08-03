@@ -435,41 +435,7 @@ export async function renderSettings(container) {
         <!-- Printing Tab Content -->
         <div class="settings-tab-content ${activeSettingsTab === 'printing' ? 'active' : ''}" id="tab-printing">
           <div class="card">
-            <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-print" style="color:var(--primary)"></i> Printing Preferences</div>
-            <div class="form-group" style="display:flex; flex-direction:row; align-items:center; gap:12px">
-                <input type="checkbox" id="sAutoPrintReceipt" ${s.autoPrintReceipt ? 'checked' : ''} />
-                <div>
-                    <div class="font-bold">Auto Print Receipt</div>
-                    <p style="font-size:11px; opacity:0.6">Automatically open print dialog after checkout is completed.</p>
-                </div>
-            </div>
-          </div>
-
-          <div class="card mt-16">
-            <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-receipt" style="color:var(--secondary)"></i> Receipt Content</div>
-            <div class="form-grid">
-              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
-                <input type="checkbox" id="sShowLogoOnReceipt" ${s.showLogoOnReceipt ? 'checked' : ''} />
-                <label class="form-label" style="margin:0" for="sShowLogoOnReceipt">Print logo on receipt</label>
-              </div>
-              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
-                <input type="checkbox" id="sPrintBarcodeOnReceipt" ${s.printBarcodeOnReceipt ? 'checked' : ''} />
-                <label class="form-label" style="margin:0" for="sPrintBarcodeOnReceipt">Print order ID barcode on receipt</label>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Receipt Header (optional)</label>
-                <input class="form-input" id="sReceiptHeader" value="${escapeHtml(s.receiptHeader || '')}" placeholder="e.g. Since 1998" />
-                <p class="form-help-text">Shown above the store name/logo on receipts, tax invoices, and anywhere else the header is printed.</p>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Receipt Footer</label>
-                <input class="form-input" id="sReceiptFooter" value="${s.receiptFooter || ''}" placeholder="Thank you for shopping!" />
-              </div>
-            </div>
-          </div>
-
-          <div class="card mt-16">
-            <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-print" style="color:var(--secondary)"></i> Print Settings</div>
+            <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-print" style="color:var(--primary)"></i> Printing</div>
             <div class="form-grid">
               <div class="form-group">
                 <label class="form-label">Paper Size</label>
@@ -488,8 +454,29 @@ export async function renderSettings(container) {
                 <input class="form-input" type="number" id="sPrintCopies" min="1" max="5" value="${s.printCopies || 1}" />
               </div>
               <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+                <input type="checkbox" id="sAutoPrintReceipt" ${s.autoPrintReceipt ? 'checked' : ''} />
+                <label class="form-label" style="margin:0" for="sAutoPrintReceipt">Auto print receipt after checkout</label>
+              </div>
+              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
                 <input type="checkbox" id="sShowPrintPreview" ${s.showPrintPreview !== false ? 'checked' : ''} />
                 <label class="form-label" style="margin:0" for="sShowPrintPreview">Show print preview before printing</label>
+              </div>
+              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+                <input type="checkbox" id="sShowLogoOnReceipt" ${s.showLogoOnReceipt ? 'checked' : ''} />
+                <label class="form-label" style="margin:0" for="sShowLogoOnReceipt">Print logo on receipt</label>
+              </div>
+              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+                <input type="checkbox" id="sPrintBarcodeOnReceipt" ${s.printBarcodeOnReceipt ? 'checked' : ''} />
+                <label class="form-label" style="margin:0" for="sPrintBarcodeOnReceipt">Print order ID barcode on receipt</label>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Receipt Header (optional)</label>
+                <input class="form-input" id="sReceiptHeader" value="${escapeHtml(s.receiptHeader || '')}" placeholder="e.g. Since 1998" />
+                <p class="form-help-text">Shown above the store name/logo on receipts, tax invoices, and anywhere else the header is printed.</p>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Receipt Footer</label>
+                <input class="form-input" id="sReceiptFooter" value="${s.receiptFooter || ''}" placeholder="Thank you for shopping!" />
               </div>
               <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
                 <input type="checkbox" id="sShowSignatureLine" ${s.showSignatureLine ? 'checked' : ''} />
