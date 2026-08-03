@@ -849,44 +849,86 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
   }
 }
 
+async function buildStandaloneReceiptHtml(contentHtml, title) {
+  const styleNodes = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
+  const styleParts = await Promise.all(styleNodes.map(async (node) => {
+    if (node.tagName === 'STYLE') return node.outerHTML;
+    // <link> tags: the app's own stylesheet is referenced via a relative
+    // path (./assets/...), which resolves fine in the main window but has
+    // no base to resolve against inside the data:text/html document the
+    // hidden print window loads — so the whole stylesheet silently failed
+    // to load and NONE of the .receipt/@media print rules ever reached the
+    // printed page. Inline the actual CSS text instead of copying the
+    // <link> reference. node.href (DOM property, not the raw attribute)
+    // is already resolved to an absolute file:// URL here in the main
+    // window's own context, so this fetch is same-origin and safe.
+    try {
+      const cssText = await (await fetch(node.href)).text();
+      return `<style>${cssText}</style>`;
+    } catch (e) {
+      // Remote CDN stylesheets (Font Awesome, etc.) — absolute https://
+      // URLs resolve fine regardless of the print window's origin, so a
+      // plain <link> is fine; this only triggers if that fetch fails.
+      return node.outerHTML;
+    }
+  }));
+  const styles = styleParts.join('');
+  // No body padding here — the page is sized to the exact paper width
+  // (electron/main.cjs), and .receipt's own print CSS already reserves the
+  // right margins for it. Extra padding here would just eat into it.
+  return `<html><head><title>${title}</title>${styles}</head><body style="background:white; color:black; font-family:sans-serif">${contentHtml}</body></html>`;
+}
+
 /**
  * Print receipt-style HTML. On Electron, send it straight to the system's
- * default printer, silently — no PDF, no preview window, no OS print dialog
- * (electron/main.cjs: print-receipt-silent). In a plain browser, fall back to
+ * default printer, silently — no OS print dialog — unless Settings > Print >
+ * "Show print preview" is on (default), in which case an in-app preview modal
+ * is shown first so paper size/copies can still be a single click without
+ * ever surfacing the OS dialog. In a plain browser, fall back to
  * window.print(), which already shows its own native preview.
  */
 export async function printReceiptHtml(contentHtml, title = 'Receipt') {
   const isElectron = /Electron/i.test(navigator.userAgent);
   if (isElectron && window.electronAPI?.printReceiptSilent) {
-    const styleNodes = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
-    const styleParts = await Promise.all(styleNodes.map(async (node) => {
-      if (node.tagName === 'STYLE') return node.outerHTML;
-      // <link> tags: the app's own stylesheet is referenced via a relative
-      // path (./assets/...), which resolves fine in the main window but has
-      // no base to resolve against inside the data:text/html document the
-      // hidden print window loads — so the whole stylesheet silently failed
-      // to load and NONE of the .receipt/@media print rules ever reached the
-      // printed page. Inline the actual CSS text instead of copying the
-      // <link> reference. node.href (DOM property, not the raw attribute)
-      // is already resolved to an absolute file:// URL here in the main
-      // window's own context, so this fetch is same-origin and safe.
-      try {
-        const cssText = await (await fetch(node.href)).text();
-        return `<style>${cssText}</style>`;
-      } catch (e) {
-        // Remote CDN stylesheets (Font Awesome, etc.) — absolute https://
-        // URLs resolve fine regardless of the print window's origin, so a
-        // plain <link> is fine; this only triggers if that fetch fails.
-        return node.outerHTML;
-      }
-    }));
-    const styles = styleParts.join('');
-    // No body padding here — the page is sized to the exact thermal-roll
-    // width (electron/main.cjs), and .receipt's own print CSS already reserves
-    // the right margins for it. Extra padding here would just eat into it.
-    const fullHtml = `<html><head><title>${title}</title>${styles}</head><body style="background:white; color:black; font-family:sans-serif">${contentHtml}</body></html>`;
-    const res = await window.electronAPI.printReceiptSilent(fullHtml);
-    if (!res?.success) showToast('Print failed: ' + (res?.error || 'unknown error'), 'error');
+    const settings = await getSettings();
+    const paperSize = settings.paperSize || 'thermal-80';
+    const defaultCopies = settings.printCopies || 1;
+
+    const doSilentPrint = async (copies) => {
+      const fullHtml = await buildStandaloneReceiptHtml(contentHtml, title);
+      const res = await window.electronAPI.printReceiptSilent(fullHtml, { paperSize, copies });
+      if (!res?.success) showToast('Print failed: ' + (res?.error || 'unknown error'), 'error');
+    };
+
+    if (settings.showPrintPreview === false) {
+      await doSilentPrint(defaultCopies);
+      return;
+    }
+
+    openModal({
+      title: `Print Preview — ${title}`,
+      body: `
+        <div style="display:flex; flex-direction:column; gap:12px">
+          <div style="border:1px solid var(--border); border-radius:8px; padding:12px; max-height:60vh; overflow:auto; background:white; color:black">
+            ${contentHtml}
+          </div>
+          <div class="form-group" style="display:flex; align-items:center; gap:8px; margin:0">
+            <label class="form-label" style="margin:0">Copies</label>
+            <input type="number" id="printPreviewCopies" class="form-input" style="width:80px" min="1" max="5" value="${defaultCopies}" />
+          </div>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="printPreviewCancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="printPreviewPrintBtn"><i class="fa-solid fa-print mr-6"></i> Print</button>
+      `
+    });
+    document.getElementById('printPreviewCancelBtn')?.addEventListener('click', () => closeModal());
+    document.getElementById('printPreviewPrintBtn')?.addEventListener('click', async () => {
+      const copies = Math.min(5, Math.max(1, parseInt(document.getElementById('printPreviewCopies')?.value, 10) || 1));
+      closeModal();
+      await doSilentPrint(copies);
+    });
     return;
   }
 
@@ -1150,6 +1192,14 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         </div>
       ` : ''}
       <div class="receipt-footer">${settings.receiptFooter || 'Thank you for your business!'}</div>
+      ${settings.showTermsOnReceipt && settings.receiptTerms ? `
+        <div class="receipt-terms" style="font-size:10px; opacity:0.75; margin-top:8px; text-align:center">${escapeHtml(settings.receiptTerms)}</div>
+      ` : ''}
+      ${settings.showSignatureLine ? `
+        <div class="receipt-signature" style="margin-top:28px; text-align:right; font-size:11px">
+          <div style="border-top:1px solid currentColor; width:60%; margin-left:auto; padding-top:4px">Authorized Signatory</div>
+        </div>
+      ` : ''}
     </div>
   `;
 }

@@ -391,6 +391,12 @@ const DEFAULT_SETTINGS = {
   availableTaxes: [],
   taxRate: 5,
   receiptFooter: 'Thank you for shopping with us!',
+  paperSize: 'thermal-80', // options: 'thermal-58', 'thermal-80', 'a5', 'a4'
+  printCopies: 1,
+  showPrintPreview: true,
+  showSignatureLine: false,
+  showTermsOnReceipt: false,
+  receiptTerms: '',
   theme: 'theme-light-zoom', // "Sapphire" — default for fresh installs
   enableRegisterRoutine: true,
   paymentMethods: [],
@@ -1530,6 +1536,12 @@ export async function saveSettings(settings) {
       storeAddress: dataToSave.storeAddress || globalRecord.storeAddress,
       receiptHeader: dataToSave.receiptHeader || globalRecord.receiptHeader,
       receiptFooter: dataToSave.receiptFooter || globalRecord.receiptFooter,
+      paperSize: dataToSave.paperSize || globalRecord.paperSize,
+      printCopies: dataToSave.printCopies ?? globalRecord.printCopies,
+      showPrintPreview: dataToSave.showPrintPreview ?? globalRecord.showPrintPreview,
+      showSignatureLine: dataToSave.showSignatureLine ?? globalRecord.showSignatureLine,
+      showTermsOnReceipt: dataToSave.showTermsOnReceipt ?? globalRecord.showTermsOnReceipt,
+      receiptTerms: dataToSave.receiptTerms || globalRecord.receiptTerms,
       theme: dataToSave.theme || globalRecord.theme,
       // Financial Master Data - MUST PROPOAGATE TO GLOBAL
       availableTaxes: dataToSave.availableTaxes || globalRecord.availableTaxes,

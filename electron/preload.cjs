@@ -18,8 +18,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getMachineFingerprint: () => ipcRenderer.invoke('get-machine-fingerprint'),
   verifyLifetimeToken: (token) => ipcRenderer.invoke('verify-lifetime-token', token),
   markLifetimeActivated: () => ipcRenderer.invoke('mark-lifetime-activated'),
-  // Silent thermal receipt printing (no PDF, no preview, no print dialog)
-  printReceiptSilent: (html) => ipcRenderer.invoke('print-receipt-silent', html),
+  // Silent receipt printing (no OS print dialog — the app shows its own
+  // in-app preview instead when Settings > Print > "Show print preview" is
+  // on). Accepts an options object so paper size / copy count can vary per
+  // print instead of the old hardcoded single-shot thermal 80mm call.
+  printReceiptSilent: (html, opts) => ipcRenderer.invoke('print-receipt-silent', html, opts),
   // Silent PDF export — saves straight to the Downloads folder, no print dialog
   exportReportPdfSilent: (payload) => ipcRenderer.invoke('export-pdf-silent', payload)
 

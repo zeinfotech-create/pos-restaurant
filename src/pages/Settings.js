@@ -226,6 +226,10 @@ export async function renderSettings(container) {
           <span class="settings-nav-icon" style="background:rgba(99,102,241,0.12);color:#6366f1"><i class="fa-solid fa-gear"></i></span>
           <span>General</span>
         </button>
+        <button class="settings-nav-item ${activeSettingsTab === 'printing' ? 'active' : ''}" data-tab="printing">
+          <span class="settings-nav-icon" style="background:rgba(59,130,246,0.12);color:#3b82f6"><i class="fa-solid fa-print"></i></span>
+          <span>Printing</span>
+        </button>
         <!--
         <button class="settings-nav-item ${activeSettingsTab === 'industry' ? 'active' : ''}" data-tab="industry">
           <span class="settings-nav-icon" style="background:rgba(16,185,129,0.12);color:#10b981"><i class="fa-solid fa-screwdriver-wrench"></i></span>
@@ -324,27 +328,9 @@ export async function renderSettings(container) {
                   </label>
                   ${s.storeLogo ? `<button type="button" class="btn btn-ghost" id="removeLogoBtn" style="font-size:12px; color:var(--danger)">Remove</button>` : ''}
                 </div>
-                <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin-top:10px">
-                  <input type="checkbox" id="sShowLogoOnReceipt" ${s.showLogoOnReceipt ? 'checked' : ''} />
-                  <label class="form-label" style="margin:0" for="sShowLogoOnReceipt">Print logo on receipt</label>
-                </div>
-                <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin-top:10px">
-                  <input type="checkbox" id="sPrintBarcodeOnReceipt" ${s.printBarcodeOnReceipt ? 'checked' : ''} />
-                  <label class="form-label" style="margin:0" for="sPrintBarcodeOnReceipt">Print order ID barcode on receipt</label>
-                </div>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Receipt Header (optional)</label>
-                <input class="form-input" id="sReceiptHeader" value="${escapeHtml(s.receiptHeader || '')}" placeholder="e.g. Since 1998" />
-                <p class="form-help-text">Shown above the store name/logo on receipts, tax invoices, and anywhere else the header is printed.</p>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Receipt Footer</label>
-                <input class="form-input" id="sReceiptFooter" value="${s.receiptFooter || ''}" placeholder="Thank you for shopping!" />
               </div>
             </div>
           </div>
-
 
           <div class="card">
             <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-palette" style="color:var(--secondary)"></i> Appearance</div>
@@ -442,18 +428,85 @@ export async function renderSettings(container) {
               </div>
             </div>
           </div>
-          <div class="card mt-16">
-              <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-print" style="color:var(--primary)"></i> Printing Preferences</div>
-              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; gap:12px">
-                  <input type="checkbox" id="sAutoPrintReceipt" ${s.autoPrintReceipt ? 'checked' : ''} />
-                  <div>
-                      <div class="font-bold">Auto Print Receipt</div>
-                      <p style="font-size:11px; opacity:0.6">Automatically open print dialog after checkout is completed.</p>
-                  </div>
-              </div>
-          </div>
 
           ${renderTabSaveContainer('saveGeneralBtn', 'General')}
+        </div>
+
+        <!-- Printing Tab Content -->
+        <div class="settings-tab-content ${activeSettingsTab === 'printing' ? 'active' : ''}" id="tab-printing">
+          <div class="card">
+            <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-print" style="color:var(--primary)"></i> Printing Preferences</div>
+            <div class="form-group" style="display:flex; flex-direction:row; align-items:center; gap:12px">
+                <input type="checkbox" id="sAutoPrintReceipt" ${s.autoPrintReceipt ? 'checked' : ''} />
+                <div>
+                    <div class="font-bold">Auto Print Receipt</div>
+                    <p style="font-size:11px; opacity:0.6">Automatically open print dialog after checkout is completed.</p>
+                </div>
+            </div>
+          </div>
+
+          <div class="card mt-16">
+            <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-receipt" style="color:var(--secondary)"></i> Receipt Content</div>
+            <div class="form-grid">
+              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+                <input type="checkbox" id="sShowLogoOnReceipt" ${s.showLogoOnReceipt ? 'checked' : ''} />
+                <label class="form-label" style="margin:0" for="sShowLogoOnReceipt">Print logo on receipt</label>
+              </div>
+              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+                <input type="checkbox" id="sPrintBarcodeOnReceipt" ${s.printBarcodeOnReceipt ? 'checked' : ''} />
+                <label class="form-label" style="margin:0" for="sPrintBarcodeOnReceipt">Print order ID barcode on receipt</label>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Receipt Header (optional)</label>
+                <input class="form-input" id="sReceiptHeader" value="${escapeHtml(s.receiptHeader || '')}" placeholder="e.g. Since 1998" />
+                <p class="form-help-text">Shown above the store name/logo on receipts, tax invoices, and anywhere else the header is printed.</p>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Receipt Footer</label>
+                <input class="form-input" id="sReceiptFooter" value="${s.receiptFooter || ''}" placeholder="Thank you for shopping!" />
+              </div>
+            </div>
+          </div>
+
+          <div class="card mt-16">
+            <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-print" style="color:var(--secondary)"></i> Print Settings</div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label">Paper Size</label>
+                <select class="form-input" id="sPaperSize">
+                  ${[
+                    { v: 'thermal-58', label: 'Thermal 2" (58mm)' },
+                    { v: 'thermal-80', label: 'Thermal 3" (80mm)' },
+                    { v: 'a5', label: 'A5' },
+                    { v: 'a4', label: 'A4' }
+                  ].map(o => `<option value="${o.v}" ${(s.paperSize || 'thermal-80') === o.v ? 'selected' : ''}>${o.label}</option>`).join('')}
+                </select>
+                <p class="form-help-text">Applies to receipts and vouchers printed from this device.</p>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Copies to Print</label>
+                <input class="form-input" type="number" id="sPrintCopies" min="1" max="5" value="${s.printCopies || 1}" />
+              </div>
+              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+                <input type="checkbox" id="sShowPrintPreview" ${s.showPrintPreview !== false ? 'checked' : ''} />
+                <label class="form-label" style="margin:0" for="sShowPrintPreview">Show print preview before printing</label>
+              </div>
+              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+                <input type="checkbox" id="sShowSignatureLine" ${s.showSignatureLine ? 'checked' : ''} />
+                <label class="form-label" style="margin:0" for="sShowSignatureLine">Show signature line on receipt</label>
+              </div>
+              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+                <input type="checkbox" id="sShowTermsOnReceipt" ${s.showTermsOnReceipt ? 'checked' : ''} />
+                <label class="form-label" style="margin:0" for="sShowTermsOnReceipt">Show Terms &amp; Conditions on receipt</label>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Terms &amp; Conditions Text</label>
+                <input class="form-input" id="sReceiptTerms" value="${escapeHtml(s.receiptTerms || '')}" placeholder="e.g. Goods once sold will not be taken back" />
+              </div>
+            </div>
+          </div>
+
+          ${renderTabSaveContainer('savePrintingBtn', 'Printing')}
         </div>
 
         <!-- Industry Tab Content
@@ -833,18 +886,13 @@ export async function renderSettings(container) {
       gstNumber: container.querySelector('#sGstNumber').value.trim(),
       upiId: container.querySelector('#sUpiId').value.trim(),
       storeLogo,
-      showLogoOnReceipt: container.querySelector('#sShowLogoOnReceipt')?.checked || false,
-      printBarcodeOnReceipt: container.querySelector('#sPrintBarcodeOnReceipt')?.checked || false,
-      receiptHeader: container.querySelector('#sReceiptHeader')?.value.trim() || '',
-      receiptFooter: container.querySelector('#sReceiptFooter').value.trim(),
       currency: container.querySelector('#sCurrency').value,
       availableTaxes: JSON.parse(container.querySelector('#sAvailableTaxes').value || '[]'),
       taxRate: parseFloat(container.querySelector('#sTaxRate').value) || 0,
       paymentMethods: JSON.parse(container.querySelector('#sPaymentMethods')?.value || '[]'),
       theme: container.querySelector('#sThemeValue')?.value || s.theme,
       enableRegisterRoutine: container.querySelector('#sEnableRegister')?.checked !== false,
-      roundOffEnabled: container.querySelector('#sRoundOffEnabled')?.checked || false,
-      autoPrintReceipt: document.getElementById('sAutoPrintReceipt')?.checked || false
+      roundOffEnabled: container.querySelector('#sRoundOffEnabled')?.checked || false
     });
 
     // Keep the current branch's own record in sync with what was just saved
@@ -876,6 +924,23 @@ export async function renderSettings(container) {
       if (typeof window.renderSidebar === 'function') await window.renderSidebar();
       if (typeof window.renderTopbar === 'function') await window.renderTopbar();
     }
+  });
+
+  // 1b. Printing Settings
+  container.querySelector('#savePrintingBtn')?.addEventListener('click', async () => {
+    await handleSave('Printing', {
+      autoPrintReceipt: container.querySelector('#sAutoPrintReceipt')?.checked || false,
+      showLogoOnReceipt: container.querySelector('#sShowLogoOnReceipt')?.checked || false,
+      printBarcodeOnReceipt: container.querySelector('#sPrintBarcodeOnReceipt')?.checked || false,
+      receiptHeader: container.querySelector('#sReceiptHeader')?.value.trim() || '',
+      receiptFooter: container.querySelector('#sReceiptFooter')?.value.trim() || '',
+      paperSize: container.querySelector('#sPaperSize')?.value || 'thermal-80',
+      printCopies: Math.min(5, Math.max(1, parseInt(container.querySelector('#sPrintCopies')?.value, 10) || 1)),
+      showPrintPreview: container.querySelector('#sShowPrintPreview')?.checked !== false,
+      showSignatureLine: container.querySelector('#sShowSignatureLine')?.checked || false,
+      showTermsOnReceipt: container.querySelector('#sShowTermsOnReceipt')?.checked || false,
+      receiptTerms: container.querySelector('#sReceiptTerms')?.value.trim() || ''
+    });
   });
 
   // 2. Industry Settings

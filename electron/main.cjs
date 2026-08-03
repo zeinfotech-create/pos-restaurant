@@ -602,29 +602,42 @@ ipcMain.on('ready-to-quit', () => { if (mainWindow) mainWindow.destroy(); });
 // ─── Silent thermal receipt printing ────────────────────────────────────────
 // Renders the receipt HTML off-screen and sends it straight to the system's
 // default printer — no PDF file, no preview window, no OS print dialog.
-ipcMain.handle('print-receipt-silent', async (event, html) => {
+ipcMain.handle('print-receipt-silent', async (event, html, opts = {}) => {
   let hiddenWin;
   try {
     hiddenWin = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true } });
     await hiddenWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
 
-    // 3-inch (80mm) thermal roll width, with the page height fitted to the
-    // actual receipt content instead of a fixed A4/Letter sheet.
+    // A4/A5 are standard sheets — Chromium accepts these as plain strings.
+    // Thermal rolls aren't a fixed sheet size, so those two keep the original
+    // custom {width, height} approach: fixed roll width, height fitted to the
+    // actual receipt content instead of a fixed sheet.
     // Note: unlike printToPDF (inches), webContents.print()'s custom pageSize
     // is in MICRONS — confirmed by Chromium's own validation error when this
     // was passed in inches ("height and width properties must be minimum
     // 352 microns").
-    const contentHeightPx = await hiddenWin.webContents.executeJavaScript('document.body.scrollHeight');
-    const MICRONS_PER_INCH = 25400;
-    const widthMicrons = 80 * 1000; // 80mm
-    const heightInches = Math.max(contentHeightPx / 96, 2) + 0.1;
-    const heightMicrons = Math.round(heightInches * MICRONS_PER_INCH);
+    const paperSize = opts.paperSize || 'thermal-80';
+    let pageSize;
+    if (paperSize === 'a4') {
+      pageSize = 'A4';
+    } else if (paperSize === 'a5') {
+      pageSize = 'A5';
+    } else {
+      const contentHeightPx = await hiddenWin.webContents.executeJavaScript('document.body.scrollHeight');
+      const MICRONS_PER_INCH = 25400;
+      const widthMm = paperSize === 'thermal-58' ? 58 : 80;
+      const widthMicrons = widthMm * 1000;
+      const heightInches = Math.max(contentHeightPx / 96, 2) + 0.1;
+      const heightMicrons = Math.round(heightInches * MICRONS_PER_INCH);
+      pageSize = { width: widthMicrons, height: heightMicrons };
+    }
 
     const result = await new Promise((resolve) => {
       hiddenWin.webContents.print({
         silent: true,
         printBackground: true,
-        pageSize: { width: widthMicrons, height: heightMicrons },
+        pageSize,
+        copies: Math.min(5, Math.max(1, parseInt(opts.copies, 10) || 1)),
         margins: { marginType: 'none' },
       }, (success, failureReason) => {
         resolve({ success, error: success ? null : failureReason });
