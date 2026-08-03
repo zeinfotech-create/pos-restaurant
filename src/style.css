@@ -3067,6 +3067,19 @@ table {
   border-radius: var(--radius);
 }
 
+/* Theme 2 for the A4/A5 invoice — same "formal/boxed" idea as the thermal
+   layout's .receipt-theme2, adapted to a full invoice: a bordered frame
+   around the whole page and zebra-striped item rows instead of the plain
+   white background Theme 1 uses. The accent-color swap (title/table header
+   to black) is done inline in renderInvoiceBody() since those are computed
+   per-render, not fixed CSS. */
+.invoice-a4-theme2 {
+  border: 2px solid #000;
+}
+.invoice-a4-theme2 tbody tr:nth-child(even) {
+  background: #f5f5f5;
+}
+
 /* ============================================ CATEGORY CHIPS */
 .category-chips {
   display: flex;

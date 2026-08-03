@@ -1017,10 +1017,16 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
   const dateStr = order.date || order.createdAt || new Date().toISOString();
   const storeName = order.storeName || settings.storeName || 'Store';
   const hasHsn = order.items.some(i => i.hsnCode);
+  // Theme 2 swaps the accent color for a monochrome/formal look and adds a
+  // bordered box + zebra-striped rows (see .invoice-a4-theme2 in style.css)
+  // — same idea as the thermal layout's Theme 2, just adapted to a full
+  // invoice instead of a receipt column.
+  const isTheme2 = settings.receiptTheme === 'theme2';
+  const accentColor = isTheme2 ? '#000' : 'var(--primary)';
 
   return `
-    <div class="invoice-a4">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid var(--primary); padding-bottom:12px; margin-bottom:16px">
+    <div class="invoice-a4 ${isTheme2 ? 'invoice-a4-theme2' : ''}">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid ${accentColor}; padding-bottom:12px; margin-bottom:16px">
         <div>
           ${settings.receiptHeader ? `<div style="font-size:12px;font-weight:600;opacity:0.8">${escapeHtml(settings.receiptHeader)}</div>` : ''}
           <div style="font-size:22px;font-weight:800">${escapeHtml(storeName)}</div>
@@ -1034,7 +1040,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
         ${settings.showLogoOnReceipt && settings.storeLogo ? `<img src="${settings.storeLogo}" style="max-width:90px; max-height:90px; object-fit:contain" />` : ''}
       </div>
 
-      <div style="text-align:center; font-size:20px; font-weight:800; color:var(--primary); margin-bottom:16px">TAX INVOICE</div>
+      <div style="text-align:center; font-size:20px; font-weight:800; color:${accentColor}; ${isTheme2 ? 'letter-spacing:2px; border:2px solid #000; padding:6px; border-radius:4px;' : ''} margin-bottom:16px">TAX INVOICE</div>
 
       <div style="display:flex; justify-content:space-between; gap:16px; margin-bottom:16px; font-size:13px">
         <div>
@@ -1051,7 +1057,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
 
       <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:16px">
         <thead>
-          <tr style="background:var(--primary); color:white">
+          <tr style="background:${accentColor}; color:white">
             <th style="text-align:left; padding:6px">#</th>
             <th style="text-align:left; padding:6px">Item name</th>
             ${hasHsn ? '<th style="text-align:left; padding:6px">HSN/SAC</th>' : ''}
@@ -1108,7 +1114,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
           ${order.discount > 0 ? `<div style="display:flex; justify-content:space-between"><span>Discount</span><span>-${cur}${order.discount.toFixed(2)}</span></div>` : ''}
           ${tax > 0 ? `<div style="display:flex; justify-content:space-between"><span>Tax</span><span>${cur}${tax.toFixed(2)}</span></div>` : ''}
           ${totalReturned > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--danger)"><span>Returned</span><span>-${cur}${totalReturned.toFixed(2)}</span></div>` : ''}
-          <div style="display:flex; justify-content:space-between; font-weight:800; font-size:15px; border-top:1px solid #000; margin-top:4px; padding-top:4px"><span>Total</span><span>${cur}${netTotal.toFixed(2)}</span></div>
+          <div style="display:flex; justify-content:space-between; font-weight:800; font-size:15px; margin-top:4px; padding-top:4px; ${isTheme2 ? 'border:1px solid #000; border-radius:4px; padding:6px 8px;' : 'border-top:1px solid #000;'}"><span>Total</span><span>${cur}${netTotal.toFixed(2)}</span></div>
         </div>
       </div>
 
