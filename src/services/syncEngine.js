@@ -158,18 +158,30 @@ class SyncEngine {
     // treated as "not valid". Fired-and-forgotten from init(); never awaited
     // by anything that would block the UI on it.
     async checkRevocationStatus() {
-        if (this.deploymentMode !== 'standalone' || !this.isLifetimeActivated) return;
+        if (this.deploymentMode !== 'standalone' || !this.isLifetimeActivated) {
+            console.log('[SyncEngine] checkRevocationStatus: skipped', { deploymentMode: this.deploymentMode, isLifetimeActivated: this.isLifetimeActivated });
+            return;
+        }
         try {
             const settings = await getSettings();
             const licenseKey = settings.licenseKey || 'LOCAL_EXE';
+            console.log('[SyncEngine] checkRevocationStatus: asking server about', licenseKey);
             const res = await fetch(`${LICENSE_SERVER_URL}/api/license/check-status`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ licenseKey }),
-                signal: AbortSignal.timeout(6000)
+                // Render's free tier spins the service down after inactivity —
+                // the first request after that can take 30-50s just to cold-start
+                // before it even reaches the route handler. The old 6s timeout
+                // aborted before a cold instance ever woke up, so this check
+                // silently "failed open" (network error → caught → no-op) on
+                // basically every real-world attempt against a sleeping free-tier
+                // deploy, never actually detecting a revocation in practice.
+                signal: AbortSignal.timeout(25000)
             });
-            if (!res.ok) return; // server hiccup — not a revocation signal
+            if (!res.ok) { console.warn('[SyncEngine] checkRevocationStatus: server responded but not ok, status', res.status); return; }
             const data = await res.json();
+            console.log('[SyncEngine] checkRevocationStatus: server response', data);
             if (data.valid === false) {
                 console.warn('[SyncEngine] Lifetime license revoked by server — locking to Activation gate.');
                 this.isLifetimeActivated = false;
@@ -178,7 +190,9 @@ class SyncEngine {
             }
         } catch (e) {
             // Offline / unreachable / aborted — exactly the case this must never
-            // punish for. Do nothing.
+            // punish for. Do nothing, but log it so "why didn't revocation kick
+            // in" is debuggable instead of silently invisible.
+            console.warn('[SyncEngine] checkRevocationStatus: could not reach license server (failing open):', e.message);
         }
     }
 

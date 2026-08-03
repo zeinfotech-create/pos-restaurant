@@ -1446,7 +1446,20 @@ export async function saveSettings(settings) {
   const finalBranchId = isGlobal ? null : branchId;
 
   const globalRecord = allSettings.find(x => x && x.id === 'global_settings') || { id: 'global_settings' };
-  const licenseKey = settings.licenseKey || globalRecord.licenseKey || 'GLOBAL';
+  // Falls back to null, NOT the string 'GLOBAL' — that string used to get
+  // WRITTEN here as a real licenseKey value whenever neither side had one
+  // yet, and once written it stuck around (every later save re-reads it back
+  // as "the" licenseKey). Downstream code that treats a device's own
+  // licenseKey as its unique identity (most notably lifetime-activation
+  // requests) had no way to tell "no real key yet" apart from "GLOBAL" being
+  // an actual identity — a device that saved settings before completing
+  // onboarding could activate a Lifetime key AS 'GLOBAL', which any other
+  // device in the same un-onboarded state would then collide into. null is
+  // already handled correctly everywhere that reads licenseKey (falsy →
+  // recovery/placeholder logic kicks in — see getSettings()'s "Recover
+  // licenseKey from session" block, which already special-cased the string
+  // 'GLOBAL' as meaning exactly this: no real key yet).
+  const licenseKey = settings.licenseKey || globalRecord.licenseKey || null;
 
   // SUBSCRIPTION STATE MANAGEMENT
   // Always keep subscriptionRequest in Global Settings to avoid branch-specific staleness
@@ -2705,7 +2718,13 @@ export async function completeInstallation({ businessName, businessAddress, busi
   // device's data into multiple "tenants" in MongoDB (same branch showing up
   // twice under two keys). Generating and locking it in at install time,
   // before anything else can race to assign one, removes that entire bug class.
-  settings.licenseKey = settings.licenseKey || await getDeviceId();
+  // Plain `||` would treat the placeholder strings 'GLOBAL'/'LOCAL_EXE' as a
+  // real key (they're truthy) and lock a fresh install onto one of them
+  // forever — this is exactly how a real device previously got permanently
+  // stuck on licenseKey 'GLOBAL'. Both must be treated as "no real key yet"
+  // here, same as falsy, so onboarding always ends with a genuine per-device id.
+  const hasRealLicenseKey = settings.licenseKey && settings.licenseKey !== 'GLOBAL' && settings.licenseKey !== 'LOCAL_EXE';
+  settings.licenseKey = hasRealLicenseKey ? settings.licenseKey : await getDeviceId();
   settings.networkId = settings.licenseKey;
 
   // 1. Create Default Branch
