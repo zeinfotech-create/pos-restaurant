@@ -3035,6 +3035,23 @@ table {
   font-size: 12px;
 }
 
+/* Theme 2 — a more formal, boxed invoice look. Scoped entirely to this class
+   (added to .receipt only when settings.receiptTheme === 'theme2' — see
+   CheckoutService.js's renderReceiptBody()) so Theme 1's markup/behavior is
+   completely untouched when this class isn't present. */
+.receipt-theme2 .receipt-store-name {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.receipt-theme2 .receipt-divider {
+  border-top: 2px solid #000;
+}
+.receipt-theme2 .receipt-total-row {
+  border: 1px solid #000;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
 /* ============================================ CATEGORY CHIPS */
 .category-chips {
   display: flex;

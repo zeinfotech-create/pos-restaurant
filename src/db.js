@@ -397,6 +397,8 @@ const DEFAULT_SETTINGS = {
   showSignatureLine: false,
   showTermsOnReceipt: false,
   receiptTerms: '',
+  printerName: '', // '' = system default printer
+  receiptTheme: 'theme1', // options: 'theme1', 'theme2'
   theme: 'theme-light-zoom', // "Sapphire" — default for fresh installs
   enableRegisterRoutine: true,
   paymentMethods: [],
@@ -1542,6 +1544,8 @@ export async function saveSettings(settings) {
       showSignatureLine: dataToSave.showSignatureLine ?? globalRecord.showSignatureLine,
       showTermsOnReceipt: dataToSave.showTermsOnReceipt ?? globalRecord.showTermsOnReceipt,
       receiptTerms: dataToSave.receiptTerms || globalRecord.receiptTerms,
+      printerName: dataToSave.printerName || globalRecord.printerName,
+      receiptTheme: dataToSave.receiptTheme || globalRecord.receiptTheme,
       theme: dataToSave.theme || globalRecord.theme,
       // Financial Master Data - MUST PROPOAGATE TO GLOBAL
       availableTaxes: dataToSave.availableTaxes || globalRecord.availableTaxes,

@@ -453,8 +453,30 @@ export async function renderSettings(container) {
                 <p class="form-help-text">Applies to receipts and vouchers printed from this device.</p>
               </div>
               <div class="form-group">
+                <label class="form-label">Printer</label>
+                <select class="form-input" id="sPrinterName">
+                  <option value="">System Default</option>
+                </select>
+                <p class="form-help-text">Which installed printer to use — leave as System Default to always use whatever Windows has set.</p>
+              </div>
+              <div class="form-group">
                 <label class="form-label">Copies to Print</label>
                 <input class="form-input" type="number" id="sPrintCopies" min="1" max="5" value="${s.printCopies || 1}" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Receipt Layout Theme</label>
+                <div style="display:flex; gap:12px">
+                  ${[
+                    { v: 'theme1', label: 'Theme 1', desc: 'Classic' },
+                    { v: 'theme2', label: 'Theme 2', desc: 'Boxed / Formal' }
+                  ].map(t => `
+                    <label class="receipt-theme-swatch" style="flex:1; border:2px solid ${(s.receiptTheme || 'theme1') === t.v ? 'var(--primary)' : 'var(--border)'}; border-radius:8px; padding:10px; text-align:center; cursor:pointer; display:block">
+                      <input type="radio" name="sReceiptTheme" value="${t.v}" ${(s.receiptTheme || 'theme1') === t.v ? 'checked' : ''} style="display:none" />
+                      <div class="font-bold" style="font-size:13px">${t.label}</div>
+                      <div style="font-size:11px; opacity:0.6">${t.desc}</div>
+                    </label>
+                  `).join('')}
+                </div>
               </div>
               <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
                 <input type="checkbox" id="sAutoPrintReceipt" ${s.autoPrintReceipt ? 'checked' : ''} />
@@ -941,7 +963,39 @@ export async function renderSettings(container) {
       showPrintPreview: container.querySelector('#sShowPrintPreview')?.checked !== false,
       showSignatureLine: container.querySelector('#sShowSignatureLine')?.checked || false,
       showTermsOnReceipt: container.querySelector('#sShowTermsOnReceipt')?.checked || false,
-      receiptTerms: container.querySelector('#sReceiptTerms')?.value.trim() || ''
+      receiptTerms: container.querySelector('#sReceiptTerms')?.value.trim() || '',
+      printerName: container.querySelector('#sPrinterName')?.value || '',
+      receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1'
+    });
+  });
+
+  // Populate the printer dropdown from the OS (Electron-only — a plain
+  // browser tab has no such list and just keeps the System Default option).
+  (async () => {
+    const printerSelect = container.querySelector('#sPrinterName');
+    if (!printerSelect || !window.electronAPI?.getPrinters) return;
+    try {
+      const printers = await window.electronAPI.getPrinters();
+      const savedPrinter = s.printerName || '';
+      printers.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.name;
+        opt.textContent = p.displayName || p.name;
+        if (p.name === savedPrinter) opt.selected = true;
+        printerSelect.appendChild(opt);
+      });
+    } catch (e) {
+      console.warn('[Settings] Could not list printers:', e.message);
+    }
+  })();
+
+  // Receipt Layout Theme swatches — highlight whichever radio is checked
+  container.querySelectorAll('input[name="sReceiptTheme"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      container.querySelectorAll('.receipt-theme-swatch').forEach(label => {
+        const isChecked = label.querySelector('input[name="sReceiptTheme"]')?.checked;
+        label.style.borderColor = isChecked ? 'var(--primary)' : 'var(--border)';
+      });
     });
   });
 
@@ -973,7 +1027,8 @@ export async function renderSettings(container) {
         receiptFooter: container.querySelector('#sReceiptFooter')?.value || '',
         showSignatureLine: container.querySelector('#sShowSignatureLine')?.checked || false,
         showTermsOnReceipt: container.querySelector('#sShowTermsOnReceipt')?.checked || false,
-        receiptTerms: container.querySelector('#sReceiptTerms')?.value || ''
+        receiptTerms: container.querySelector('#sReceiptTerms')?.value || '',
+        receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1'
       };
       const paperSize = container.querySelector('#sPaperSize')?.value || 'thermal-80';
       const targetWidth = PAPER_WIDTHS[paperSize] || '80mm';
@@ -986,7 +1041,7 @@ export async function renderSettings(container) {
       const receiptEl = printPreviewPane.querySelector('.receipt');
       if (receiptEl) { receiptEl.style.maxWidth = targetWidth; receiptEl.style.width = targetWidth; }
     };
-    container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms').forEach(el => {
+    container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms, input[name="sReceiptTheme"]').forEach(el => {
       el.addEventListener('input', updateLivePreview);
       el.addEventListener('change', updateLivePreview);
     });

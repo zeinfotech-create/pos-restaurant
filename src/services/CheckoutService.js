@@ -896,7 +896,7 @@ export async function printReceiptHtml(contentHtml, title = 'Receipt') {
 
     const doSilentPrint = async (copies) => {
       const fullHtml = await buildStandaloneReceiptHtml(contentHtml, title);
-      const res = await window.electronAPI.printReceiptSilent(fullHtml, { paperSize, copies });
+      const res = await window.electronAPI.printReceiptSilent(fullHtml, { paperSize, copies, printerName: settings.printerName || '' });
       if (!res?.success) showToast('Print failed: ' + (res?.error || 'unknown error'), 'error');
     };
 
@@ -992,9 +992,15 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
 
   const dateStr = order.date || order.createdAt || new Date().toISOString();
   const storeName = order.storeName || settings.storeName || 'Store';
+  // Theme 2 is a visually distinct layout (centered contact block, solid
+  // dividers, boxed total — see .receipt-theme2 in style.css) built entirely
+  // through a CSS class on the wrapper below, not by branching this template's
+  // markup — every other computation/field above stays identical between
+  // themes, so there's only one source of truth for the receipt's actual data.
+  const isTheme2 = settings.receiptTheme === 'theme2';
 
   return `
-    <div class="receipt">
+    <div class="receipt ${isTheme2 ? 'receipt-theme2' : ''}">
       <div class="receipt-header">
         ${settings.receiptHeader ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-bottom:4px">${settings.receiptHeader}</div>` : ''}
         ${settings.showLogoOnReceipt && settings.storeLogo ? `<img src="${settings.storeLogo}" style="max-width:80px; max-height:80px; object-fit:contain; margin-bottom:6px" />` : ''}
@@ -1007,7 +1013,8 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
           // across a wrapped line. Contact details are a plain left-aligned
           // block instead, one line per group, joined with a plain text
           // separator (a CSS border here rendered as odd stray marks at this
-          // font size instead of a visible line).
+          // font size instead of a visible line). Theme 2 centers it instead
+          // to match that theme's more formal, centered-header look.
           const phoneNumbers = [settings.storePhone, settings.storeAltPhone].filter(Boolean).join(', ');
           const line1 = phoneNumbers ? `Tel: ${phoneNumbers}` : '';
           const line2 = [
@@ -1017,7 +1024,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
           ].filter(Boolean).join('  |  ');
           if (!line1 && !line2) return '';
           return `
-        <div style="font-size:9.5px; opacity:0.7; text-align:left">
+        <div style="font-size:9.5px; opacity:0.7; text-align:${isTheme2 ? 'center' : 'left'}">
           ${line1 ? `<div>${line1}</div>` : ''}
           ${line2 ? `<div>${line2}</div>` : ''}
         </div>`;

@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // on). Accepts an options object so paper size / copy count can vary per
   // print instead of the old hardcoded single-shot thermal 80mm call.
   printReceiptSilent: (html, opts) => ipcRenderer.invoke('print-receipt-silent', html, opts),
+  // Lists this machine's installed printers, for the Settings printer picker
+  getPrinters: () => ipcRenderer.invoke('get-printers'),
   // Silent PDF export — saves straight to the Downloads folder, no print dialog
   exportReportPdfSilent: (payload) => ipcRenderer.invoke('export-pdf-silent', payload)
 

@@ -599,9 +599,26 @@ ipcMain.handle('delete-file', async (event, filePath) => {
 
 ipcMain.on('ready-to-quit', () => { if (mainWindow) mainWindow.destroy(); });
 
+// ─── List installed printers ─────────────────────────────────────────────
+// Lets Settings show a real dropdown of this machine's printers (the OS
+// print dialog already gets this for free, but the silent flow here never
+// surfaces that dialog) so the store owner can pick one instead of always
+// depending on the system default. mainWindow's own webContents is used
+// only as a handle to query the OS printer list — it never prints anything.
+ipcMain.handle('get-printers', async () => {
+  try {
+    if (!mainWindow || mainWindow.isDestroyed()) return [];
+    return await mainWindow.webContents.getPrintersAsync();
+  } catch (e) {
+    console.error('[Print] get-printers failed:', e.message);
+    return [];
+  }
+});
+
 // ─── Silent thermal receipt printing ────────────────────────────────────────
-// Renders the receipt HTML off-screen and sends it straight to the system's
-// default printer — no PDF file, no preview window, no OS print dialog.
+// Renders the receipt HTML off-screen and sends it straight to the chosen
+// printer (or the system default if none is set) — no PDF file, no preview
+// window, no OS print dialog.
 ipcMain.handle('print-receipt-silent', async (event, html, opts = {}) => {
   let hiddenWin;
   try {
@@ -639,6 +656,9 @@ ipcMain.handle('print-receipt-silent', async (event, html, opts = {}) => {
         pageSize,
         copies: Math.min(5, Math.max(1, parseInt(opts.copies, 10) || 1)),
         margins: { marginType: 'none' },
+        // Omitting deviceName falls through to Electron's own system-default
+        // behavior — only set it when a specific printer was actually chosen.
+        ...(opts.printerName ? { deviceName: opts.printerName } : {}),
       }, (success, failureReason) => {
         resolve({ success, error: success ? null : failureReason });
       });
