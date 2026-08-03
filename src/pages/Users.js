@@ -1,9 +1,10 @@
-import { getUsers, getBranches, saveUser, deleteUser, getCurrentUser, hasPermission } from '../db.js';
+import { getUsers, getBranches, saveUser, deleteUser, getCurrentUser, hasPermission, getSession, saveSession } from '../db.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { MediaService } from '../services/MediaService.js';
 import { paginate, renderPaginationBar } from '../utils/pagination.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
+import { store } from '../store.js';
 
 const USERS_PAGE_SIZE = 10;
 
@@ -680,29 +681,49 @@ async function openUserForm(user = null) {
     }
 
     saveUserBtn.disabled = true;
+    const updatedUserData = {
+      ...user,
+      name,
+      username,
+      email: document.getElementById('uContactEmail').value.trim(),
+      // Blank means "keep the current password" (see the field's placeholder
+      // in edit mode) — spreading an empty string in here would blank out an
+      // existing password on every unrelated edit (role change, photo, etc).
+      ...(password ? { password } : {}),
+      image: document.getElementById('uImageBase64').value,
+      pin: document.getElementById('uPin').value.trim(),
+      role: (user?.role === 'Master' || user?.role === 'Super Admin') ? user.role : document.getElementById('uRole').value,
+      isActive: (user?.role === 'Master' || user?.role === 'Super Admin' || user?.role === 'Admin' || document.getElementById('uRole').value === 'Admin') ? true : document.getElementById('uIsActive').checked,
+      sessionFilterEnabled: (user?.role === 'Master' || user?.role === 'Super Admin' || user?.role === 'Admin' || document.getElementById('uRole').value === 'Admin') ? false : (document.getElementById('uSessionFilterEnabled')?.checked || false),
+      permissions: selectedPerms,
+      branchIds: selectedBranches,
+      branchId: selectedBranches[0] || 'default' // Backward compatibility
+    };
     try {
-      await saveUser({
-        ...user,
-        name,
-        username,
-        email: document.getElementById('uContactEmail').value.trim(),
-        // Blank means "keep the current password" (see the field's placeholder
-        // in edit mode) — spreading an empty string in here would blank out an
-        // existing password on every unrelated edit (role change, photo, etc).
-        ...(password ? { password } : {}),
-        image: document.getElementById('uImageBase64').value,
-        pin: document.getElementById('uPin').value.trim(),
-        role: (user?.role === 'Master' || user?.role === 'Super Admin') ? user.role : document.getElementById('uRole').value,
-        isActive: (user?.role === 'Master' || user?.role === 'Super Admin' || user?.role === 'Admin' || document.getElementById('uRole').value === 'Admin') ? true : document.getElementById('uIsActive').checked,
-        sessionFilterEnabled: (user?.role === 'Master' || user?.role === 'Super Admin' || user?.role === 'Admin' || document.getElementById('uRole').value === 'Admin') ? false : (document.getElementById('uSessionFilterEnabled')?.checked || false),
-        permissions: selectedPerms,
-        branchIds: selectedBranches,
-        branchId: selectedBranches[0] || 'default' // Backward compatibility
-      });
+      await saveUser(updatedUserData);
     } catch (err) {
       saveUserBtn.disabled = false;
       showToast(err.message || 'Failed to save user.', 'error');
       return;
+    }
+
+    // Same stale-session-snapshot issue as branch renames (see Branches.js/
+    // Settings.js): getCurrentUser()/store.user return the user object
+    // embedded in the session at login time, not a live 'users' table read.
+    // Editing your OWN account here (name, photo, role, permissions) via
+    // this staff-management form saved the 'users' table correctly but left
+    // that embedded copy stale — the topbar name/avatar, and any
+    // hasPermission() check for the rest of this session, would keep using
+    // the pre-edit data until the next real login.
+    if (isEdit && user?.id === actingUser?.id) {
+      const session = await getSession();
+      if (session) {
+        session.user = updatedUserData;
+        await saveSession(session);
+      }
+      store.user = updatedUserData;
+      if (typeof window.renderTopbar === 'function') await window.renderTopbar();
+      if (typeof window.renderSidebar === 'function') await window.renderSidebar();
     }
 
     showToast('User saved!', 'success');

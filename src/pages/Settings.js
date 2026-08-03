@@ -2,7 +2,7 @@
 // Settings.js
 // ============================================================
 
-import { db, getSettings, getGlobalSettings, saveSettings, isIndustryImported, importIndustryProducts, mergeDuplicateProducts, getSessionTheme, updateSettings, getOrders, updateOrder, getCurrentUser, getCurrentBranch, saveBranch, getBusinessFeatures, hasPermission, verifyLocalUser, read, KEYS, getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory, hashPassword } from '../db.js';
+import { db, getSettings, getGlobalSettings, saveSettings, isIndustryImported, importIndustryProducts, mergeDuplicateProducts, getSessionTheme, updateSettings, getOrders, updateOrder, getCurrentUser, getCurrentBranch, saveBranch, getBusinessFeatures, hasPermission, verifyLocalUser, read, KEYS, getCategories, saveCategory, deleteCategory, getSubCategories, saveSubCategory, deleteSubCategory, hashPassword, getSession, saveSession } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { reloadSettings, store } from '../store.js';
 import { openModal, closeModal, showConfirm, showAlert } from '../components/Modal.js';
@@ -862,6 +862,17 @@ export async function renderSettings(container) {
         ...(storeLogo ? { image: storeLogo } : {})
       });
       store.branch = { ...store.branch, name: storeName, address: storeAddress, phone: storePhone };
+      // getCurrentBranch()/store.branch both ultimately come from a COPY of
+      // the branch embedded in the session record at login time (same fix
+      // already applied in Branches.js's own save handler) — editing the
+      // branches store alone never touches that embedded copy, so the
+      // sidebar would keep showing the pre-edit name forever, even after a
+      // reload, unless the session's own copy is refreshed too.
+      const session = await getSession();
+      if (session) {
+        session.branch = store.branch;
+        await saveSession(session);
+      }
       if (typeof window.renderSidebar === 'function') await window.renderSidebar();
       if (typeof window.renderTopbar === 'function') await window.renderTopbar();
     }
