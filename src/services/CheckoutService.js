@@ -1040,7 +1040,9 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
         ${settings.showLogoOnReceipt && settings.storeLogo ? `<img src="${settings.storeLogo}" style="max-width:90px; max-height:90px; object-fit:contain" />` : ''}
       </div>
 
-      <div style="text-align:center; font-size:20px; font-weight:800; color:${accentColor}; ${isTheme2 ? 'letter-spacing:2px; border:2px solid #000; padding:6px; border-radius:4px;' : ''} margin-bottom:16px">TAX INVOICE</div>
+      ${settings.showReceiptTitle !== false ? `
+        <div style="text-align:center; font-size:20px; font-weight:800; color:${accentColor}; ${isTheme2 ? 'letter-spacing:2px; border:2px solid #000; padding:6px; border-radius:4px;' : ''} margin-bottom:16px">${escapeHtml(settings.receiptTitle || 'TAX INVOICE')}</div>
+      ` : ''}
 
       <div style="display:flex; justify-content:space-between; gap:16px; margin-bottom:16px; font-size:13px">
         <div>
@@ -1131,9 +1133,14 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
       ` : ''}
 
       <div style="text-align:center; font-size:12px; opacity:0.75; border-top:1px solid #ddd; padding-top:12px">${escapeHtml(settings.receiptFooter || 'Thank you for your business!')}</div>
-      ${settings.showTermsOnReceipt && settings.receiptTerms ? `<div style="font-size:11px; opacity:0.7; text-align:center; margin-top:6px">${escapeHtml(settings.receiptTerms)}</div>` : ''}
+      ${settings.showTermsOnReceipt && settings.receiptTerms ? `
+        <div style="margin-top:14px; padding-top:10px; border-top:1px dashed #999; text-align:center">
+          <div style="font-size:10px; font-weight:700; letter-spacing:0.5px; opacity:0.6; margin-bottom:4px">TERMS &amp; CONDITIONS</div>
+          <div style="font-size:11px; opacity:0.7">${escapeHtml(settings.receiptTerms)}</div>
+        </div>
+      ` : ''}
       ${settings.showSignatureLine ? `
-        <div style="margin-top:32px; text-align:right; font-size:12px">
+        <div style="margin-top:24px; text-align:right; font-size:12px">
           <div style="border-top:1px solid #000; width:220px; margin-left:auto; padding-top:4px">Authorized Signatory</div>
         </div>
       ` : ''}
@@ -1215,6 +1222,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
           ${line2 ? `<div>${line2}</div>` : ''}
         </div>`;
         })()}
+        ${settings.showReceiptTitle !== false ? `<div style="font-weight:800; font-size:13px; letter-spacing:1px; margin:6px 0">${escapeHtml(settings.receiptTitle || 'TAX INVOICE')}</div>` : ''}
         <div class="receipt-row" style="font-size:11px; opacity:0.7; text-align:left;">
           <span>BILL NO: ${order.dailyNumber || order.id}</span>
           <span>${new Date(dateStr).toLocaleString('en-IN')}</span>
@@ -1386,10 +1394,13 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
       ` : ''}
       <div class="receipt-footer">${settings.receiptFooter || 'Thank you for your business!'}</div>
       ${settings.showTermsOnReceipt && settings.receiptTerms ? `
-        <div class="receipt-terms" style="font-size:10px; opacity:0.75; margin-top:8px; text-align:center">${escapeHtml(settings.receiptTerms)}</div>
+        <div style="margin-top:12px; padding-top:8px; border-top:1px dashed currentColor; text-align:center">
+          <div style="font-size:9px; font-weight:700; letter-spacing:0.5px; opacity:0.6; margin-bottom:3px">TERMS &amp; CONDITIONS</div>
+          <div class="receipt-terms" style="font-size:10px; opacity:0.75">${escapeHtml(settings.receiptTerms)}</div>
+        </div>
       ` : ''}
       ${settings.showSignatureLine ? `
-        <div class="receipt-signature" style="margin-top:28px; text-align:right; font-size:11px">
+        <div class="receipt-signature" style="margin-top:20px; text-align:right; font-size:11px">
           <div style="border-top:1px solid currentColor; width:60%; margin-left:auto; padding-top:4px">Authorized Signatory</div>
         </div>
       ` : ''}

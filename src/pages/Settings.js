@@ -479,6 +479,15 @@ export async function renderSettings(container) {
                 </div>
               </div>
               <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+                <input type="checkbox" id="sShowReceiptTitle" ${s.showReceiptTitle !== false ? 'checked' : ''} />
+                <label class="form-label" style="margin:0" for="sShowReceiptTitle">Show receipt title</label>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Receipt Title</label>
+                <input class="form-input" id="sReceiptTitle" value="${escapeHtml(s.receiptTitle || 'TAX INVOICE')}" placeholder="e.g. TAX INVOICE" ${s.showReceiptTitle === false ? 'disabled' : ''} />
+                <p class="form-help-text">Shown as a heading on the receipt/invoice — e.g. "TAX INVOICE", "SALE", "RECEIPT".</p>
+              </div>
+              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
                 <input type="checkbox" id="sAutoPrintReceipt" ${s.autoPrintReceipt ? 'checked' : ''} />
                 <label class="form-label" style="margin:0" for="sAutoPrintReceipt">Auto print receipt after checkout</label>
               </div>
@@ -965,8 +974,17 @@ export async function renderSettings(container) {
       showTermsOnReceipt: container.querySelector('#sShowTermsOnReceipt')?.checked || false,
       receiptTerms: container.querySelector('#sReceiptTerms')?.value.trim() || '',
       printerName: container.querySelector('#sPrinterName')?.value || '',
-      receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1'
+      receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1',
+      showReceiptTitle: container.querySelector('#sShowReceiptTitle')?.checked !== false,
+      receiptTitle: container.querySelector('#sReceiptTitle')?.value.trim() || 'TAX INVOICE'
     });
+  });
+
+  // Grey out the Receipt Title text field when its "Show" toggle is off —
+  // still editable via check-then-type, just visually inert while disabled.
+  container.querySelector('#sShowReceiptTitle')?.addEventListener('change', (e) => {
+    const titleInput = container.querySelector('#sReceiptTitle');
+    if (titleInput) titleInput.disabled = !e.target.checked;
   });
 
   // Populate the printer dropdown from the OS (Electron-only — a plain
@@ -1030,7 +1048,9 @@ export async function renderSettings(container) {
         showSignatureLine: container.querySelector('#sShowSignatureLine')?.checked || false,
         showTermsOnReceipt: container.querySelector('#sShowTermsOnReceipt')?.checked || false,
         receiptTerms: container.querySelector('#sReceiptTerms')?.value || '',
-        receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1'
+        receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1',
+        showReceiptTitle: container.querySelector('#sShowReceiptTitle')?.checked !== false,
+        receiptTitle: container.querySelector('#sReceiptTitle')?.value || 'TAX INVOICE'
       };
       const isA4A5 = paperSize === 'a4' || paperSize === 'a5';
       const targetWidth = PAPER_WIDTHS[paperSize] || '80mm';
@@ -1048,7 +1068,7 @@ export async function renderSettings(container) {
         if (receiptEl) { receiptEl.style.maxWidth = targetWidth; receiptEl.style.width = targetWidth; }
       }
     };
-    container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms, input[name="sReceiptTheme"]').forEach(el => {
+    container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms, input[name="sReceiptTheme"], #sShowReceiptTitle, #sReceiptTitle').forEach(el => {
       el.addEventListener('input', updateLivePreview);
       el.addEventListener('change', updateLivePreview);
     });

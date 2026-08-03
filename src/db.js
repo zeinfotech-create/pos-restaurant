@@ -399,6 +399,8 @@ const DEFAULT_SETTINGS = {
   receiptTerms: '',
   printerName: '', // '' = system default printer
   receiptTheme: 'theme1', // options: 'theme1', 'theme2'
+  showReceiptTitle: true,
+  receiptTitle: 'TAX INVOICE',
   theme: 'theme-light-zoom', // "Sapphire" — default for fresh installs
   enableRegisterRoutine: true,
   paymentMethods: [],
@@ -1546,6 +1548,8 @@ export async function saveSettings(settings) {
       receiptTerms: dataToSave.receiptTerms || globalRecord.receiptTerms,
       printerName: dataToSave.printerName || globalRecord.printerName,
       receiptTheme: dataToSave.receiptTheme || globalRecord.receiptTheme,
+      showReceiptTitle: dataToSave.showReceiptTitle ?? globalRecord.showReceiptTitle,
+      receiptTitle: dataToSave.receiptTitle || globalRecord.receiptTitle,
       theme: dataToSave.theme || globalRecord.theme,
       // Financial Master Data - MUST PROPOAGATE TO GLOBAL
       availableTaxes: dataToSave.availableTaxes || globalRecord.availableTaxes,
