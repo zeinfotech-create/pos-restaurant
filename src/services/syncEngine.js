@@ -912,20 +912,50 @@ class SyncEngine {
                                         // Check if we have a pending local version that hasn't been confirmed by server yet
                                         const localRecord = await getDataById('settings', data.id);
                                         if (localRecord && localRecord.isSynced === false) {
-                                            // Local has pending changes — preserve local financial fields
+                                            // Local has pending changes — preserve local financial fields,
+                                            // plus the General-tab store-identity fields (storeName etc.):
+                                            // these are exactly as vulnerable to the same clobber — save a
+                                            // rename, reload before the hub's copy catches up, and the
+                                            // sidebar/topbar (which read this record) silently revert to
+                                            // the stale pre-rename value on every reload until the hub
+                                            // happened to catch up first.
                                             const protectedData = {
                                                 ...mergedData,
                                                 availableTaxes: localRecord.availableTaxes ?? data.availableTaxes,
                                                 paymentMethods: localRecord.paymentMethods ?? data.paymentMethods,
+                                                storeName: localRecord.storeName ?? data.storeName,
+                                                storeNameSubtitle: localRecord.storeNameSubtitle ?? data.storeNameSubtitle,
+                                                storeAddress: localRecord.storeAddress ?? data.storeAddress,
+                                                storePhone: localRecord.storePhone ?? data.storePhone,
+                                                storeLogo: localRecord.storeLogo ?? data.storeLogo,
                                                 isSynced: false // keep pending until server confirms
                                             };
                                             await updateData(store, protectedData, true);
-                                            console.log(`[SyncEngine] ⚠️ Settings ${data.id}: kept local pending taxes/payments during full-state apply`);
+                                            console.log(`[SyncEngine] ⚠️ Settings ${data.id}: kept local pending taxes/payments/store-identity during full-state apply`);
                                         } else {
                                             await updateData(store, mergedData, true);
                                         }
                                     } else {
-                                        await updateData(store, mergedData, true);
+                                        // Same last-write-wins protection handleIncomingUpdate() already
+                                        // applies to real-time broadcasts (see below) — this bulk pull
+                                        // (requested via pos_fetch_all right after every reconnect, i.e.
+                                        // on every app boot/reload) had none, so any store whose hub copy
+                                        // hadn't yet caught up with a very recent local edit (e.g. a
+                                        // branch rename saved seconds before a reload) silently got
+                                        // overwritten back to the older value on every single reload,
+                                        // until the hub happened to catch up first.
+                                        const localRecord = await getDataById(store, data.id);
+                                        let isSafeToOverwrite;
+                                        if (!localRecord) {
+                                            isSafeToOverwrite = true;
+                                        } else if (data.updatedAt && localRecord.updatedAt) {
+                                            isSafeToOverwrite = new Date(data.updatedAt) >= new Date(localRecord.updatedAt);
+                                        } else {
+                                            isSafeToOverwrite = localRecord.isSynced !== false;
+                                        }
+                                        if (isSafeToOverwrite) {
+                                            await updateData(store, mergedData, true);
+                                        }
                                     }
                                 }
                             }
