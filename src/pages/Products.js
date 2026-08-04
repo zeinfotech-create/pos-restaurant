@@ -985,11 +985,31 @@ async function openProductForm(product, container, cur) {
                 <option value="exclusive" ${(product?.taxType || 'inclusive') === 'exclusive' ? 'selected' : ''}>Exclusive (+)</option>
                 <option value="inclusive" ${(product?.taxType || 'inclusive') === 'inclusive' ? 'selected' : ''}>Inclusive</option>
               </select>
-              <select class="form-select" id="pTaxRate" style="width:100px" ${!settings.availableTaxes?.length ? 'disabled' : ''}>
-                ${settings.availableTaxes?.length
-                  ? settings.availableTaxes.map(t => '<option value="' + t + '" ' + ((product?.taxRate ?? 0) == t ? 'selected' : '') + '>' + t + '%</option>').join('')
-                  : '<option value="0">No rates — add in Settings</option>'}
-              </select>
+              ${(() => {
+                // A product's saved taxRate might not be one of the shop's
+                // configured preset slabs (e.g. picked via HSN autocomplete
+                // for a rate like 12%/0.25% that isn't in Settings > Tax
+                // Rates) — applyHsnTaxRate() below already handles that by
+                // inserting a matching <option> at save time, but reopening
+                // the SAME product for edit used to rebuild this <select>
+                // purely from settings.availableTaxes: none of the presets
+                // matched the product's real rate, nothing got `selected`,
+                // and the browser silently defaulted to whichever option
+                // came first — re-saving then overwrote the correct rate
+                // with that wrong default. Insert the product's own rate
+                // here too if it's missing, mirroring applyHsnTaxRate's
+                // insertion logic so initial render and HSN-driven changes
+                // stay consistent.
+                const presetRates = settings.availableTaxes || [];
+                const productRate = product?.taxRate;
+                const allRates = (productRate != null && !presetRates.some(t => t == productRate))
+                  ? [...presetRates, productRate].sort((a, b) => a - b)
+                  : presetRates;
+                const options = allRates.length
+                  ? allRates.map(t => '<option value="' + t + '" ' + ((product?.taxRate ?? 0) == t ? 'selected' : '') + '>' + t + '%</option>').join('')
+                  : '<option value="0">No rates — add in Settings</option>';
+                return `<select class="form-select" id="pTaxRate" style="width:100px" ${allRates.length ? '' : 'disabled'}>${options}</select>`;
+              })()}
             </div>
           </div>
           <div class="form-group mb-0">
