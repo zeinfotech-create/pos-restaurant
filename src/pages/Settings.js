@@ -453,11 +453,27 @@ export async function renderSettings(container) {
                 <p class="form-help-text">Applies to receipts and vouchers printed from this device.</p>
               </div>
               <div class="form-group">
+                <label class="form-label">Connection Type</label>
+                <select class="form-input" id="sPrintConnectionType">
+                  <option value="system" ${(s.printConnectionType || 'system') === 'system' ? 'selected' : ''}>System Printer (Windows)</option>
+                  <option value="network" ${s.printConnectionType === 'network' ? 'selected' : ''}>Network Printer (IP address)</option>
+                </select>
+                <p class="form-help-text">Network mode sends the receipt straight to the printer's IP over raw ESC-POS — no Windows driver/installation needed.</p>
+              </div>
+              <div class="form-group" id="sPrinterNameGroup" style="${s.printConnectionType === 'network' ? 'display:none' : ''}">
                 <label class="form-label">Printer</label>
                 <select class="form-input" id="sPrinterName">
                   <option value="">System Default</option>
                 </select>
-                <p class="form-help-text">Which installed printer to use — leave as System Default to always use whatever Windows has set.</p>
+                <p class="form-help-text">Which installed printer to use — leave as System Default to always use whatever Windows has set. Network/IP printers can also be added once in Windows Settings &gt; Bluetooth &amp; devices &gt; Printers &amp; scanners, and they'll appear here too.</p>
+              </div>
+              <div class="form-group" id="sPrinterIpGroup" style="${s.printConnectionType === 'network' ? '' : 'display:none'}">
+                <label class="form-label">Printer IP Address</label>
+                <div style="display:flex; gap:8px">
+                  <input class="form-input" id="sPrinterIp" value="${escapeHtml(s.printerIp || '')}" placeholder="e.g. 192.168.1.50" style="flex:2" />
+                  <input class="form-input" type="number" id="sPrinterPort" value="${s.printerPort || 9100}" placeholder="Port" style="flex:1" />
+                </div>
+                <p class="form-help-text">Port 9100 is the standard raw port almost every ESC-POS thermal printer listens on — leave it unless your printer's manual says otherwise.</p>
               </div>
               <div class="form-group">
                 <label class="form-label">Copies to Print</label>
@@ -477,6 +493,10 @@ export async function renderSettings(container) {
                     </label>
                   `).join('')}
                 </div>
+              </div>
+              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+                <input type="checkbox" id="sShowStoreName" ${s.showStoreName !== false ? 'checked' : ''} />
+                <label class="form-label" style="margin:0" for="sShowStoreName">Show store name on receipt</label>
               </div>
               <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
                 <input type="checkbox" id="sShowReceiptTitle" ${s.showReceiptTitle !== false ? 'checked' : ''} />
@@ -1019,10 +1039,23 @@ export async function renderSettings(container) {
       showTermsOnReceipt: container.querySelector('#sShowTermsOnReceipt')?.checked || false,
       receiptTerms: container.querySelector('#sReceiptTerms')?.value.trim() || '',
       printerName: container.querySelector('#sPrinterName')?.value || '',
+      printConnectionType: container.querySelector('#sPrintConnectionType')?.value || 'system',
+      printerIp: container.querySelector('#sPrinterIp')?.value.trim() || '',
+      printerPort: parseInt(container.querySelector('#sPrinterPort')?.value, 10) || 9100,
       receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1',
       showReceiptTitle: container.querySelector('#sShowReceiptTitle')?.checked !== false,
-      receiptTitle: container.querySelector('#sReceiptTitle')?.value.trim() || 'TAX INVOICE'
+      receiptTitle: container.querySelector('#sReceiptTitle')?.value.trim() || 'TAX INVOICE',
+      showStoreName: container.querySelector('#sShowStoreName')?.checked !== false
     });
+  });
+
+  // Toggle between "System Printer" and "Network Printer (IP)" field groups
+  container.querySelector('#sPrintConnectionType')?.addEventListener('change', (e) => {
+    const isNetwork = e.target.value === 'network';
+    const nameGroup = container.querySelector('#sPrinterNameGroup');
+    const ipGroup = container.querySelector('#sPrinterIpGroup');
+    if (nameGroup) nameGroup.style.display = isNetwork ? 'none' : '';
+    if (ipGroup) ipGroup.style.display = isNetwork ? '' : 'none';
   });
 
   // Grey out the Receipt Title text field when its "Show" toggle is off —
@@ -1096,7 +1129,8 @@ export async function renderSettings(container) {
         receiptTerms: container.querySelector('#sReceiptTerms')?.value || '',
         receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1',
         showReceiptTitle: container.querySelector('#sShowReceiptTitle')?.checked !== false,
-        receiptTitle: container.querySelector('#sReceiptTitle')?.value || 'TAX INVOICE'
+        receiptTitle: container.querySelector('#sReceiptTitle')?.value || 'TAX INVOICE',
+        showStoreName: container.querySelector('#sShowStoreName')?.checked !== false
       };
       const isA4A5 = paperSize === 'a4' || paperSize === 'a5';
       const targetWidth = PAPER_WIDTHS[paperSize] || '80mm';
@@ -1114,7 +1148,7 @@ export async function renderSettings(container) {
         if (receiptEl) { receiptEl.style.maxWidth = targetWidth; receiptEl.style.width = targetWidth; }
       }
     };
-    container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms, input[name="sReceiptTheme"], #sShowReceiptTitle, #sReceiptTitle').forEach(el => {
+    container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms, input[name="sReceiptTheme"], #sShowReceiptTitle, #sReceiptTitle, #sShowStoreName').forEach(el => {
       el.addEventListener('input', updateLivePreview);
       el.addEventListener('change', updateLivePreview);
     });

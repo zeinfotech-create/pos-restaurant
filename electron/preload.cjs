@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   printReceiptSilent: (html, opts) => ipcRenderer.invoke('print-receipt-silent', html, opts),
   // Lists this machine's installed printers, for the Settings printer picker
   getPrinters: () => ipcRenderer.invoke('get-printers'),
+  // Raw ESC-POS printing direct to a network printer's IP (bypasses the OS
+  // print spooler entirely) — used when Settings > Printing > Connection
+  // Type is "Network (IP)"
+  printReceiptNetwork: (html, opts) => ipcRenderer.invoke('print-receipt-network', html, opts),
   // Silent PDF export — saves straight to the Downloads folder, no print dialog
   exportReportPdfSilent: (payload) => ipcRenderer.invoke('export-pdf-silent', payload)
 

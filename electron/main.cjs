@@ -674,6 +674,116 @@ ipcMain.handle('print-receipt-silent', async (event, html, opts = {}) => {
   }
 });
 
+// ─── Network (IP) thermal printer — raw ESC-POS over TCP ────────────────
+// For thermal printers reachable by IP that the store owner would rather
+// not install as a Windows printer first (Settings > Printing > Connection
+// Type: Network). Renders the receipt exactly like print-receipt-silent
+// (same hidden window), but instead of handing it to the OS print spooler,
+// captures it as a bitmap, converts that to a 1-bit monochrome ESC-POS
+// raster image, and writes the raw bytes straight to the printer's IP over
+// a plain TCP socket (port 9100 — the standard raw/JetDirect port almost
+// every ESC-POS thermal printer listens on). This is the actual printer
+// protocol, not a virtual/OS printer — no driver installation needed on
+// this machine at all.
+ipcMain.handle('print-receipt-network', async (event, html, opts = {}) => {
+  let hiddenWin;
+  try {
+    const { ip, port } = opts;
+    if (!ip) return { success: false, error: 'No printer IP address configured.' };
+    const targetPort = parseInt(port, 10) || 9100;
+
+    // 58mm/80mm rolls print at 384/576 dots wide on virtually every ESC-POS
+    // thermal printer (203 DPI is the near-universal thermal print head
+    // resolution) — render the hidden window at the equivalent CSS pixel
+    // width (96 CSS px/inch) so what gets captured is already close to the
+    // right proportions before the exact resize below.
+    const paperSize = opts.paperSize || 'thermal-80';
+    const dotWidth = paperSize === 'thermal-58' ? 384 : 576;
+    const cssWidth = Math.round((dotWidth / 203) * 96);
+
+    hiddenWin = new BrowserWindow({ show: false, width: cssWidth, height: 100, webPreferences: { nodeIntegration: false, contextIsolation: true } });
+    await hiddenWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    const contentHeightPx = await hiddenWin.webContents.executeJavaScript('document.body.scrollHeight');
+    hiddenWin.setContentSize(cssWidth, Math.max(Math.ceil(contentHeightPx), 50));
+
+    const captured = await hiddenWin.webContents.capturePage();
+    const resized = captured.resize({ width: dotWidth });
+    const { width, height } = resized.getSize();
+    // BGRA on Windows (Electron NativeImage's native bitmap format) — the
+    // exact channel order doesn't actually matter for the luminance
+    // threshold below, since receipt content is plain black-on-white
+    // (R≈G≈B for every real pixel); only presence/absence of a byte offset
+    // for alpha (4 bytes/pixel either way) matters here.
+    const bitmap = resized.toBitmap();
+
+    const bytesPerRow = Math.ceil(width / 8);
+    const imageData = Buffer.alloc(bytesPerRow * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        const c0 = bitmap[idx], c1 = bitmap[idx + 1], c2 = bitmap[idx + 2], alpha = bitmap[idx + 3];
+        // Treat fully-transparent pixels as white background — capturePage()
+        // can include transparent padding the receipt's own white .receipt
+        // background wouldn't otherwise have.
+        const luminance = alpha === 0 ? 255 : (0.299 * c2 + 0.587 * c1 + 0.114 * c0);
+        if (luminance < 128) {
+          imageData[y * bytesPerRow + (x >> 3)] |= (0x80 >> (x % 8));
+        }
+      }
+    }
+
+    hiddenWin.destroy();
+    hiddenWin = null;
+
+    // ESC @ (initialize) + GS v 0 (print raster bit image, standard mode)
+    // + the packed 1-bit bitmap + feed/cut. This is the same raster-image
+    // command virtually every ESC-POS-compatible thermal printer supports,
+    // regardless of brand — printing an image instead of formatted text
+    // means the printout matches the on-screen receipt exactly (logo,
+    // barcode, fonts, layout) with no separate text-formatting path to
+    // keep in sync with the HTML template.
+    const escInit = Buffer.from([0x1B, 0x40]);
+    const rasterHeader = Buffer.from([
+      0x1D, 0x76, 0x30, 0x00,
+      bytesPerRow & 0xFF, (bytesPerRow >> 8) & 0xFF,
+      height & 0xFF, (height >> 8) & 0xFF
+    ]);
+    const feedAndCut = Buffer.from([0x0A, 0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x00]);
+    const printBuffer = Buffer.concat([escInit, rasterHeader, imageData, feedAndCut]);
+
+    const sendOnce = () => new Promise((resolve) => {
+      const socket = new net.Socket();
+      const timer = setTimeout(() => {
+        socket.destroy();
+        resolve({ success: false, error: `Timed out connecting to printer at ${ip}:${targetPort}` });
+      }, 8000);
+      socket.once('error', (err) => {
+        clearTimeout(timer);
+        resolve({ success: false, error: err.message });
+      });
+      socket.connect(targetPort, ip, () => {
+        socket.write(printBuffer, (err) => {
+          clearTimeout(timer);
+          if (err) { socket.destroy(); resolve({ success: false, error: err.message }); return; }
+          socket.end();
+          resolve({ success: true });
+        });
+      });
+    });
+
+    const copies = Math.min(5, Math.max(1, parseInt(opts.copies, 10) || 1));
+    for (let c = 0; c < copies; c++) {
+      const result = await sendOnce();
+      if (!result.success) return result;
+    }
+    return { success: true };
+  } catch (e) {
+    if (hiddenWin && !hiddenWin.isDestroyed()) hiddenWin.destroy();
+    console.error('[Print] print-receipt-network failed:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
 // ─── Silent PDF export (Reports) ────────────────────────────────────────
 // Renders arbitrary report HTML off-screen and saves it straight to the
 // Downloads folder as a PDF — no OS print dialog, same silent approach as

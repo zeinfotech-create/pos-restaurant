@@ -399,9 +399,13 @@ const DEFAULT_SETTINGS = {
   showTermsOnReceipt: false,
   receiptTerms: '',
   printerName: '', // '' = system default printer
+  printConnectionType: 'system', // options: 'system' (OS-installed printer), 'network' (raw ESC-POS over TCP to an IP)
+  printerIp: '',
+  printerPort: 9100, // standard raw/JetDirect port thermal printers listen on
   receiptTheme: 'theme1', // options: 'theme1', 'theme2'
   showReceiptTitle: true,
   receiptTitle: 'TAX INVOICE',
+  showStoreName: true,
   theme: 'theme-light-zoom', // "Sapphire" — default for fresh installs
   enableRegisterRoutine: true,
   paymentMethods: [],
@@ -1548,9 +1552,13 @@ export async function saveSettings(settings) {
       showTermsOnReceipt: dataToSave.showTermsOnReceipt ?? globalRecord.showTermsOnReceipt,
       receiptTerms: dataToSave.receiptTerms || globalRecord.receiptTerms,
       printerName: dataToSave.printerName || globalRecord.printerName,
+      printConnectionType: dataToSave.printConnectionType || globalRecord.printConnectionType,
+      printerIp: dataToSave.printerIp || globalRecord.printerIp,
+      printerPort: dataToSave.printerPort ?? globalRecord.printerPort,
       receiptTheme: dataToSave.receiptTheme || globalRecord.receiptTheme,
       showReceiptTitle: dataToSave.showReceiptTitle ?? globalRecord.showReceiptTitle,
       receiptTitle: dataToSave.receiptTitle || globalRecord.receiptTitle,
+      showStoreName: dataToSave.showStoreName ?? globalRecord.showStoreName,
       theme: dataToSave.theme || globalRecord.theme,
       // Financial Master Data - MUST PROPOAGATE TO GLOBAL
       availableTaxes: dataToSave.availableTaxes || globalRecord.availableTaxes,

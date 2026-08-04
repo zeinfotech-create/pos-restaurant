@@ -896,7 +896,16 @@ export async function printReceiptHtml(contentHtml, title = 'Receipt') {
 
     const doSilentPrint = async (copies) => {
       const fullHtml = await buildStandaloneReceiptHtml(contentHtml, title);
-      const res = await window.electronAPI.printReceiptSilent(fullHtml, { paperSize, copies, printerName: settings.printerName || '' });
+      let res;
+      if (settings.printConnectionType === 'network') {
+        if (!settings.printerIp) {
+          showToast('No printer IP address configured — set one in Settings > Printing.', 'error');
+          return;
+        }
+        res = await window.electronAPI.printReceiptNetwork(fullHtml, { ip: settings.printerIp, port: settings.printerPort || 9100, paperSize, copies });
+      } else {
+        res = await window.electronAPI.printReceiptSilent(fullHtml, { paperSize, copies, printerName: settings.printerName || '' });
+      }
       if (!res?.success) showToast('Print failed: ' + (res?.error || 'unknown error'), 'error');
     };
 
@@ -1077,7 +1086,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
       <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid ${accentColor}; padding-bottom:12px; margin-bottom:16px">
         <div>
           ${settings.receiptHeader ? `<div style="font-size:12px;font-weight:600;opacity:0.8">${escapeHtml(settings.receiptHeader)}</div>` : ''}
-          <div style="font-size:22px;font-weight:800">${escapeHtml(storeName)}</div>
+          ${settings.showStoreName !== false ? `<div style="font-size:22px;font-weight:800">${escapeHtml(storeName)}</div>` : ''}
           <div style="font-size:12px;opacity:0.75;margin-top:4px">${escapeHtml(settings.storeAddress || '')}</div>
           <div style="font-size:12px;opacity:0.75">
             ${[settings.storePhone, settings.storeAltPhone].filter(Boolean).map(p => `Ph. no.: ${escapeHtml(p)}`).join(', ')}
@@ -1259,7 +1268,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
       <div class="receipt-header">
         ${settings.receiptHeader ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-bottom:4px">${settings.receiptHeader}</div>` : ''}
         ${settings.showLogoOnReceipt && settings.storeLogo ? `<img src="${settings.storeLogo}" style="max-width:80px; max-height:80px; object-fit:contain; margin-bottom:6px" />` : ''}
-        <div class="receipt-store-name">${storeName}</div>
+        ${settings.showStoreName !== false ? `<div class="receipt-store-name">${storeName}</div>` : ''}
         ${settings.storeNameSubtitle ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-top:1px">(${settings.storeNameSubtitle})</div>` : ''}
         <div style="font-size:10.5px;opacity:0.8;margin-top:4px;white-space:normal;word-wrap:break-word">${settings.storeAddress || ''}</div>
         ${(() => {
