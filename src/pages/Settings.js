@@ -446,6 +446,7 @@ export async function renderSettings(container) {
                   ${[
                     { v: 'thermal-58', label: 'Thermal 2" (58mm)' },
                     { v: 'thermal-80', label: 'Thermal 3" (80mm)' },
+                    { v: 'thermal-104', label: 'Thermal 4" (104mm)' },
                     { v: 'a5', label: 'A5' },
                     { v: 'a4', label: 'A4' }
                   ].map(o => `<option value="${o.v}" ${(s.paperSize || 'thermal-80') === o.v ? 'selected' : ''}>${o.label}</option>`).join('')}
@@ -1101,7 +1102,7 @@ export async function renderSettings(container) {
   // with what a real receipt looks like.
   const printPreviewPane = container.querySelector('#printPreviewPane');
   if (printPreviewPane) {
-    const PAPER_WIDTHS = { 'thermal-58': '58mm', 'thermal-80': '80mm', 'a5': '380px', 'a4': '480px' };
+    const PAPER_WIDTHS = { 'thermal-58': '58mm', 'thermal-80': '80mm', 'thermal-104': '104mm', 'a5': '380px', 'a4': '480px' };
     const sampleOrder = {
       id: 'SAMPLE-001',
       dailyNumber: 101,
@@ -1110,7 +1111,7 @@ export async function renderSettings(container) {
         { name: 'Sample Item A', qty: 2, price: 150, taxRate: 5 },
         { name: 'Sample Item B', qty: 1, price: 299, taxRate: 12 }
       ],
-      payments: [{ method: 'Cash', amount: 897 }],
+      payments: [{ method: 'Cash', amount: 649.88 }], // matches the sample items' actual total (315 + 334.88) — was a stray 897 that made "Payment Status" look wrong against the real Net Amt
       discount: 0
     };
     updateLivePreview = async () => {
@@ -1118,6 +1119,18 @@ export async function renderSettings(container) {
       const previewSettings = {
         ...s,
         paperSize,
+        // General tab fields — read live from the DOM too, not just `s`
+        // (the settings snapshot from when this page first rendered), so
+        // editing Store Name/Address/etc. on the General tab updates this
+        // preview instantly instead of only after a Save + page reload.
+        storeName: container.querySelector('#sStoreName')?.value || s.storeName,
+        storeNameSubtitle: container.querySelector('#sStoreNameSubtitle')?.value || s.storeNameSubtitle,
+        storeAddress: container.querySelector('#sStoreAddress')?.value || s.storeAddress,
+        storePhone: container.querySelector('#sStorePhone')?.value || s.storePhone,
+        storeAltPhone: container.querySelector('#sStoreAltPhone')?.value || s.storeAltPhone,
+        email: container.querySelector('#sStoreEmail')?.value || s.email,
+        storeFax: container.querySelector('#sStoreFax')?.value || s.storeFax,
+        gstNumber: container.querySelector('#sGstNumber')?.value || s.gstNumber,
         storeLogo: container.querySelector('#sStoreLogoBase64')?.value || s.storeLogo,
         showLogoOnReceipt: container.querySelector('#sShowLogoOnReceipt')?.checked || false,
         printBarcodeOnReceipt: container.querySelector('#sPrintBarcodeOnReceipt')?.checked || false,
@@ -1148,7 +1161,7 @@ export async function renderSettings(container) {
         if (receiptEl) { receiptEl.style.maxWidth = targetWidth; receiptEl.style.width = targetWidth; }
       }
     };
-    container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms, input[name="sReceiptTheme"], #sShowReceiptTitle, #sReceiptTitle, #sShowStoreName').forEach(el => {
+    container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms, input[name="sReceiptTheme"], #sShowReceiptTitle, #sReceiptTitle, #sShowStoreName, #sStoreName, #sStoreNameSubtitle, #sStoreAddress, #sStorePhone, #sStoreAltPhone, #sStoreEmail, #sStoreFax, #sGstNumber').forEach(el => {
       el.addEventListener('input', updateLivePreview);
       el.addEventListener('change', updateLivePreview);
     });

@@ -642,7 +642,7 @@ ipcMain.handle('print-receipt-silent', async (event, html, opts = {}) => {
     } else {
       const contentHeightPx = await hiddenWin.webContents.executeJavaScript('document.body.scrollHeight');
       const MICRONS_PER_INCH = 25400;
-      const widthMm = paperSize === 'thermal-58' ? 58 : 80;
+      const widthMm = paperSize === 'thermal-58' ? 58 : (paperSize === 'thermal-104' ? 104 : 80);
       const widthMicrons = widthMm * 1000;
       const heightInches = Math.max(contentHeightPx / 96, 2) + 0.1;
       const heightMicrons = Math.round(heightInches * MICRONS_PER_INCH);
@@ -692,13 +692,15 @@ ipcMain.handle('print-receipt-network', async (event, html, opts = {}) => {
     if (!ip) return { success: false, error: 'No printer IP address configured.' };
     const targetPort = parseInt(port, 10) || 9100;
 
-    // 58mm/80mm rolls print at 384/576 dots wide on virtually every ESC-POS
-    // thermal printer (203 DPI is the near-universal thermal print head
-    // resolution) — render the hidden window at the equivalent CSS pixel
-    // width (96 CSS px/inch) so what gets captured is already close to the
-    // right proportions before the exact resize below.
+    // 58mm/80mm/104mm rolls print at 384/576/832 dots wide on virtually
+    // every ESC-POS thermal printer (203 DPI is the near-universal thermal
+    // print head resolution, and dot counts are rounded to a byte multiple
+    // — 8 dots — same as printer datasheets do) — render the hidden window
+    // at the equivalent CSS pixel width (96 CSS px/inch) so what gets
+    // captured is already close to the right proportions before the exact
+    // resize below.
     const paperSize = opts.paperSize || 'thermal-80';
-    const dotWidth = paperSize === 'thermal-58' ? 384 : 576;
+    const dotWidth = paperSize === 'thermal-58' ? 384 : (paperSize === 'thermal-104' ? 832 : 576);
     const cssWidth = Math.round((dotWidth / 203) * 96);
 
     hiddenWin = new BrowserWindow({ show: false, width: cssWidth, height: 100, webPreferences: { nodeIntegration: false, contextIsolation: true } });
