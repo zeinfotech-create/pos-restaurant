@@ -959,6 +959,47 @@ function renderGstSplit(rate, amount, cur) {
 }
 
 /**
+ * Groups an order's items by tax rate and sums each group's tax amount —
+ * the one thing both receipt layouts need for a proper CGST/SGST-per-rate
+ * breakdown instead of a single lump tax figure. Used as the final fallback
+ * when an order has neither order.groupedTaxes/grossGroupedTaxes (set by
+ * checkout for a real processed order) nor a plain order.tax > 0 — which is
+ * exactly the case for the Settings > Printing live preview's sample order
+ * (it only sets item-level taxRate, nothing at the order level).
+ */
+/**
+ * Returns:
+ *  - breakdown: per-rate tax amounts for DISPLAY (the CGST/SGST rows) —
+ *    includes BOTH tax added on top of the price (exclusive) and tax already
+ *    embedded in the price (inclusive), since a real tax invoice always
+ *    itemizes the full GST on the bill no matter how the price was quoted.
+ *  - exclusiveTotal: the sum of ONLY the exclusive (added-on-top) portion.
+ *    This is the one that's safe to ADD to a subtotal for a Total/Net Amt
+ *    figure — inclusive tax is already baked into the item's own price (and
+ *    therefore already inside the subtotal), so adding it again would
+ *    double-count it. Callers computing their own total must use this, not
+ *    the sum of `breakdown`.
+ */
+function computeTaxByRate(order) {
+  const taxByRate = {};
+  let exclusiveTotal = 0;
+  (order.items || []).forEach(i => {
+    const iPrice = i.price || 0, iQty = i.qty || 0, iTaxRate = i.taxRate || 0;
+    if (iTaxRate <= 0) return;
+    const iDiscount = i.itemDiscountType === 'pct' ? (iPrice * iQty * (i.itemDiscount || 0) / 100) : ((i.itemDiscount || 0) * iQty);
+    const lineAfterDiscount = (iPrice * iQty) - iDiscount;
+    const isInclusive = i.taxType === 'inclusive';
+    const taxAmt = isInclusive
+      ? lineAfterDiscount * iTaxRate / (100 + iTaxRate) // tax embedded in the price
+      : lineAfterDiscount * iTaxRate / 100;              // tax added on top
+    taxByRate[iTaxRate] = (taxByRate[iTaxRate] || 0) + taxAmt;
+    if (!isInclusive) exclusiveTotal += taxAmt;
+  });
+  const breakdown = Object.entries(taxByRate).map(([rate, amount]) => ({ rate: parseFloat(rate), amount }));
+  return { breakdown, exclusiveTotal };
+}
+
+/**
  * Converts a rupee amount to words (Indian numbering — Lakh/Crore), for the
  * "Invoice Amount in Words" line on the A4/A5 invoice layout.
  */
@@ -1003,15 +1044,22 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
   const totalReturned = allReturns.reduce((s, r) => s + (r.total || 0), 0);
 
   const subtotal = order.subtotal || order.items.reduce((s, i) => s + (i.price * i.qty), 0);
+  // Grouped by rate (matching each item row's own tax calc, incl. the
+  // inclusive-tax case those rows already account for) so the Sub Total
+  // box below can show a proper CGST/SGST-per-rate GST breakdown instead
+  // of a single lump "Tax" figure.
+  const { breakdown: taxBreakdown, exclusiveTotal: taxExclusiveTotal } = computeTaxByRate(order);
   let tax = order.tax || 0;
   if (!order.tax || order.tax === 0) {
-    tax = order.items.reduce((sum, i) => {
-      const iPrice = i.price || 0, iQty = i.qty || 0, iTaxRate = i.taxRate || 0;
-      if (iTaxRate <= 0) return sum;
-      const iDiscount = i.itemDiscountType === 'pct' ? (iPrice * iQty * (i.itemDiscount || 0) / 100) : ((i.itemDiscount || 0) * iQty);
-      return sum + (((iPrice * iQty) - iDiscount) * iTaxRate / 100);
-    }, 0);
+    // Only the exclusive (added-on-top) portion goes into the Total/Net Amt
+    // math — inclusive tax is already inside `subtotal` via the item's own
+    // price, so summing the full display breakdown here would double-count it.
+    tax = taxExclusiveTotal;
   }
+  // For DISPLAY only (the item table's own GST-total footer cell) — the sum
+  // of every item's shown GST, inclusive or not, so it actually matches
+  // adding up the per-item GST column above it.
+  const taxDisplayTotal = taxBreakdown.reduce((s, t) => s + t.amount, 0);
   const total = order.total || (subtotal + tax - (order.discount || 0));
   const netTotal = total - totalReturned;
   const dateStr = order.date || order.createdAt || new Date().toISOString();
@@ -1078,7 +1126,17 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
             const baseLineTotal = itemPrice * itemQty;
             const itemDiscountAmt = i.itemDiscountType === 'pct' ? (baseLineTotal * (i.itemDiscount || 0) / 100) : ((i.itemDiscount || 0) * itemQty);
             const exclusiveSubtotal = baseLineTotal - itemDiscountAmt;
-            const taxAmount = i.taxType === 'inclusive' ? 0 : (exclusiveSubtotal * itemTaxRate / 100);
+            const isItemInclusive = i.taxType === 'inclusive';
+            // GST column always shows the real tax amount (embedded in the
+            // price for inclusive items, added on top for exclusive ones) —
+            // showing ₹0.00 next to an 18% rate just because the tax happens
+            // to already be inside the price was misleading. itemLineTotal's
+            // own math is untouched: inclusive tax must NOT be added a
+            // second time on top, it's already inside exclusiveSubtotal.
+            const displayTaxAmount = isItemInclusive
+              ? (exclusiveSubtotal * itemTaxRate / (100 + itemTaxRate))
+              : (exclusiveSubtotal * itemTaxRate / 100);
+            const taxAmount = isItemInclusive ? 0 : displayTaxAmount;
             const itemLineTotal = exclusiveSubtotal + taxAmount;
             return `
               <tr style="border-bottom:1px solid #ddd">
@@ -1088,7 +1146,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
                 <td style="text-align:center; padding:6px">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}</td>
                 <td style="text-align:right; padding:6px">${cur}${itemPrice.toFixed(2)}</td>
                 <td style="text-align:right; padding:6px">${cur}${itemDiscountAmt.toFixed(2)}${itemDiscountAmt > 0 && i.itemDiscountType === 'pct' ? ` (${i.itemDiscount}%)` : ''}</td>
-                <td style="text-align:right; padding:6px">${cur}${taxAmount.toFixed(2)}${itemTaxRate > 0 ? ` (${itemTaxRate}%)` : ''}</td>
+                <td style="text-align:right; padding:6px">${cur}${displayTaxAmount.toFixed(2)}${itemTaxRate > 0 ? ` (${itemTaxRate}%)` : ''}</td>
                 <td style="text-align:right; padding:6px; font-weight:600">${cur}${itemLineTotal.toFixed(2)}</td>
               </tr>
             `;
@@ -1100,7 +1158,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
             <td style="text-align:center; padding:6px">${order.items.reduce((s, i) => s + (parseFloat(i.qty) || 0), 0)}</td>
             <td></td>
             <td></td>
-            <td style="text-align:right; padding:6px">${cur}${tax.toFixed(2)}</td>
+            <td style="text-align:right; padding:6px">${cur}${taxDisplayTotal.toFixed(2)}</td>
             <td style="text-align:right; padding:6px">${cur}${total.toFixed(2)}</td>
           </tr>
         </tfoot>
@@ -1114,7 +1172,10 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
         <div style="flex:0 0 220px">
           <div style="display:flex; justify-content:space-between"><span>Sub Total</span><span>${cur}${subtotal.toFixed(2)}</span></div>
           ${order.discount > 0 ? `<div style="display:flex; justify-content:space-between"><span>Discount</span><span>-${cur}${order.discount.toFixed(2)}</span></div>` : ''}
-          ${tax > 0 ? `<div style="display:flex; justify-content:space-between"><span>Tax</span><span>${cur}${tax.toFixed(2)}</span></div>` : ''}
+          ${taxBreakdown.length > 0 ? taxBreakdown.map(t => `
+            <div style="display:flex; justify-content:space-between; font-size:12px"><span>CGST @${(t.rate / 2).toFixed(2)}%</span><span>${cur}${(t.amount / 2).toFixed(2)}</span></div>
+            <div style="display:flex; justify-content:space-between; font-size:12px"><span>SGST @${(t.rate / 2).toFixed(2)}%</span><span>${cur}${(t.amount / 2).toFixed(2)}</span></div>
+          `).join('') : (tax > 0 ? `<div style="display:flex; justify-content:space-between"><span>Tax</span><span>${cur}${tax.toFixed(2)}</span></div>` : '')}
           ${totalReturned > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--danger)"><span>Returned</span><span>-${cur}${totalReturned.toFixed(2)}</span></div>` : ''}
           <div style="display:flex; justify-content:space-between; font-weight:800; font-size:15px; margin-top:4px; padding-top:4px; ${isTheme2 ? 'border:1px solid #000; border-radius:4px; padding:6px 8px;' : 'border-top:1px solid #000;'}"><span>Total</span><span>${cur}${netTotal.toFixed(2)}</span></div>
         </div>
@@ -1325,9 +1386,19 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
 
       ${(() => {
         const hasGroupedTax = (order.groupedTaxes?.length > 0 || order.grossGroupedTaxes?.length > 0);
+        // order.tax being set doesn't mean it's broken down by rate — this
+        // used to fall back to a single overall taxRate for the CGST/SGST
+        // split, which is wrong whenever items span more than one rate (and
+        // showed nothing at all for orders/preview data with per-item rates
+        // but no order.tax field set, like the Settings > Printing live
+        // preview's sample order). Compute the per-rate breakdown from the
+        // items themselves as the last resort instead.
+        const { breakdown: itemTaxBreakdown } = computeTaxByRate(order);
         const taxHtml = hasGroupedTax
           ? (order.grossGroupedTaxes || order.groupedTaxes).map(t => renderGstSplit(t.rate, t.amount, cur)).join('')
-          : (order.tax > 0 ? renderGstSplit(taxRate, order.tax, cur) : '');
+          : (itemTaxBreakdown.length > 0
+              ? itemTaxBreakdown.map(t => renderGstSplit(t.rate, t.amount, cur)).join('')
+              : (order.tax > 0 ? renderGstSplit(taxRate, order.tax, cur) : ''));
         const roundOffHtml = (order.roundOff && Math.abs(order.roundOff) > 0.001) ? `
           <div class="receipt-row">
             <span>Round Off</span>
