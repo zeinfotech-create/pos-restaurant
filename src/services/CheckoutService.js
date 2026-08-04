@@ -1274,11 +1274,14 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         ${(() => {
           // .receipt-row is a `justify-content:space-between` flex row — fine
           // for exactly 2 items (its usual use), but spreads 3-4 unevenly
-          // across a wrapped line. Contact details are a plain left-aligned
-          // block instead, one line per group, joined with a plain text
-          // separator (a CSS border here rendered as odd stray marks at this
-          // font size instead of a visible line). Theme 2 centers it instead
-          // to match that theme's more formal, centered-header look.
+          // across a wrapped line. Contact details are a plain block instead,
+          // one line per group, joined with a plain text separator (a CSS
+          // border here rendered as odd stray marks at this font size
+          // instead of a visible line). Centered to match the store address
+          // line right above it (which inherits .receipt-header's own
+          // center alignment) — this used to be left-aligned only for
+          // Theme 1, which put a centered address directly above a
+          // left-aligned contact block and looked visibly misaligned.
           const phoneNumbers = [settings.storePhone, settings.storeAltPhone].filter(Boolean).join(', ');
           const line1 = phoneNumbers ? `Tel: ${phoneNumbers}` : '';
           const line2 = [
@@ -1288,7 +1291,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
           ].filter(Boolean).join('  |  ');
           if (!line1 && !line2) return '';
           return `
-        <div style="font-size:9.5px; opacity:0.7; text-align:${isTheme2 ? 'center' : 'left'}">
+        <div style="font-size:9.5px; opacity:0.7; text-align:center">
           ${line1 ? `<div>${line1}</div>` : ''}
           ${line2 ? `<div>${line2}</div>` : ''}
         </div>`;
