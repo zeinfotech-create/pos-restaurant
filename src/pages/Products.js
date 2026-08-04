@@ -1,4 +1,4 @@
-import { getProducts, addProduct, updateProduct, deleteProduct, getSettings, getBranches, getCurrentUser, hasPermission, logInventoryChange, getInventoryLogs, getCategories, getSubCategories, getProductStockAcrossBranches, getLabelConfig, saveLabelConfig, getExpiringProducts, adjustProductStock, getStockStatus } from '../db.js';
+import { getProducts, addProduct, updateProduct, deleteProduct, getSettings, saveSettings, getBranches, getCurrentUser, hasPermission, logInventoryChange, getInventoryLogs, getCategories, getSubCategories, getProductStockAcrossBranches, getLabelConfig, saveLabelConfig, getExpiringProducts, adjustProductStock, getStockStatus } from '../db.js';
 import { store } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
@@ -1289,6 +1289,24 @@ async function openProductForm(product, container, cur) {
         const hsnCode = document.getElementById('pHSN').value.trim();
         const taxType = document.getElementById('pTaxType').value;
         const taxRate = parseFloat(document.getElementById('pTaxRate').value) || 0;
+        // A rate picked via HSN autocomplete (or already saved on this
+        // product) that isn't one of the shop's configured presets was only
+        // ever patched into THIS product's own <select> — Settings > Tax
+        // Configuration never actually gained it, so it never showed up
+        // there as a usable preset for other products. Persist it into the
+        // shop's real tax-rate list here, once, the first time it's used.
+        // Re-fetches settings fresh right before writing (rather than reusing
+        // the `settings` captured when this form first opened, which could
+        // be stale by now) so this can't clobber an unrelated settings
+        // change made elsewhere while the product form was open.
+        if (taxRate > 0 && !(settings.availableTaxes || []).some(t => t == taxRate)) {
+          const latestSettings = await getSettings();
+          if (!(latestSettings.availableTaxes || []).some(t => t == taxRate)) {
+            const updatedTaxes = [...(latestSettings.availableTaxes || []), taxRate].sort((a, b) => a - b);
+            await saveSettings({ ...latestSettings, availableTaxes: updatedTaxes });
+          }
+          settings.availableTaxes = [...(settings.availableTaxes || []), taxRate];
+        }
         const itemDiscount = parseFloat(document.getElementById('pItemDiscount').value) || 0;
         const itemDiscountType = document.getElementById('pItemDiscountType').value;
         const isReturnable = document.getElementById('isReturnableToggle').checked;
