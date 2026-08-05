@@ -313,9 +313,41 @@ function stepUploadHtml() {
   `;
 }
 
+// Groups raw rows by Name+Category using the CURRENT mapping, for a live
+// "here's what your variants will look like" preview on the mapping step —
+// same grouping rule buildPreview() uses later, just without the DB lookups
+// (matching/new-vs-update isn't decided yet at this step).
+function computeVariantGroupsPreview() {
+  const nameHeader = state.mapping.name;
+  const catHeader = state.mapping.category;
+  const variantHeader = state.mapping.variantName;
+  if (!nameHeader || !variantHeader) return [];
+
+  const groups = new Map(); // key -> { name, category, variants: [string] }
+  state.rawRows.forEach(row => {
+    const variantVal = (row[variantHeader] || '').trim();
+    if (!variantVal) return;
+    const name = (row[nameHeader] || '').trim();
+    if (!name) return;
+    const category = (catHeader ? row[catHeader] : '') || 'General';
+    const key = `${name.toLowerCase()}|${category.toLowerCase()}`;
+    if (!groups.has(key)) groups.set(key, { name, category, variants: [] });
+    groups.get(key).variants.push(variantVal);
+  });
+  return [...groups.values()];
+}
+
 // ---- Step 2: Column Mapping -----------------------------------------------
 function stepMappingHtml() {
-  const sampleRow = state.rawRows[0] || {};
+  // The first NON-EMPTY value for each column, not always row[0] — a column
+  // like Variant Name is often blank on a file's first (non-variant) row,
+  // and showing "empty" there made an already-working mapping look broken.
+  const sampleFor = (h) => {
+    for (const row of state.rawRows) {
+      if (row[h] !== undefined && row[h] !== '') return row[h];
+    }
+    return '';
+  };
   return `
     ${stepDots()}
     <div style="margin-bottom:16px;font-size:13px;color:var(--text-muted)">
@@ -330,6 +362,31 @@ function stepMappingHtml() {
         product-level, so only the <b>first</b> variant row's values for those columns are kept — repeat the same value on every
         variant row to avoid surprises.
       </div>
+      ${(() => {
+        const groups = computeVariantGroupsPreview();
+        if (groups.length === 0) {
+          return `<div style="margin-bottom:16px;font-size:12px;color:var(--text-muted);font-style:italic">No variant rows detected yet — make sure Product Name is also mapped above.</div>`;
+        }
+        return `
+          <div style="margin-bottom:16px">
+            <div class="form-label" style="margin-bottom:8px">Detected Variant Groups (${groups.length})</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              ${groups.map(g => `
+                <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:12px 16px">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <b>${escapeHtml(g.name)}</b>
+                    <span class="badge badge-ghost" style="font-size:10px">${escapeHtml(g.category)}</span>
+                    <span class="badge badge-primary-light" style="font-size:10px">${g.variants.length} variant${g.variants.length > 1 ? 's' : ''}</span>
+                  </div>
+                  <div style="display:flex;flex-wrap:wrap;gap:6px">
+                    ${g.variants.map(v => `<span class="badge badge-ghost" style="font-size:11px;font-weight:500">${escapeHtml(v)}</span>`).join('')}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      })()}
     ` : ''}
     <div class="table-wrap" style="max-height:420px;overflow:auto">
       <table class="responsive-table">
@@ -344,7 +401,7 @@ function stepMappingHtml() {
           ${state.headers.map(h => `
             <tr>
               <td data-label="Your Column"><b>${escapeHtml(h)}</b></td>
-              <td data-label="Sample Value"><span style="opacity:0.7;font-size:12px">${escapeHtml(String(sampleRow[h] ?? '').slice(0, 40)) || '<em>empty</em>'}</span></td>
+              <td data-label="Sample Value"><span style="opacity:0.7;font-size:12px">${escapeHtml(String(sampleFor(h)).slice(0, 40)) || '<em>empty in every row</em>'}</span></td>
               <td data-label="Maps To">
                 <select class="form-select iw-map-select" data-header="${escapeHtml(h)}" style="min-width:190px">
                   <option value="">— Ignore this column —</option>
@@ -563,6 +620,10 @@ function wireStep(onComplete) {
         } else {
           Object.keys(state.mapping).forEach(k => { if (state.mapping[k] === header) delete state.mapping[k]; });
         }
+        // Re-render so the Detected Variant Groups preview (and the info
+        // banner) stay live as the user maps/un-maps columns, instead of
+        // only reflecting whatever was auto-detected on file upload.
+        rerender(onComplete);
       });
     });
 
