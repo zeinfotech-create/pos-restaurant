@@ -1387,6 +1387,14 @@ async function openLabelModal(product, type) {
     width: savedConfig.width ?? 50,
     height: savedConfig.height ?? 25,
     copies: savedConfig.copies ?? 1,
+    // Most label rolls/sheets aren't a single label wide — a common one is
+    // exactly what showed up as a real bug report: a 2-across 50x25mm gang
+    // sheet, printed with @page sized to ONE label's width, so the browser
+    // had no idea a physical row held 2 labels and tiled/rotated content
+    // unpredictably across the real label boundaries. Defaults to 1 (single
+    // continuous roll, the only case this used to support) — no behavior
+    // change for anyone who doesn't touch it.
+    labelsAcross: savedConfig.labelsAcross ?? 1,
     showStoreName: savedConfig.showStoreName ?? false,
     storeName: savedConfig.storeName ?? defaultStoreName,
     prodNamePos: savedConfig.prodNamePos ?? 'bottom',
@@ -1439,16 +1447,16 @@ async function openLabelModal(product, type) {
         margin-${side === 'left' ? 'right' : 'left'}: ${inPrint ? '1mm' : '6px'};
         white-space: nowrap; flex-shrink: 0;
       ">
-        ${config.showMfd ? `<span>Mfg. Date : ${escapeHtml(formatLabelDate(config.mfdVal))}</span>` : ''}
-        ${config.showExp ? `<span>Exp. Date : ${escapeHtml(formatLabelDate(config.expVal))}</span>` : ''}
+        ${config.showMfd ? `<span>Mfg: ${escapeHtml(formatLabelDate(config.mfdVal))}</span>` : ''}
+        ${config.showExp ? `<span>Exp: ${escapeHtml(formatLabelDate(config.expVal))}</span>` : ''}
       </div>
     `;
 
     // Bottom: the original horizontal, non-rotated, centered date rows.
     const dateBottomHtml = !hasDates ? '' : `
       <div class="label-date-row" style="margin-top: ${inPrint ? '0.5mm' : '2px'}; display: flex; flex-direction: column; gap: ${inPrint ? '0.3mm' : '2px'}; align-items: center; font-family: Arial, sans-serif; font-size: ${inPrint ? '7pt' : '10px'}; font-weight: 600; color: #444; line-height: 1.2; white-space: nowrap;">
-        ${config.showMfd ? `<div style="display:flex; gap:4px"><span style="min-width:${inPrint ? '13mm' : '50px'}; text-align:left">Mfg. Date</span><span>:</span><span>${escapeHtml(formatLabelDate(config.mfdVal))}</span></div>` : ''}
-        ${config.showExp ? `<div style="display:flex; gap:4px"><span style="min-width:${inPrint ? '13mm' : '50px'}; text-align:left">Exp. Date</span><span>:</span><span>${escapeHtml(formatLabelDate(config.expVal))}</span></div>` : ''}
+        ${config.showMfd ? `<div style="display:flex; gap:4px"><span style="min-width:${inPrint ? '8mm' : '30px'}; text-align:left">Mfg</span><span>:</span><span>${escapeHtml(formatLabelDate(config.mfdVal))}</span></div>` : ''}
+        ${config.showExp ? `<div style="display:flex; gap:4px"><span style="min-width:${inPrint ? '8mm' : '30px'}; text-align:left">Exp</span><span>:</span><span>${escapeHtml(formatLabelDate(config.expVal))}</span></div>` : ''}
       </div>
     `;
 
@@ -1553,9 +1561,15 @@ async function openLabelModal(product, type) {
               <div class="form-group"><label class="form-label" style="font-size:11px">Height (${config.unit === 'inch' ? 'in' : 'mm'})</label><input type="number" step="${config.unit === 'inch' ? '0.01' : '1'}" class="form-input config-input" data-key="height" id="valHeight" value="${config.unit === 'inch' ? (config.height / 25.4).toFixed(2) : config.height}" ${config.presetSize !== 'custom' ? 'disabled style="opacity:0.6"' : ''} /></div>
             </div>
             
-            <div class="form-group">
-              <label class="form-label" style="font-size:11px">Number of Copies</label>
-              <input type="number" class="form-input config-input" data-key="copies" value="${config.copies}" min="1" max="1000" />
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+              <div class="form-group">
+                <label class="form-label" style="font-size:11px">Number of Copies</label>
+                <input type="number" class="form-input config-input" data-key="copies" value="${config.copies}" min="1" max="1000" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:11px">Labels Across (per row)</label>
+                <input type="number" class="form-input config-input" data-key="labelsAcross" value="${config.labelsAcross}" min="1" max="10" title="How many labels sit side-by-side on one physical row of your roll/sheet — 1 for a single-label roll, 2+ for a gang/multi-up sheet" />
+              </div>
             </div>
 
             <div class="form-group" style="padding-top:8px; border-top:1px solid var(--border);">
@@ -1786,7 +1800,7 @@ async function openLabelModal(product, type) {
           config[key] = Number(e.target.value) * 25.4;
         } else {
           config[key] = e.target.value;
-          if (['width', 'height', 'copies', 'barcodeTextSize', 'barWidth', 'barHeight', 'qrSize'].includes(key)) {
+          if (['width', 'height', 'copies', 'labelsAcross', 'barcodeTextSize', 'barWidth', 'barHeight', 'qrSize'].includes(key)) {
             config[key] = Number(e.target.value);
           }
         }
@@ -1912,11 +1926,91 @@ async function openLabelModal(product, type) {
       document.body.removeChild(tempDiv);
 
       const printWin = window.open('', '_blank');
-      
-      let pagesHtml = '';
+
       const copies = Math.max(1, parseInt(config.copies) || 1);
-      for(let i=0; i<copies; i++) {
-          pagesHtml += `<div class="print-page">${finalPrintHtmlStr}</div>`;
+      const labelsAcross = Math.max(1, parseInt(config.labelsAcross) || 1);
+
+      let pageStyle, bodyHtml;
+      if (labelsAcross <= 1) {
+        // Unchanged from before — a single-label-wide roll, one physical
+        // page (=one label) per copy.
+        pageStyle = `
+          @page { size: ${config.width}mm ${config.height}mm; margin: 0; }
+          .print-page {
+            width: ${config.width}mm;
+            height: ${config.height}mm;
+            page-break-after: always;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            box-sizing: border-box;
+          }
+          @media print {
+            .print-page { page-break-after: always; }
+            .print-page:last-child { page-break-after: auto; }
+          }
+        `;
+        bodyHtml = Array.from({ length: copies }, () => `<div class="print-page">${finalPrintHtmlStr}</div>`).join('');
+      } else {
+        // Gang/multi-up roll (e.g. 2 labels side-by-side per row): the bug
+        // this branch fixes. @page used to be set to ONE label's size no
+        // matter how many labels actually sit across the physical roll,
+        // so the browser had no idea the real page was wider — it tiled/
+        // rotated content unpredictably across label boundaries it didn't
+        // know existed.
+        //
+        // IMPORTANT — this is NOT "one giant page containing every row"
+        // (that was tried first and doesn't match how a real label-printer
+        // driver works): a dedicated label printer's "Stock"/media size in
+        // its OWN driver dialog is the size of ONE ROW, and the driver
+        // advances the roll by that same row height itself, row after
+        // row, using the print job's page count — same continuous-feed
+        // model the single-column branch above already used, just with
+        // `labelsAcross` labels side-by-side per page instead of 1. @page
+        // is one row wide/tall (labelsAcross x width, x height), repeated
+        // page-break-after for every row `copies` needs.
+        const rows = Math.ceil(copies / labelsAcross);
+        pageStyle = `
+          @page { size: ${config.width * labelsAcross}mm ${config.height}mm; margin: 0; }
+          .print-row {
+            width: ${config.width * labelsAcross}mm;
+            height: ${config.height}mm;
+            page-break-after: always;
+            display: flex;
+            flex-direction: row;
+            box-sizing: border-box;
+          }
+          .print-cell {
+            width: ${config.width}mm;
+            height: ${config.height}mm;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            box-sizing: border-box;
+          }
+          @media print {
+            .print-row { page-break-after: always; }
+            .print-row:last-child { page-break-after: auto; }
+          }
+        `;
+        let remaining = copies;
+        const rowsHtml = [];
+        for (let r = 0; r < rows; r++) {
+          const cellsThisRow = Math.min(labelsAcross, remaining);
+          remaining -= cellsThisRow;
+          // Pad the last, possibly-partial row with blank cells so it's
+          // still the full row width — keeps the roll's gap/cut position
+          // consistent instead of a narrower final row confusing the feed.
+          const cells = Array.from({ length: labelsAcross }, (_, i) =>
+            i < cellsThisRow ? `<div class="print-cell">${finalPrintHtmlStr}</div>` : `<div class="print-cell"></div>`
+          ).join('');
+          rowsHtml.push(`<div class="print-row">${cells}</div>`);
+        }
+        bodyHtml = rowsHtml.join('');
       }
 
     printWin.document.write(`
@@ -1924,32 +2018,16 @@ async function openLabelModal(product, type) {
         <head>
           <title>Print Label</title>
           <style>
-            @page { size: ${config.width}mm ${config.height}mm; margin: 0; }
-            body { 
-              margin: 0; 
-              padding: 0; 
+            ${pageStyle}
+            body {
+              margin: 0;
+              padding: 0;
               background: white;
-            }
-            .print-page {
-              width: ${config.width}mm; 
-              height: ${config.height}mm; 
-              page-break-after: always;
-              display: flex; 
-              flex-direction: column; 
-              align-items: center; 
-              justify-content: center; 
-              overflow: hidden;
-              box-sizing: border-box;
-            }
-            @media print {
-              .print-page { page-break-after: always; }
-              /* Remove last page break to avoid blank page */
-              .print-page:last-child { page-break-after: auto; }
             }
           </style>
         </head>
         <body onload="setTimeout(() => { window.print(); window.close(); }, 500);">
-          ${pagesHtml}
+          ${bodyHtml}
         </body>
       </html>
     `);
