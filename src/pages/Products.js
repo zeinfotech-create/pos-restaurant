@@ -18,6 +18,26 @@ function getProductOverallStatus(p) {
   }
   return getStockStatus(p.stock, p.minStock);
 }
+
+// Formats a Mfg/Exp label date as "16 MAR 2024" — only when the value is
+// exactly the ISO yyyy-mm-dd shape the <input type="date"> field it
+// defaults from produces. The label modal's date fields are still plain
+// text (so a shop can type a shorthand like "10/24" instead), and loosely
+// parsing THAT with `new Date()` would silently misread it as a full date
+// in the current year (JS parses "10/24" as Oct 24 of this year) — so
+// anything not in the strict ISO shape prints exactly as typed instead.
+function formatLabelDate(val) {
+  if (!val) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+    const d = new Date(val + 'T00:00:00');
+    if (!isNaN(d.getTime())) {
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+      return `${day} ${month} ${d.getFullYear()}`;
+    }
+  }
+  return val;
+}
 const EMOJIS = [
   // No Image Fallback
   '🖼️', '📦',
@@ -1467,6 +1487,12 @@ async function openLabelModal(product, type) {
 
   let config = {
     presetSize: savedConfig.presetSize ?? '50,25',
+    // Always stored/used in mm internally — every downstream print/preview
+    // calculation (page @size, px-per-mm conversion) assumes mm. `unit` is
+    // purely a display/input convenience for the Width/Height fields below;
+    // switching it never touches width/height themselves, only how they're
+    // shown and how a typed number gets interpreted before being saved.
+    unit: savedConfig.unit ?? 'mm',
     width: savedConfig.width ?? 50,
     height: savedConfig.height ?? 25,
     copies: savedConfig.copies ?? 1,
@@ -1493,6 +1519,7 @@ async function openLabelModal(product, type) {
     // reusing whatever was typed into the label config for a PREVIOUS
     // product (savedConfig is a single shared, global label style).
     expVal: product.expiryDate || '',
+    datePos: savedConfig.datePos ?? 'left', // 'left' | 'right' | 'bottom'
     barcodeTextSize: savedConfig.barcodeTextSize ?? 12,
     showBarcodeText: savedConfig.showBarcodeText ?? true,
     barHeight: savedConfig.barHeight ?? 35,
@@ -1504,18 +1531,44 @@ async function openLabelModal(product, type) {
   };
 
   const renderPreviewHTML = (inPrint = false) => {
-    return `
-      <div class="label-content" style="
+    const hasDates = config.showMfd || config.showExp;
+    const datePos = config.datePos || 'left'; // 'left' | 'right' | 'bottom'
+
+    // Left/Right: a rotated vertical strip running the full height of the
+    // label, read bottom-to-top (writing-mode + 180° flip — the usual
+    // convention for text down the edge of a price tag).
+    const dateSidebarHtml = (side) => !hasDates ? '' : `
+      <div class="label-date-sidebar" style="
+        writing-mode: vertical-rl; transform: rotate(180deg);
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        width: 100%; height: 100%; box-sizing: border-box; text-align: center;
-        ${inPrint ? 'padding: 1.5mm;' : 'padding: 8px;'}
+        gap: ${inPrint ? '1.5mm' : '6px'};
+        font-family: Arial, sans-serif; font-size: ${inPrint ? '6pt' : '8px'}; font-weight: 600; color: #444;
+        border-${side === 'left' ? 'right' : 'left'}: 1px solid #ddd;
+        padding-${side === 'left' ? 'right' : 'left'}: ${inPrint ? '1mm' : '4px'};
+        margin-${side === 'left' ? 'right' : 'left'}: ${inPrint ? '1mm' : '6px'};
+        white-space: nowrap; flex-shrink: 0;
       ">
+        ${config.showMfd ? `<span>Mfg. Date : ${escapeHtml(formatLabelDate(config.mfdVal))}</span>` : ''}
+        ${config.showExp ? `<span>Exp. Date : ${escapeHtml(formatLabelDate(config.expVal))}</span>` : ''}
+      </div>
+    `;
+
+    // Bottom: the original horizontal, non-rotated, centered date rows.
+    const dateBottomHtml = !hasDates ? '' : `
+      <div class="label-date-row" style="margin-top: ${inPrint ? '0.5mm' : '2px'}; display: flex; flex-direction: column; gap: ${inPrint ? '0.3mm' : '2px'}; align-items: center; font-family: Arial, sans-serif; font-size: ${inPrint ? '7pt' : '10px'}; font-weight: 600; color: #444; line-height: 1.2; white-space: nowrap;">
+        ${config.showMfd ? `<div style="display:flex; gap:4px"><span style="min-width:${inPrint ? '13mm' : '50px'}; text-align:left">Mfg. Date</span><span>:</span><span>${escapeHtml(formatLabelDate(config.mfdVal))}</span></div>` : ''}
+        ${config.showExp ? `<div style="display:flex; gap:4px"><span style="min-width:${inPrint ? '13mm' : '50px'}; text-align:left">Exp. Date</span><span>:</span><span>${escapeHtml(formatLabelDate(config.expVal))}</span></div>` : ''}
+      </div>
+    `;
+
+    const mainContent = `
+      <div style="flex:1; min-width:0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
         ${config.showStoreName && config.storeName ? `
           <div class="label-store" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '8pt' : '10px'}; font-weight: 800; color: #000; margin-bottom: ${inPrint ? '1mm' : '2px'}; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
             ${escapeHtml(config.storeName)}
           </div>
         ` : ''}
-        
+
         ${config.prodNamePos === 'top' ? `
           <div class="label-title" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '9pt' : '12px'}; font-weight: 900; color: #000; margin-bottom: ${inPrint ? '1mm' : '4px'}; line-height: 1.1; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
             ${escapeHtml(product.name)}
@@ -1545,12 +1598,19 @@ async function openLabelModal(product, type) {
           </div>
         ` : ''}
 
-        ${(config.showMfd || config.showExp) ? `
-          <div class="label-date-row" style="margin-top: ${inPrint ? '0.5mm' : '2px'}; display: flex; gap: ${inPrint ? '2mm' : '8px'}; align-items: center; justify-content: center; font-family: Arial, sans-serif; font-size: ${inPrint ? '7pt' : '10px'}; font-weight: 600; color: #444; line-height: 1.1; white-space: nowrap;">
-            ${config.showMfd ? `<span>MFD: ${escapeHtml(String(config.mfdVal))}</span>` : ''}
-            ${config.showExp ? `<span>EXP: ${escapeHtml(String(config.expVal))}</span>` : ''}
-          </div>
-        ` : ''}
+        ${datePos === 'bottom' ? dateBottomHtml : ''}
+      </div>
+    `;
+
+    return `
+      <div class="label-content" style="
+        display: flex; flex-direction: row; align-items: stretch; justify-content: center;
+        width: 100%; height: 100%; box-sizing: border-box;
+        ${inPrint ? 'padding: 1.5mm;' : 'padding: 8px;'}
+      ">
+        ${datePos === 'left' ? dateSidebarHtml('left') : ''}
+        ${mainContent}
+        ${datePos === 'right' ? dateSidebarHtml('right') : ''}
       </div>
     `;
   };
@@ -1575,17 +1635,31 @@ async function openLabelModal(product, type) {
             <div class="form-group" style="margin-bottom:-4px;">
               <label class="form-label" style="font-size:11px">Preset Sizes</label>
               <select class="form-select config-input" data-key="presetSize" style="font-size:12px; padding:6px;">
-                <option value="50,25" ${config.presetSize === '50,25' ? 'selected' : ''}>50mm x 25mm (Standard)</option>
-                <option value="38,25" ${config.presetSize === '38,25' ? 'selected' : ''}>38mm x 25mm (Small)</option>
-                <option value="58,40" ${config.presetSize === '58,40' ? 'selected' : ''}>58mm x 40mm (Thermal)</option>
-                <option value="80,50" ${config.presetSize === '80,50' ? 'selected' : ''}>80mm x 50mm (Wide Thermal)</option>
+                <option value="25,15" ${config.presetSize === '25,15' ? 'selected' : ''}>25mm x 15mm (1" x 0.6", Mini/Jewelry)</option>
+                <option value="38,25" ${config.presetSize === '38,25' ? 'selected' : ''}>38mm x 25mm (1.5" x 1", Small)</option>
+                <option value="40,30" ${config.presetSize === '40,30' ? 'selected' : ''}>40mm x 30mm (1.6" x 1.2")</option>
+                <option value="50,25" ${config.presetSize === '50,25' ? 'selected' : ''}>50mm x 25mm (2" x 1", Standard)</option>
+                <option value="50,30" ${config.presetSize === '50,30' ? 'selected' : ''}>50mm x 30mm (2" x 1.2")</option>
+                <option value="58,40" ${config.presetSize === '58,40' ? 'selected' : ''}>58mm x 40mm (2.3" x 1.6", Thermal)</option>
+                <option value="76,51" ${config.presetSize === '76,51' ? 'selected' : ''}>76mm x 51mm (3" x 2")</option>
+                <option value="80,50" ${config.presetSize === '80,50' ? 'selected' : ''}>80mm x 50mm (3.1" x 2", Wide Thermal)</option>
+                <option value="100,50" ${config.presetSize === '100,50' ? 'selected' : ''}>100mm x 50mm (4" x 2", Shipping)</option>
+                <option value="100,150" ${config.presetSize === '100,150' ? 'selected' : ''}>100mm x 150mm (4" x 6", Large Shipping)</option>
                 <option value="custom" ${config.presetSize === 'custom' ? 'selected' : ''}>Custom Size</option>
               </select>
             </div>
 
+            <div class="form-group" style="margin-bottom:-4px;">
+              <label class="form-label" style="font-size:11px">Unit</label>
+              <div style="display:flex; gap:16px; margin-top:2px;">
+                <label style="font-size:12px; cursor:pointer; display:flex; align-items:center; gap:4px"><input type="radio" name="labelUnit" class="config-input config-check config-radio" data-key="unit" value="mm" ${config.unit !== 'inch' ? 'checked' : ''} /> Millimeters (mm)</label>
+                <label style="font-size:12px; cursor:pointer; display:flex; align-items:center; gap:4px"><input type="radio" name="labelUnit" class="config-input config-check config-radio" data-key="unit" value="inch" ${config.unit === 'inch' ? 'checked' : ''} /> Inches (in)</label>
+              </div>
+            </div>
+
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-              <div class="form-group"><label class="form-label" style="font-size:11px">Width</label><input type="number" class="form-input config-input" data-key="width" id="valWidth" value="${config.width}" ${config.presetSize !== 'custom' ? 'disabled style="opacity:0.6"' : ''} /></div>
-              <div class="form-group"><label class="form-label" style="font-size:11px">Height</label><input type="number" class="form-input config-input" data-key="height" id="valHeight" value="${config.height}" ${config.presetSize !== 'custom' ? 'disabled style="opacity:0.6"' : ''} /></div>
+              <div class="form-group"><label class="form-label" style="font-size:11px">Width (${config.unit === 'inch' ? 'in' : 'mm'})</label><input type="number" step="${config.unit === 'inch' ? '0.01' : '1'}" class="form-input config-input" data-key="width" id="valWidth" value="${config.unit === 'inch' ? (config.width / 25.4).toFixed(2) : config.width}" ${config.presetSize !== 'custom' ? 'disabled style="opacity:0.6"' : ''} /></div>
+              <div class="form-group"><label class="form-label" style="font-size:11px">Height (${config.unit === 'inch' ? 'in' : 'mm'})</label><input type="number" step="${config.unit === 'inch' ? '0.01' : '1'}" class="form-input config-input" data-key="height" id="valHeight" value="${config.unit === 'inch' ? (config.height / 25.4).toFixed(2) : config.height}" ${config.presetSize !== 'custom' ? 'disabled style="opacity:0.6"' : ''} /></div>
             </div>
             
             <div class="form-group">
@@ -1655,6 +1729,14 @@ async function openLabelModal(product, type) {
                     EXP
                   </label>
                   <input type="text" class="form-input config-input" data-key="expVal" value="${config.expVal}" placeholder="e.g. 10/25" ${config.showExp ? '' : 'disabled'} />
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; padding-top:6px; border-top:1px dashed var(--border);">
+                  <label style="font-size:12px; font-weight:600; flex: 0 0 70px;">Position</label>
+                  <div style="display:flex; gap:12px;">
+                    <label style="font-size:12px; cursor:pointer;"><input type="radio" name="datePos" class="config-input config-check config-radio" data-key="datePos" value="left" ${(config.datePos || 'left') === 'left' ? 'checked' : ''} /> Left</label>
+                    <label style="font-size:12px; cursor:pointer;"><input type="radio" name="datePos" class="config-input config-check config-radio" data-key="datePos" value="right" ${config.datePos === 'right' ? 'checked' : ''} /> Right</label>
+                    <label style="font-size:12px; cursor:pointer;"><input type="radio" name="datePos" class="config-input config-check config-radio" data-key="datePos" value="bottom" ${config.datePos === 'bottom' ? 'checked' : ''} /> Bottom</label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1788,12 +1870,37 @@ async function openLabelModal(product, type) {
 
     document.querySelectorAll('.config-input').forEach(input => {
       const handler = async (e) => {
-        config[e.target.dataset.key] = e.target.value;
-        if(['width', 'height', 'copies', 'barcodeTextSize', 'barWidth', 'barHeight', 'qrSize'].includes(e.target.dataset.key)) {
-          config[e.target.dataset.key] = Number(e.target.value);
+        const key = e.target.dataset.key;
+
+        // width/height inputs display in whichever unit is currently
+        // selected (mm or inch), but config.width/config.height must always
+        // stay in mm — every downstream calculation (page @size, px-per-mm
+        // preview scaling) assumes mm. Convert on the way in here instead.
+        if ((key === 'width' || key === 'height') && config.unit === 'inch') {
+          config[key] = Number(e.target.value) * 25.4;
+        } else {
+          config[key] = e.target.value;
+          if (['width', 'height', 'copies', 'barcodeTextSize', 'barWidth', 'barHeight', 'qrSize'].includes(key)) {
+            config[key] = Number(e.target.value);
+          }
         }
 
-        if (e.target.dataset.key === 'presetSize') {
+        if (key === 'unit') {
+          // Only the DISPLAYED number changes here — re-render the same
+          // underlying mm value (config.width/height, untouched) in the
+          // newly selected unit.
+          const valWidth = document.getElementById('valWidth');
+          const valHeight = document.getElementById('valHeight');
+          const widthLabel = valWidth?.closest('.form-group')?.querySelector('.form-label');
+          const heightLabel = valHeight?.closest('.form-group')?.querySelector('.form-label');
+          const unitLabel = config.unit === 'inch' ? 'in' : 'mm';
+          if (valWidth) valWidth.value = config.unit === 'inch' ? (config.width / 25.4).toFixed(2) : config.width;
+          if (valHeight) valHeight.value = config.unit === 'inch' ? (config.height / 25.4).toFixed(2) : config.height;
+          if (widthLabel) widthLabel.textContent = `Width (${unitLabel})`;
+          if (heightLabel) heightLabel.textContent = `Height (${unitLabel})`;
+        }
+
+        if (key === 'presetSize') {
           if (e.target.value !== 'custom') {
             const [w, h] = e.target.value.split(',').map(Number);
             config.width = w;
@@ -1801,12 +1908,12 @@ async function openLabelModal(product, type) {
             const valWidth = document.getElementById('valWidth');
             const valHeight = document.getElementById('valHeight');
             if (valWidth) {
-                valWidth.value = w;
+                valWidth.value = config.unit === 'inch' ? (w / 25.4).toFixed(2) : w;
                 valWidth.disabled = true;
                 valWidth.style.opacity = '0.6';
             }
             if (valHeight) {
-                valHeight.value = h;
+                valHeight.value = config.unit === 'inch' ? (h / 25.4).toFixed(2) : h;
                 valHeight.disabled = true;
                 valHeight.style.opacity = '0.6';
             }
@@ -1824,7 +1931,7 @@ async function openLabelModal(product, type) {
           }
         }
 
-        if (e.target.dataset.key === 'width' || e.target.dataset.key === 'height') {
+        if (key === 'width' || key === 'height') {
           const sel = document.querySelector('select[data-key="presetSize"]');
           if (sel) sel.value = 'custom';
           config.presetSize = 'custom';
