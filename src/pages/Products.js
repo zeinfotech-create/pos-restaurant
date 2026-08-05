@@ -1466,7 +1466,7 @@ async function openLabelModal(product, type) {
     `;
 
     const mainContent = `
-      <div style="flex:1; min-width:0; min-height:0; overflow:hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+      <div style="flex:1; min-width:0; min-height:0; overflow:hidden; box-sizing:border-box; padding: ${inPrint ? '0.5mm' : '2px'} 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
         ${config.showStoreName && config.storeName ? `
           <div class="label-store" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '6pt' : '8px'}; font-weight: 800; color: #000; margin-bottom: ${inPrint ? '0.5mm' : '2px'}; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;">
             ${escapeHtml(config.storeName)}
