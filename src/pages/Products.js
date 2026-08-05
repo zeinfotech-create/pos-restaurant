@@ -110,7 +110,6 @@ export async function renderProducts(container) {
         </button>
         ${canManageProducts ? `
           <div class="import-export-btns">
-              <input type="file" id="importInput" accept=".json,.csv" style="display:none" />
               <button class="btn btn-ghost" id="importBtn" title="Import Products" style="border-radius: 10px; height: 42px;">
                   <i class="fa-solid fa-file-import"></i> Import
               </button>
@@ -277,8 +276,10 @@ export async function renderProducts(container) {
 
   // Import
   if (document.getElementById('importBtn')) {
-    document.getElementById('importBtn').onclick = () => document.getElementById('importInput').click();
-    document.getElementById('importInput').onchange = async (e) => await importProducts(e, async () => await renderTable(container, settings.currency));
+    document.getElementById('importBtn').onclick = async () => {
+      const { openImportWizard } = await import('../components/ImportWizard.js');
+      await openImportWizard(async () => await renderTable(container, settings.currency));
+    };
   }
 
   await renderTable(container, settings.currency);
@@ -636,52 +637,6 @@ function convertToCSV(data) {
   return [headers.join(','), ...rows].join('\n');
 }
 
-function parseCSV(csvText) {
-  const lines = csvText.trim().split('\n');
-  if (lines.length < 2) return [];
-  
-  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-  const products = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim()) continue;
-
-    // Simple CSV parser for quoted strings
-    const values = [];
-    let current = '';
-    let inQuotes = false;
-    for (let j = 0; j < line.length; j++) {
-      const char = line[j];
-      if (char === '"') inQuotes = !inQuotes;
-      else if (char === ',' && !inQuotes) {
-        values.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    values.push(current.trim());
-
-    const p = {};
-    headers.forEach((header, idx) => {
-      const val = values[idx] || '';
-      if (header === 'Name') p.name = val;
-      else if (header === 'SKU') p.sku = val;
-      else if (header === 'Emoji') p.emoji = val;
-      else if (header === 'Category') p.category = val;
-      else if (header === 'SubCategory') p.subCategory = val;
-      else if (header === 'Price') p.price = parseFloat(val) || 0;
-      else if (header === 'Stock') p.stock = parseFloat(val) || 0;
-      else if (header === 'Barcode') p.barcode = val;
-      else if (header === 'HSN') p.hsnCode = val;
-    });
-    
-    if (p.name) products.push(p);
-  }
-  return products;
-}
-
 async function exportProducts(ids = null) {
   let products = await getProducts();
   if (ids && ids.length > 0) {
@@ -703,70 +658,6 @@ async function exportProducts(ids = null) {
   downloadAnchorNode.click();
   downloadAnchorNode.remove();
   showToast(`${products.length} Products exported to CSV`, 'success');
-}
-
-async function importProducts(event, callback) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    try {
-      const text = e.target.result;
-      let imported = [];
-
-      // Detect format
-      if (text.trim().startsWith('[') || text.trim().startsWith('{')) {
-        imported = JSON.parse(text);
-      } else {
-        imported = parseCSV(text);
-      }
-
-      if (!Array.isArray(imported)) throw new Error('Invalid format');
-
-      const existing = await getProducts();
-      let importedCount = 0;
-      let skippedCount = 0;
-
-      for (const p of imported) {
-        if (!p.name) continue;
-
-        // Ensure category exists or default to General
-        p.category = p.category || 'General';
-
-        // De-duplicate: check for same name and category
-        const isDup = existing.find(ex =>
-          ex.name.toLowerCase() === p.name.toLowerCase() &&
-          ex.category.toLowerCase() === p.category.toLowerCase()
-        );
-
-        if (isDup) {
-          skippedCount++;
-        } else {
-          const added = await addProduct(p);
-          if (added.stock > 0) {
-            await logInventoryChange(added.id, null, 'IN', added.stock, 'Bulk Import', added.branchId || store.branch?.id || 'b1', null, 0, added.stock, (await getCurrentUser())?.name);
-          }
-          importedCount++;
-        }
-      }
-
-      if (importedCount > 0) showToast(`Imported ${importedCount} products!`, 'success');
-      else if (skippedCount > 0) showToast('No new products imported (all duplicates).', 'info');
-      else showToast('No valid products found in file.', 'warning');
-      
-      if (skippedCount > 0 && importedCount > 0) {
-          showToast(`Skipped ${skippedCount} items that already exist.`, 'info');
-      }
-
-      await callback();
-    } catch (err) {
-      console.error('Import Error:', err);
-      showToast('Failed to import. Ensure file is valid CSV or JSON.', 'error');
-    }
-  };
-  reader.readAsText(file);
-  event.target.value = '';
 }
 
 async function confirmBulkDelete(container, cur) {
