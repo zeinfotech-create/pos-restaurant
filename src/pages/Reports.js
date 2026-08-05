@@ -70,7 +70,7 @@ export async function renderReports(container, subPage = 'sales') {
       <button class="btn btn-ghost btn-sm ${subPage === 'category-sales' ? 'active-tab' : ''}" onclick="navigate('reports/category-sales')">Categories</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'sales-analysis' ? 'active-tab' : ''}" onclick="navigate('reports/sales-analysis')">Analysis</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'inventory' ? 'active-tab' : ''}" onclick="navigate('reports/inventory')">Inventory</button>
-      <button class="btn btn-ghost btn-sm ${subPage === 'purchases' ? 'active-tab' : ''}" onclick="navigate('reports/purchases')">Procurement</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'purchases' ? 'active-tab' : ''}" onclick="navigate('reports/purchases')">Purchase</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'vehicles' ? 'active-tab' : ''}" onclick="navigate('reports/vehicles')">Vehicles</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'outstanding' ? 'active-tab' : ''}" onclick="navigate('reports/outstanding')">Outstanding</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'gst' ? 'active-tab' : ''}" onclick="navigate('reports/gst')">GST Center</button>
@@ -714,7 +714,7 @@ async function renderSalesAnalysis(container, cur) {
       </div>
       <div class="stat-card">
         <div class="stat-info">
-          <div class="stat-label">Total Procurement Cost</div>
+          <div class="stat-label">Total Purchase Cost</div>
           <div class="stat-value text-danger">${cur}${purchaseTrend.reduce((s, m) => s + m.total, 0).toLocaleString()}</div>
         </div>
       </div>
@@ -779,7 +779,7 @@ async function renderPurchaseReport(container, cur) {
     </div>
 
     <div class="card mb-16">
-      <div class="font-bold mb-16">Monthly Procurement Trend</div>
+      <div class="font-bold mb-16">Monthly Purchase Trend</div>
       <div style="height:300px"><canvas id="procurementChart"></canvas></div>
     </div>
 
@@ -1495,7 +1495,7 @@ async function renderSupplierReport(container, cur) {
   container.innerHTML = `
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <div class="font-bold">Supplier Procurement Analysis</div>
+        <div class="font-bold">Supplier Purchase Analysis</div>
         ${canExportSup ? tableExportButtonsHtml('suppliers') : ''}
       </div>
       <div class="table-wrap">
@@ -1537,7 +1537,7 @@ async function renderSupplierReport(container, cur) {
   }
 
   renderSupplierRows();
-  wireTableExport('suppliers', supplierTableEl, 'Supplier Procurement Analysis', () => processed.map(supplierRowHtml).join(''));
+  wireTableExport('suppliers', supplierTableEl, 'Supplier Purchase Analysis', () => processed.map(supplierRowHtml).join(''));
 }
 
 // Per-item net taxable value + tax, honoring item-level discount and
@@ -2347,7 +2347,7 @@ async function renderReturnsReport(container, cur) {
   container.innerHTML = `
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <div class="font-bold"><i class="fa-solid fa-rotate-left mr-8 text-danger"></i> Returns History (Sales & Procurement)</div>
+        <div class="font-bold"><i class="fa-solid fa-rotate-left mr-8 text-danger"></i> Returns History (Sales & Purchase)</div>
         ${canExport ? tableExportButtonsHtml('returns') : ''}
       </div>
       <div class="table-wrap">
@@ -2506,7 +2506,7 @@ function renderProcurementChart(data) {
     data: {
       labels: data.map(d => d.label),
       datasets: [{
-        label: 'Procurement Cost',
+        label: 'Purchase Cost',
         data: data.map(d => d.total),
         backgroundColor: 'rgba(245, 158, 11, 0.1)',
         borderColor: '#f59e0b',

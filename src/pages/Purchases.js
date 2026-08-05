@@ -211,7 +211,7 @@ export async function renderPurchases(container, subPage) {
       <div class="page-header">
         <div>
           <h1 class="page-title">Purchases</h1>
-          <p class="page-subtitle">Record and track inventory procurement</p>
+          <p class="page-subtitle">Record and track inventory purchase</p>
         </div>
         <div class="flex gap-8">
           <button class="btn btn-ghost hide-desktop" id="mobileFilterToggle" style="border:1px solid var(--border)">
