@@ -1488,7 +1488,13 @@ wss.on('connection', (ws, req) => {
                         // RECORD LOGIN ACTIVITY (Added for Step 3)
                         try {
                             const details = systemDetails || {};
+                            // See the identical comment on the pos_log_login_activity handler
+                            // below: DBManager.insert() upserts on a derived id that falls
+                            // back to userId, so without an explicit per-event id this
+                            // silently overwrote the same user's one login-activity row
+                            // every time instead of appending a new one.
                             await DBManager.insert(LoginActivity, 'login_activities', {
+                                id: 'LA-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
                                 licenseKey: userLicenseKey, // Use userLicenseKey as finalLicense
                                 userId: user.userId || user.id,
                                 userName: user.name,
@@ -1587,7 +1593,16 @@ wss.on('connection', (ws, req) => {
                     const { userId, userName, role, systemDetails, registerId, registerName } = msg;
                     try {
                         const details = systemDetails || {};
+                        // DBManager.insert() derives its upsert key as
+                        // `data.id || data.productId || data.userId || ...` (dbManager.js)
+                        // — fine for "one record per entity" stores (products, registers),
+                        // but Login Activity is an append-only audit trail: one user logs
+                        // in many times. Without an explicit, per-event `id` here, the
+                        // derivation fell through to `userId`, so every login for the same
+                        // user upserted (overwrote) that user's ONE existing row instead of
+                        // adding a new one — only ever the most recent login ever showed up.
                         await DBManager.insert(LoginActivity, 'login_activities', {
+                            id: 'LA-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
                             licenseKey,
                             userId,
                             userName,
