@@ -1421,7 +1421,12 @@ async function openLabelModal(product, type) {
     datePos: savedConfig.datePos ?? 'left', // 'left' | 'right' | 'bottom'
     barcodeTextSize: savedConfig.barcodeTextSize ?? 12,
     showBarcodeText: savedConfig.showBarcodeText ?? true,
-    barHeight: savedConfig.barHeight ?? 35,
+    // Was 35 — modest enough that raising the CSS max-height cap on the
+    // barcode's <svg> did nothing, since max-height only SHRINKS oversized
+    // content, it can't grow undersized content past its own actual size.
+    // 60 actually fills more of the space now freed up by the smaller
+    // store/product-name/price fonts, instead of leaving a visible gap.
+    barHeight: savedConfig.barHeight ?? 60,
     barWidth: savedConfig.barWidth ?? 1.6,
     qrSize: savedConfig.qrSize ?? 80,
     qrLevel: savedConfig.qrLevel ?? 'H',
@@ -1440,7 +1445,7 @@ async function openLabelModal(product, type) {
       <div class="label-date-sidebar" style="
         writing-mode: vertical-rl; transform: rotate(180deg);
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        gap: ${inPrint ? '1.5mm' : '6px'};
+        gap: ${inPrint ? '0.3mm' : '2px'};
         font-family: Arial, sans-serif; font-size: ${inPrint ? '6pt' : '8px'}; font-weight: 600; color: #444;
         border-${side === 'left' ? 'right' : 'left'}: 1px solid #ddd;
         padding-${side === 'left' ? 'right' : 'left'}: ${inPrint ? '1mm' : '4px'};
@@ -1461,31 +1466,31 @@ async function openLabelModal(product, type) {
     `;
 
     const mainContent = `
-      <div style="flex:1; min-width:0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+      <div style="flex:1; min-width:0; min-height:0; overflow:hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
         ${config.showStoreName && config.storeName ? `
-          <div class="label-store" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '8pt' : '10px'}; font-weight: 800; color: #000; margin-bottom: ${inPrint ? '1mm' : '2px'}; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          <div class="label-store" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '6pt' : '8px'}; font-weight: 800; color: #000; margin-bottom: ${inPrint ? '0.5mm' : '2px'}; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;">
             ${escapeHtml(config.storeName)}
           </div>
         ` : ''}
 
         ${config.prodNamePos === 'top' ? `
-          <div class="label-title" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '9pt' : '12px'}; font-weight: 900; color: #000; margin-bottom: ${inPrint ? '1mm' : '4px'}; line-height: 1.1; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          <div class="label-title" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '7pt' : '9px'}; font-weight: 900; color: #000; margin-bottom: ${inPrint ? '0.5mm' : '4px'}; line-height: 1.1; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;">
             ${escapeHtml(product.name)}
           </div>
         ` : ''}
 
-        <div style="flex:1; display:flex; align-items:center; justify-content:center; width:100%;">
-          ${isBarcode ? `<svg class="barcodeCanvas" style="${inPrint ? 'max-height: 55%; width: auto !important;' : 'max-height: 100%; width: auto;'} max-width: 100%; display: block;"></svg>` : `<div class="qrcodeCanvas"></div>`}
+        <div style="flex:1; min-height:0; overflow:hidden; display:flex; align-items:center; justify-content:center; width:100%;">
+          ${isBarcode ? `<svg class="barcodeCanvas" style="${inPrint ? 'max-height: 95%; width: auto !important;' : 'max-height: 100%; width: auto;'} max-width: 100%; display: block;"></svg>` : `<div class="qrcodeCanvas"></div>`}
         </div>
 
         ${config.prodNamePos === 'bottom' ? `
-          <div class="label-title" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '9pt' : '12px'}; font-weight: 900; color: #000; margin-top: ${inPrint ? '1mm' : '4px'}; line-height: 1.1; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          <div class="label-title" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '7pt' : '9px'}; font-weight: 900; color: #000; margin-top: ${inPrint ? '0.5mm' : '4px'}; line-height: 1.1; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;">
             ${escapeHtml(product.name)}
           </div>
         ` : ''}
 
         ${(config.showMrp || config.showPrice) ? `
-          <div class="label-price-row" style="margin-top: ${inPrint ? '0.5mm' : '2px'}; display: flex; gap: ${inPrint ? '2mm' : '8px'}; align-items: center; justify-content: center; font-family: Arial, sans-serif; font-size: ${inPrint ? '8pt' : '11px'}; font-weight: 700; color: #222; line-height: 1.1; white-space: nowrap;">
+          <div class="label-price-row" style="margin-top: ${inPrint ? '0.3mm' : '2px'}; display: flex; gap: ${inPrint ? '1.5mm' : '8px'}; align-items: center; justify-content: center; font-family: Arial, sans-serif; font-size: ${inPrint ? '6pt' : '9px'}; font-weight: 700; color: #222; line-height: 1.1; white-space: nowrap;">
             ${config.showMrp ? `
               <span style="${config.strikeMrp ? 'text-decoration: line-through; opacity: 0.7; font-weight: 600;' : ''}">
                 MRP: ${cur}${escapeHtml(String(config.mrpVal))}
@@ -1504,7 +1509,7 @@ async function openLabelModal(product, type) {
     return `
       <div class="label-content" style="
         display: flex; flex-direction: row; align-items: stretch; justify-content: center;
-        width: 100%; height: 100%; box-sizing: border-box;
+        width: 100%; height: 100%; box-sizing: border-box; overflow: hidden;
         ${inPrint ? 'padding: 1.5mm;' : 'padding: 8px;'}
       ">
         ${datePos === 'left' ? dateSidebarHtml('left') : ''}
@@ -1732,7 +1737,13 @@ async function openLabelModal(product, type) {
             el.style.maxWidth = '100%';
             el.style.display = 'block';
             if (inPrint) {
-              el.style.maxHeight = '55%';
+              // Was hardcoded to '55%' here, silently overriding whatever
+              // renderPreviewHTML's own template put on this same element —
+              // generateCanvas() runs AFTER the template is inserted, so
+              // this line always won regardless of what the template said.
+              // Keep this in sync with the max-height set in the barcode
+              // wrapper's <svg> below.
+              el.style.maxHeight = '95%';
               el.style.width = 'auto';
             } else {
               el.style.maxHeight = '100%';
