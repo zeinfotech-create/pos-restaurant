@@ -622,9 +622,6 @@ ipcMain.handle('get-printers', async () => {
 ipcMain.handle('print-receipt-silent', async (event, html, opts = {}) => {
   let hiddenWin;
   try {
-    hiddenWin = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true } });
-    await hiddenWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-
     // A4/A5 are standard sheets — Chromium accepts these as plain strings.
     // Thermal rolls aren't a fixed sheet size, so those two keep the original
     // custom {width, height} approach: fixed roll width, height fitted to the
@@ -634,15 +631,40 @@ ipcMain.handle('print-receipt-silent', async (event, html, opts = {}) => {
     // was passed in inches ("height and width properties must be minimum
     // 352 microns").
     const paperSize = opts.paperSize || 'thermal-80';
+    const isThermal = paperSize !== 'a4' && paperSize !== 'a5';
+
+    // BUG FIX: this hidden window used to be created with no explicit width,
+    // so it defaulted to Electron's ~800px window size. The receipt's print
+    // CSS sizes everything in `vw` (relative to THAT viewport), so on an
+    // 800px-wide hidden window the whole receipt rendered ~2.5x wider than
+    // the actual 80mm (~302px) page ever was — table columns nearest the
+    // right edge (RATE/AMOUNT) got physically clipped by the printer even
+    // though the in-app preview (rendered in the full-width main window) and
+    // print-receipt-network (which already sets this same width, below)
+    // never showed the problem. Give the window the SAME width the physical
+    // page will be so `vw` resolves against the right base before printing.
+    let cssWidth;
+    if (isThermal) {
+      const widthMm = paperSize === 'thermal-58' ? 58 : (paperSize === 'thermal-104' ? 104 : 80);
+      cssWidth = Math.round((widthMm / 25.4) * 96); // mm -> inches -> CSS px @ 96dpi
+    }
+
+    hiddenWin = new BrowserWindow({
+      show: false,
+      ...(cssWidth ? { width: cssWidth, height: 100 } : {}),
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+    await hiddenWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+
     let pageSize;
     if (paperSize === 'a4') {
       pageSize = 'A4';
     } else if (paperSize === 'a5') {
       pageSize = 'A5';
     } else {
+      const widthMm = paperSize === 'thermal-58' ? 58 : (paperSize === 'thermal-104' ? 104 : 80);
       const contentHeightPx = await hiddenWin.webContents.executeJavaScript('document.body.scrollHeight');
       const MICRONS_PER_INCH = 25400;
-      const widthMm = paperSize === 'thermal-58' ? 58 : (paperSize === 'thermal-104' ? 104 : 80);
       const widthMicrons = widthMm * 1000;
       const heightInches = Math.max(contentHeightPx / 96, 2) + 0.1;
       const heightMicrons = Math.round(heightInches * MICRONS_PER_INCH);

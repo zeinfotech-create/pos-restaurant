@@ -4046,9 +4046,20 @@ tr.selected-row td {
      a mostly-blank page. Calibrated so an 80mm thermal roll renders the same
      size as before (14px on ~302px-wide page ≈ 4.6vw). */
   .receipt {
+    /* Left stays flush (no wasted paper there — it never had a problem).
+       Only the RIGHT padding is bumped — 3mm wasn't enough, 7mm still
+       wasn't enough (confirmed on the user's actual printer), now 10mm:
+       most 80mm thermal printers only guarantee ~72-76mm of ACTUAL
+       printable width even though the roll is 80mm (a few mm of
+       hardware-fixed unprintable margin, print-head/cutter tolerance) —
+       the last character of every right-aligned column (AMOUNT header,
+       item totals, Net Amt) printed right at the true edge and got
+       clipped. width stays 100% (was briefly tried at 92% + auto margins,
+       which fixed the right edge but also ate into the left for no
+       reason — this gets the same right-side safety without that). */
     width: 100% !important;
     margin: 0 auto !important;
-    padding: 1mm 3mm 3mm 3mm !important;
+    padding: 1mm 10mm 3mm 3mm !important;
     box-shadow: none !important;
     border: none !important;
     visibility: visible !important;
