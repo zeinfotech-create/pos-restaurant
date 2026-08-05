@@ -21,8 +21,12 @@ import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 
 // ---- Target product fields we know how to import ----------------------
+// `variantName` is the odd one out: it isn't a product field by itself —
+// its presence on a row is what groups that row into a multi-variant
+// product (see buildPreview()'s grouping pass) instead of a standalone one.
 const TARGET_FIELDS = [
   { key: 'name', label: 'Product Name', required: true },
+  { key: 'variantName', label: 'Variant Name (optional)' },
   { key: 'sku', label: 'SKU' },
   { key: 'barcode', label: 'Barcode' },
   { key: 'category', label: 'Category' },
@@ -43,6 +47,7 @@ const TARGET_FIELDS = [
 // normalized header (lowercased, punctuation stripped).
 const FIELD_SYNONYMS = {
   name: ['name', 'product name', 'product', 'item', 'item name', 'title'],
+  variantName: ['variant', 'variant name', 'option', 'option name', 'variation'],
   sku: ['sku', 'item code', 'product code', 'code'],
   barcode: ['barcode', 'ean', 'upc', 'bar code'],
   category: ['category', 'cat'],
@@ -65,16 +70,29 @@ function normalizeHeader(h) {
 
 function autoMapField(header) {
   const norm = normalizeHeader(header);
+
+  // Exact match first, across all fields.
   for (const field of TARGET_FIELDS) {
     const synonyms = FIELD_SYNONYMS[field.key] || [];
     if (synonyms.includes(norm)) return field.key;
   }
-  // Loose fallback: header contains/is-contained-by a synonym
+
+  // Loose fallback: header contains/is-contained-by a synonym. Score by the
+  // LONGEST matching synonym across every field rather than "first field in
+  // TARGET_FIELDS order wins" — otherwise a short, generic synonym earlier
+  // in the list (category's "cat") wins over a longer, more specific one
+  // later in the list (subCategory's "sub category"), e.g. a "Sub Cat"
+  // column would wrongly auto-map to Category just because "cat" ⊂ "sub cat".
+  let best = { key: '', len: 0 };
   for (const field of TARGET_FIELDS) {
     const synonyms = FIELD_SYNONYMS[field.key] || [];
-    if (synonyms.some(s => norm.includes(s) || s.includes(norm))) return field.key;
+    for (const s of synonyms) {
+      if ((norm.includes(s) || s.includes(norm)) && s.length > best.len) {
+        best = { key: field.key, len: s.length };
+      }
+    }
   }
-  return '';
+  return best.key;
 }
 
 // ---- File parsing (CSV / JSON -> {headers, rows}) ----------------------
@@ -174,7 +192,7 @@ function footerForStep() {
   if (!state) return '';
   switch (state.step) {
     case 1:
-      return `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>`;
+      return `<button class="btn btn-ghost" id="iwCancelBtn">Cancel</button>`;
     case 2:
       return `
         <button class="btn btn-ghost" id="iwBackBtn">Back</button>
@@ -217,13 +235,39 @@ function stepDots() {
   `;
 }
 
+// NOTE: fullScreen + a real header/footer doesn't work in this app's Modal —
+// .modal.modal-full only fixes the MODAL's own height at 100vh, it doesn't
+// make it a flex column, so modal-header + modal-body(height:100%) +
+// modal-footer stack past 100vh and the footer (this wizard's Back/Continue/
+// Import buttons) ends up scrolled off past the bottom of the screen. The
+// only other fullScreen callers in this codebase (CheckoutService,
+// QuickCheckoutService) sidestep this by passing hideHeader:true and
+// footer:'' — same fix here: render our own title bar + button bar as
+// direct children of modal-body itself, which Modal.js already makes a
+// height:100% flex column for fullScreen modals, and let this middle
+// section be the only one that scrolls.
 function render(onComplete) {
   openModal({
-    title: `<i class="fa-solid fa-file-import mr-8" style="color:var(--primary)"></i> Import Products`,
-    body: `<div id="iwBody" style="min-height:320px">${bodyForStep()}</div>`,
-    footer: footerForStep(),
+    body: `
+      <div style="flex-shrink:0;padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div class="modal-title"><i class="fa-solid fa-file-import mr-8" style="color:var(--primary)"></i> Import Products</div>
+        <button class="modal-close" id="iwCloseBtn" aria-label="Close" ${state.importing ? 'disabled style="opacity:0.3"' : ''}><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="iwBody" style="flex:1;overflow-y:auto;padding:24px">${bodyForStep()}</div>
+      <div id="iwFooter" style="flex-shrink:0;padding:16px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:12px">${footerForStep()}</div>
+    `,
+    footer: '',
+    hideHeader: true,
+    hideClose: true,
     fullScreen: true,
-    disableBackdropDismiss: state.importing,
+    sidePanel: false,
+    // Always on, not just state.importing — rerender() only patches
+    // #iwBody/#iwFooter's innerHTML, it doesn't re-run openModal(), so
+    // Modal.js's backdrop/Escape handlers are bound ONCE here with whatever
+    // value this had at that moment and can never see a later state change.
+    // Closing is handled explicitly instead, via iwCloseBtn/iwCancelBtn/
+    // iwDoneBtn, which do check state.importing live.
+    disableBackdropDismiss: true,
   });
   wireStep(onComplete);
 }
@@ -231,8 +275,10 @@ function render(onComplete) {
 function rerender(onComplete) {
   const bodyEl = document.getElementById('iwBody');
   if (bodyEl) bodyEl.innerHTML = bodyForStep();
-  const footerEl = document.getElementById('modalFooter');
+  const footerEl = document.getElementById('iwFooter');
   if (footerEl) footerEl.innerHTML = footerForStep();
+  const closeBtn = document.getElementById('iwCloseBtn');
+  if (closeBtn) { closeBtn.disabled = state.importing; closeBtn.style.opacity = state.importing ? '0.3' : ''; }
   wireStep(onComplete);
 }
 
@@ -276,6 +322,15 @@ function stepMappingHtml() {
       <i class="fa-solid fa-file-lines mr-8"></i><b>${escapeHtml(state.fileName)}</b> — ${state.rawRows.length} row(s) detected.
       Match each column from your file to a product field. Columns already look correctly matched where possible — double-check before continuing.
     </div>
+    ${state.mapping.variantName ? `
+      <div style="margin-bottom:16px;font-size:12px;color:var(--text-main);background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:12px 16px">
+        <i class="fa-solid fa-circle-info mr-8" style="color:var(--primary)"></i>
+        Variant Name detected — rows sharing the same Product Name + Category become <b>one product with multiple variants</b>.
+        Only <b>Price, Cost Price, Stock and Min Stock</b> may differ between those rows; SKU, Barcode, MRP, HSN and Tax Rate are
+        product-level, so only the <b>first</b> variant row's values for those columns are kept — repeat the same value on every
+        variant row to avoid surprises.
+      </div>
+    ` : ''}
     <div class="table-wrap" style="max-height:420px;overflow:auto">
       <table class="responsive-table">
         <thead>
@@ -340,18 +395,26 @@ function stepPreviewHtml() {
           <tr><th>#</th><th>Status</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th><th>Category</th><th>Notes</th></tr>
         </thead>
         <tbody>
-          ${rows.slice(0, 500).map((r, i) => `
+          ${rows.slice(0, 500).map((r, i) => {
+            const isVariantGroup = r.data.variants && r.data.variants.length > 0;
+            const hardErrors = r.errors.filter(e => !e.startsWith('(warning)'));
+            const notes = r.errors.join(', ');
+            return `
             <tr style="${r.status === 'error' ? 'background:rgba(239,68,68,0.06)' : ''}">
               <td data-label="#">${i + 1}</td>
               <td data-label="Status">${statusBadge(r.status)}</td>
-              <td data-label="Name">${escapeHtml(r.data.name || '')}</td>
+              <td data-label="Name">
+                ${escapeHtml(r.data.name || '')}
+                ${isVariantGroup ? `<span class="badge badge-primary-light" style="font-size:9px;margin-left:6px">${r.data.variants.length} VARIANT${r.data.variants.length > 1 ? 'S' : ''}</span>` : ''}
+              </td>
               <td data-label="SKU">${escapeHtml(r.data.sku || '')}</td>
-              <td data-label="Price">${r.data.price ?? ''}</td>
-              <td data-label="Stock">${r.data.stock ?? ''}</td>
+              <td data-label="Price">${r.data.price ?? ''}${isVariantGroup ? ' <span style="opacity:0.6">(1st variant)</span>' : ''}</td>
+              <td data-label="Stock">${r.data.stock ?? ''}${isVariantGroup ? ' <span style="opacity:0.6">(total)</span>' : ''}</td>
               <td data-label="Category">${escapeHtml(r.data.category || '')}</td>
-              <td data-label="Notes" style="color:var(--danger);font-size:12px">${r.errors.join(', ')}</td>
+              <td data-label="Notes" style="color:${hardErrors.length ? 'var(--danger)' : 'var(--warning)'};font-size:12px">${notes}</td>
             </tr>
-          `).join('')}
+          `;
+          }).join('')}
         </tbody>
       </table>
       ${rows.length > 500 ? `<div style="text-align:center;padding:10px;font-size:12px;color:var(--text-muted)">+ ${rows.length - 500} more row(s) not shown in preview (they will still be imported)</div>` : ''}
@@ -397,6 +460,11 @@ function stepResultHtml() {
 
 // ---- Wiring per step -------------------------------------------------------
 function wireStep(onComplete) {
+  const closeBtn = document.getElementById('iwCloseBtn');
+  if (closeBtn) closeBtn.onclick = () => { if (!state.importing) closeModal(); };
+  const cancelBtn = document.getElementById('iwCancelBtn');
+  if (cancelBtn) cancelBtn.onclick = () => closeModal();
+
   if (state.step === 1) {
     const dropZone = document.getElementById('iwDropZone');
     const fileInput = document.getElementById('iwFileInput');
@@ -434,8 +502,12 @@ function wireStep(onComplete) {
       }
     };
 
-    if (browseBtn) browseBtn.onclick = () => fileInput.click();
-    if (dropZone) dropZone.onclick = (e) => { if (e.target === dropZone || dropZone.contains(e.target)) fileInput.click(); };
+    // browseBtn sits INSIDE dropZone, so a click on it also bubbles up to
+    // dropZone's own click handler below — without stopping it there, a
+    // single click on "Browse File" fired fileInput.click() twice, opening
+    // the native file picker twice in a row.
+    if (browseBtn) browseBtn.onclick = (e) => { e.stopPropagation(); fileInput.click(); };
+    if (dropZone) dropZone.onclick = (e) => { if (e.target === dropZone || (dropZone.contains(e.target) && e.target !== browseBtn)) fileInput.click(); };
     if (fileInput) fileInput.onchange = (e) => handleFile(e.target.files[0]);
 
     if (dropZone) {
@@ -459,11 +531,20 @@ function wireStep(onComplete) {
 
     if (templateBtn) templateBtn.onclick = () => {
       const headers = TARGET_FIELDS.map(f => f.label);
-      const sample = [
-        'Sample Product', 'SKU-001', '8901234567890', 'Grocery', 'Snacks',
-        '99.00', '70.00', '110.00', '25', '5', '21069099', '5', '📦', '', ''
+      // Row 1 shows a plain (no-variant) product. Rows 2-3 show how variants
+      // work: same Product Name + Category, one row per variant — these two
+      // rows import as ONE product with 2 variants, not two products.
+      // Only Variant Name/Price/Cost/Stock/Min Stock are allowed to differ
+      // between a product's variant rows — SKU, Barcode, MRP, HSN, Tax etc.
+      // are PRODUCT-level fields (the app's variant schema has no per-variant
+      // SKU/barcode/MRP), so every variant row repeats the SAME values for
+      // those columns; only the first row's copy of them is actually kept.
+      const rows = [
+        ['Sample Product', '', 'SKU-001', '8901234567890', 'Grocery', 'Snacks', '99.00', '70.00', '110.00', '25', '5', '21069099', '5', '📦', '', ''],
+        ['Sample T-Shirt', 'Red - Medium', 'TSHIRT-001', '', 'Apparel', '', '299.00', '150.00', '399.00', '10', '2', '', '', '👕', '', ''],
+        ['Sample T-Shirt', 'Blue - Large', 'TSHIRT-001', '', 'Apparel', '', '349.00', '160.00', '399.00', '8', '2', '', '', '👕', '', ''],
       ];
-      const csv = [headers.map(csvEscape).join(','), sample.map(csvEscape).join(',')].join('\n');
+      const csv = [headers.map(csvEscape).join(','), ...rows.map(r => r.map(csvEscape).join(','))].join('\n');
       downloadTextFile(csv, 'product_import_template.csv');
     };
     return;
@@ -547,6 +628,20 @@ function wireStep(onComplete) {
 }
 
 // ---- Build preview: map raw rows -> product data, validate, find matches ---
+function rowHasValidPriceStock(data) {
+  const errs = [];
+  if (data.price === undefined || Number.isNaN(data.price) || data.price < 0) errs.push('Missing/invalid price');
+  if (data.stock === undefined || Number.isNaN(data.stock) || data.stock < 0) errs.push('Missing/invalid stock');
+  return errs;
+}
+
+function matchExisting(data, bySku, byBarcode, byNameCat) {
+  return (data.sku && bySku.get(data.sku.toLowerCase()))
+    || (data.barcode && byBarcode.get(data.barcode.toLowerCase()))
+    || byNameCat.get(`${data.name.toLowerCase()}|${data.category.toLowerCase()}`)
+    || null;
+}
+
 async function buildPreview() {
   const existing = await getProducts();
   const bySku = new Map();
@@ -558,7 +653,8 @@ async function buildPreview() {
     byNameCat.set(`${(p.name || '').toLowerCase()}|${(p.category || '').toLowerCase()}`, p);
   });
 
-  state.parsed = state.rawRows.map((raw, idx) => {
+  // Pass 1: map every raw row to its target fields, unvalidated.
+  const mappedRows = state.rawRows.map((raw, idx) => {
     const data = {};
     TARGET_FIELDS.forEach(f => {
       const sourceHeader = state.mapping[f.key];
@@ -571,18 +667,31 @@ async function buildPreview() {
       data[f.key] = val;
     });
     if (!data.category) data.category = 'General';
+    return { rowIndex: idx, data };
+  });
 
-    const errors = [];
-    if (!data.name) errors.push('Missing product name');
-    if (data.price === undefined || Number.isNaN(data.price) || data.price < 0) errors.push('Missing/invalid price');
-    if (data.stock === undefined || Number.isNaN(data.stock) || data.stock < 0) errors.push('Missing/invalid stock');
+  // Pass 2: split into standalone rows vs. variant-group candidates (any row
+  // with a Variant Name is grouped by Name+Category into ONE product with a
+  // `variants` array — same product Name repeated across several rows is how
+  // a spreadsheet naturally expresses "one product, several options").
+  const standalone = [];
+  const groups = new Map(); // key -> { rows: [{rowIndex,data}], firstData }
+  mappedRows.forEach(({ rowIndex, data }) => {
+    if (data.variantName) {
+      const key = `${(data.name || '').toLowerCase()}|${(data.category || '').toLowerCase()}`;
+      if (!groups.has(key)) groups.set(key, { rows: [], firstData: data });
+      groups.get(key).rows.push({ rowIndex, data });
+    } else {
+      delete data.variantName; // grouping hint only — not a real product field
+      standalone.push({ rowIndex, data });
+    }
+  });
 
+  const finalize = (rowIndex, data, errors) => {
     let status = 'new';
     let matchId = null;
     if (errors.length === 0) {
-      const match = (data.sku && bySku.get(data.sku.toLowerCase()))
-        || (data.barcode && byBarcode.get(data.barcode.toLowerCase()))
-        || byNameCat.get(`${data.name.toLowerCase()}|${data.category.toLowerCase()}`);
+      const match = matchExisting(data, bySku, byBarcode, byNameCat);
       if (match) {
         matchId = match.id;
         status = state.importMode === 'upsert' ? 'update' : 'skip';
@@ -590,9 +699,65 @@ async function buildPreview() {
     } else {
       status = 'error';
     }
+    return { rowIndex, data, matchId, status, errors };
+  };
 
-    return { rowIndex: idx, data, matchId, status, errors };
+  const parsed = [];
+
+  standalone.forEach(({ rowIndex, data }) => {
+    const errors = [];
+    if (!data.name) errors.push('Missing product name');
+    errors.push(...rowHasValidPriceStock(data));
+    parsed.push(finalize(rowIndex, data, errors));
   });
+
+  groups.forEach((group) => {
+    const firstRowIndex = group.rows[0].rowIndex;
+    const groupErrors = [];
+    if (!group.firstData.name) groupErrors.push('Missing product name');
+
+    const validVariants = [];
+    const badVariantRows = [];
+    group.rows.forEach(({ rowIndex, data }) => {
+      const vErrors = rowHasValidPriceStock(data);
+      if (vErrors.length > 0) { badVariantRows.push(rowIndex + 1); return; }
+      validVariants.push({
+        name: data.variantName,
+        price: data.price,
+        costPrice: data.costPrice || 0,
+        stock: data.stock,
+        minStock: data.minStock || 0,
+      });
+    });
+
+    if (groupErrors.length === 0 && validVariants.length === 0) {
+      groupErrors.push(`All ${group.rows.length} variant row(s) for this product have missing/invalid price or stock`);
+    }
+
+    const combined = {
+      ...group.firstData,
+      variants: validVariants,
+      price: validVariants[0]?.price ?? group.firstData.price,
+      costPrice: validVariants[0]?.costPrice ?? group.firstData.costPrice,
+      stock: validVariants.reduce((s, v) => s + (Number(v.stock) || 0), 0),
+      minStock: validVariants.reduce((s, v) => s + (Number(v.minStock) || 0), 0),
+    };
+    delete combined.variantName; // was only a grouping hint, not a real product field
+
+    if (badVariantRows.length > 0 && groupErrors.length === 0) {
+      // Group still imports on its valid variants — this is a soft warning,
+      // not a hard error, so it doesn't block the whole product.
+      groupErrors.push(`(warning) row(s) ${badVariantRows.join(', ')} skipped — invalid price/stock`);
+    }
+
+    const entry = finalize(firstRowIndex, combined, groupErrors.filter(e => !e.startsWith('(warning)')));
+    entry.errors = groupErrors; // keep the warning text visible in the preview/notes column
+    entry.variantRowCount = group.rows.length;
+    parsed.push(entry);
+  });
+
+  parsed.sort((a, b) => a.rowIndex - b.rowIndex);
+  state.parsed = parsed;
 }
 
 // ---- Commit to DB with progress -------------------------------------------
