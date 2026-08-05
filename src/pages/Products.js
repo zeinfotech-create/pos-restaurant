@@ -1466,7 +1466,7 @@ async function openLabelModal(product, type) {
     `;
 
     const mainContent = `
-      <div style="flex:1; min-width:0; min-height:0; overflow:hidden; box-sizing:border-box; padding: ${inPrint ? '0.5mm' : '2px'} 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+      <div style="flex:1; min-width:0; min-height:0; overflow:hidden; box-sizing:border-box; padding: ${inPrint ? '0.5mm' : '2px'} 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; text-align: center;">
         ${config.showStoreName && config.storeName ? `
           <div class="label-store" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '6pt' : '8px'}; font-weight: 800; color: #000; margin-bottom: ${inPrint ? '0.5mm' : '2px'}; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;">
             ${escapeHtml(config.storeName)}
@@ -1509,7 +1509,8 @@ async function openLabelModal(product, type) {
     return `
       <div class="label-content" style="
         display: flex; flex-direction: row; align-items: stretch; justify-content: center;
-        width: 100%; height: 100%; box-sizing: border-box; overflow: hidden;
+        width: 100%; height: 100%; flex: 1 1 auto; min-height: 0;
+        box-sizing: border-box; overflow: hidden;
         ${inPrint ? 'padding: 1.5mm;' : 'padding: 8px;'}
       ">
         ${datePos === 'left' ? dateSidebarHtml('left') : ''}
@@ -1954,7 +1955,7 @@ async function openLabelModal(product, type) {
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-end;
             overflow: hidden;
             box-sizing: border-box;
           }
@@ -1999,7 +2000,14 @@ async function openLabelModal(product, type) {
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            /* flex-end, not center: .label-content already has flex:1 and
+               should fill this cell completely on its own, but if it ever
+               doesn't (rounding, a print-engine quirk that isn't
+               reproducible outside a real printer), any leftover slack
+               should collect at the TOP, not the bottom — matching what
+               was actually reported as still wrong after the mainContent-
+               level fix (bottom kept a gap center couldn't explain). */
+            justify-content: flex-end;
             overflow: hidden;
             box-sizing: border-box;
           }
