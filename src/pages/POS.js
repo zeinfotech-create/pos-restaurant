@@ -1,4 +1,4 @@
-import { getProducts, getSettings, getCustomers, isRegisterOpen, getBusinessFeatures, getAppointments, getStaff, saveAppointment, deleteAppointment, updateAppointmentStatus, hasPermission, getCategories, getSubCategories, getLowStockProducts, getExpiringProducts, getCurrentRegisterId, updateProduct, logInventoryChange, getCurrentUser } from '../db.js';
+import { getProducts, getSettings, getCustomers, isRegisterOpen, getBusinessFeatures, getAppointments, getStaff, saveAppointment, deleteAppointment, updateAppointmentStatus, hasPermission, getCategories, getSubCategories, getLowStockProducts, getExpiringProducts, getCurrentRegisterId, getCurrentBranch, updateProduct, logInventoryChange, getCurrentUser } from '../db.js';
 import { store, addToCart, onCartUpdate, getCartTotals, updateQty, removeFromCart, clearCart, setDiscount, loadAppointmentIntoCart, updateCartItem } from '../store.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { openCustomerForm } from '../components/CustomerForm.js';
@@ -25,12 +25,17 @@ let isProcessingEnterAdd = false;
 export async function renderPOS(container) {
   if (window._posCleanup) { window._posCleanup(); window._posCleanup = null; }
 
-  // store.registerId is only ever set once, in store.js's initStore() at app
-  // startup, and never refreshed after — if the session's registerId changes
-  // later (opening/switching a register), this cached value goes stale and
-  // POS keeps checking the WRONG register's shift status forever. Refresh it
-  // fresh from the session every time this page loads.
+  // store.registerId AND store.branch are only ever set once, in store.js's
+  // initStore() at app startup, and never refreshed after — if the session's
+  // registerId/branch changes later (opening/switching a register, branch
+  // edits), these cached values go stale and POS keeps checking the WRONG
+  // register/branch's shift status forever (this is exactly why the
+  // Register page can correctly show "Closed" while POS still lets sales
+  // through: Register.js re-fetches branch/register fresh on every render,
+  // POS.js didn't). Refresh both fresh from the session every time this
+  // page loads.
   store.registerId = await getCurrentRegisterId();
+  store.branch = await getCurrentBranch();
   const registerId = store.registerId;
   const branchId = store.branch?.id;
 

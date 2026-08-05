@@ -1576,7 +1576,7 @@ async function openLabelModal(product, type) {
         ` : ''}
 
         <div style="flex:1; display:flex; align-items:center; justify-content:center; width:100%;">
-          ${isBarcode ? `<svg class="barcodeCanvas" style="${inPrint ? 'max-height: 55%; width: auto !important;' : 'max-height: 40px;'} max-width: 100%; display: block;"></svg>` : `<div class="qrcodeCanvas"></div>`}
+          ${isBarcode ? `<svg class="barcodeCanvas" style="${inPrint ? 'max-height: 55%; width: auto !important;' : 'max-height: 100%; width: auto;'} max-width: 100%; display: block;"></svg>` : `<div class="qrcodeCanvas"></div>`}
         </div>
 
         ${config.prodNamePos === 'bottom' ? `
@@ -1803,7 +1803,7 @@ async function openLabelModal(product, type) {
     `
   });
 
-  const generateCanvas = (elements) => {
+  const generateCanvas = (elements, inPrint = false) => {
     try {
       if (isBarcode) {
         if (typeof JsBarcode !== 'undefined') {
@@ -1818,6 +1818,21 @@ async function openLabelModal(product, type) {
               margin: 0,
               fontOptions: "bold"
             });
+            // JsBarcode's SVG renderer overwrites the whole style attribute
+            // (it ends with setAttribute('style', 'transform: translate(0,0)')),
+            // wiping out the max-height/max-width constraints set in
+            // renderPreviewHTML. Re-apply them after render so the Bar
+            // Width/Bar Height (px) settings actually get scaled to fit the
+            // label instead of overflowing it uncapped.
+            el.style.maxWidth = '100%';
+            el.style.display = 'block';
+            if (inPrint) {
+              el.style.maxHeight = '55%';
+              el.style.width = 'auto';
+            } else {
+              el.style.maxHeight = '100%';
+              el.style.width = 'auto';
+            }
           });
         }
       } else {
@@ -1858,7 +1873,7 @@ async function openLabelModal(product, type) {
     previewArea.style.height = `${config.height * 3.77}px`;
     
     previewArea.innerHTML = renderPreviewHTML(false);
-    generateCanvas(document.querySelectorAll('.barcodeCanvas, .qrcodeCanvas'));
+    generateCanvas(document.querySelectorAll('.barcodeCanvas, .qrcodeCanvas'), false);
     
     const countSpan = document.getElementById('btnLblCount');
     if(countSpan) countSpan.textContent = config.copies;
@@ -1998,7 +2013,7 @@ async function openLabelModal(product, type) {
     tempDiv.innerHTML = printHtml;
     document.body.appendChild(tempDiv);
     
-    generateCanvas(tempDiv.querySelectorAll('.barcodeCanvas, .qrcodeCanvas'));
+    generateCanvas(tempDiv.querySelectorAll('.barcodeCanvas, .qrcodeCanvas'), true);
     
     // Delay slightly to ensure renders (especially base64 canvas) complete
     setTimeout(() => {

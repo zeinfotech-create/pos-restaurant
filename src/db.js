@@ -2511,8 +2511,18 @@ export async function isRegisterOpen(branchId, registerId = null) {
   const settings = await getSettings();
   if (!settings.enableRegisterRoutine) return true;
 
-  const branchRegs = await getBranchRegisters(branchId);
-  if (branchRegs.length === 0) return true;
+  // NOTE: this used to also `return true` (silently allow sales) whenever
+  // getBranchRegisters(branchId) came back empty. That was meant to avoid
+  // blocking brand-new installs before a register had been created — but it
+  // meant that once a branch's registers list became empty for ANY reason
+  // (a register deleted, or an orphaned/reset hub losing its registers
+  // while shifts/branch data survived — see the standalone hub identity
+  // issue), "Force Register Open" silently stopped enforcing anything,
+  // forever, even though the toggle still showed ON in Settings. Dropping
+  // this bypass: with zero registers, getCurrentShift below simply won't
+  // find an open shift, so this correctly falls through to "Register is
+  // Closed" (which still lets the user open one, register or not) instead
+  // of a permanent, invisible bypass.
 
   // Use the specific ID if provided, otherwise grab from session
   const rid = registerId || await getCurrentRegisterId();

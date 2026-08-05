@@ -1,4 +1,4 @@
-import { getProducts, getSettings, getCustomers, saveCustomer, isRegisterOpen, hasPermission } from '../db.js';
+import { getProducts, getSettings, getCustomers, saveCustomer, isRegisterOpen, hasPermission, getCurrentBranch, getCurrentRegisterId } from '../db.js';
 import { store, addToCart, onCartUpdate, getCartTotals, updateQty, removeFromCart, clearCart, setDiscount, setExtraTax, updateCartItem, setCustomer } from '../store.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { openCustomerForm } from '../components/CustomerForm.js';
@@ -20,6 +20,12 @@ export async function renderQuickPOS(container) {
 
   const settings = await getSettings();
   const cur = settings.currency;
+  // store.branch/store.registerId are only ever set once, in store.js's
+  // initStore() at app startup, and never refreshed after — same staleness
+  // bug as POS.js (see the comment there). Refresh both fresh every render
+  // so this doesn't keep checking a stale branch/register's shift status.
+  store.branch = await getCurrentBranch();
+  store.registerId = await getCurrentRegisterId();
   const branchId = store.branch?.id;
   const registerId = store.registerId;
 
