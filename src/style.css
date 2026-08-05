@@ -3077,7 +3077,6 @@ table {
   border-radius: 0;
 }
 .receipt-theme2 .receipt-footer {
-  border-top: 2px dashed #000;
   padding-top: 10px;
   font-style: italic;
 }

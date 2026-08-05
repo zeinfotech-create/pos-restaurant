@@ -372,8 +372,26 @@ async function viewOrderDetail(order, cur) {
     const printSaleBtn = document.getElementById('printSaleBtn');
     const printReturnBtn = document.getElementById('printReturnBtn');
 
+    // printReceiptHtml() does real async work (settings read, CSS/IPC
+    // round-trip, a hidden Electron window has to spin up and load) before
+    // anything is visible — with these buttons doing nothing on click until
+    // that finishes, the gap reads as the click not having registered
+    // ("trigger late"). Give instant feedback the moment they're clicked.
+    const withPrintFeedback = (btn, fn) => {
+      btn.onclick = async () => {
+        const original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Printing...';
+        try {
+          await fn();
+        } finally {
+          if (document.body.contains(btn)) { btn.disabled = false; btn.innerHTML = original; }
+        }
+      };
+    };
+
     if (printSaleBtn) {
-      printSaleBtn.onclick = async () => {
+      withPrintFeedback(printSaleBtn, async () => {
         const saleOnlyBody = await renderReceiptBody(order, settings, cur, false);
         // This string is never inserted into the visible modal, so the
         // barcode <svg> placeholder needs a real (if temporary, off-screen)
@@ -383,19 +401,19 @@ async function viewOrderDetail(order, cur) {
         tempDiv.innerHTML = saleOnlyBody;
         document.body.appendChild(tempDiv);
         renderReceiptBarcodes(tempDiv);
-        printReceiptHtml(tempDiv.innerHTML, `Sale Receipt - ${order.id}`);
+        await printReceiptHtml(tempDiv.innerHTML, `Sale Receipt - ${order.id}`);
         tempDiv.remove();
-      };
+      });
     }
     if (printReturnBtn) {
-      printReturnBtn.onclick = () => {
+      withPrintFeedback(printReturnBtn, async () => {
         const returnBody = renderOrderReturnsReceipt(order, allReturns, settings, cur);
-        printReceiptHtml(returnBody, `Return Receipt - ${order.id}`);
-      };
+        await printReceiptHtml(returnBody, `Return Receipt - ${order.id}`);
+      });
     }
 
     if (closeBtn) closeBtn.onclick = closeModal;
-    if (printBtn) printBtn.onclick = () => printReceiptHtml(document.querySelector('.modal-body')?.innerHTML || '', `Receipt - ${order.id}`);
+    if (printBtn) withPrintFeedback(printBtn, () => printReceiptHtml(document.querySelector('.modal-body')?.innerHTML || '', `Receipt - ${order.id}`));
     if (returnBtn) returnBtn.onclick = () => openReturnModal(order, cur);
     const payBtn = document.getElementById('payOrderBtn');
     if (payBtn) {

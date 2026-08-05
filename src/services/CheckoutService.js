@@ -849,7 +849,18 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
   }
 }
 
+// The app's own <style>/<link> stylesheets never change while it's running,
+// but buildStandaloneReceiptHtml() used to re-fetch every <link>'s CSS text
+// from disk on EVERY single print — real, avoidable latency stacked onto
+// each click of "Print Receipt" (on top of the hidden-window creation +
+// load + print dispatch that already has to happen every time). Fetch it
+// once per session and reuse.
+let cachedStandaloneStyles = null;
+
 async function buildStandaloneReceiptHtml(contentHtml, title) {
+  if (cachedStandaloneStyles !== null) {
+    return `<html><head><title>${title}</title>${cachedStandaloneStyles}</head><body style="background:white; color:black; font-family:sans-serif">${contentHtml}</body></html>`;
+  }
   const styleNodes = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
   const styleParts = await Promise.all(styleNodes.map(async (node) => {
     if (node.tagName === 'STYLE') return node.outerHTML;
@@ -872,11 +883,11 @@ async function buildStandaloneReceiptHtml(contentHtml, title) {
       return node.outerHTML;
     }
   }));
-  const styles = styleParts.join('');
+  cachedStandaloneStyles = styleParts.join('');
   // No body padding here — the page is sized to the exact paper width
   // (electron/main.cjs), and .receipt's own print CSS already reserves the
   // right margins for it. Extra padding here would just eat into it.
-  return `<html><head><title>${title}</title>${styles}</head><body style="background:white; color:black; font-family:sans-serif">${contentHtml}</body></html>`;
+  return `<html><head><title>${title}</title>${cachedStandaloneStyles}</head><body style="background:white; color:black; font-family:sans-serif">${contentHtml}</body></html>`;
 }
 
 /**
@@ -1163,8 +1174,11 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
         </tbody>
         <tfoot>
           <tr style="font-weight:700; border-top:2px solid #000">
-            <td style="padding:6px" colspan="${hasHsn ? 3 : 2}">Total</td>
-            <td style="text-align:center; padding:6px">${order.items.reduce((s, i) => s + (parseFloat(i.qty) || 0), 0)}</td>
+            <td style="padding:6px; white-space:nowrap" colspan="${hasHsn ? 3 : 2}">Items: ${order.items.length}</td>
+            <td style="text-align:center; padding:6px; white-space:nowrap">${(() => {
+              const totalQty = order.items.reduce((s, i) => s + (parseFloat(i.qty) || 0), 0);
+              return 'Qty: ' + (Number.isInteger(totalQty) ? totalQty : totalQty.toFixed(3));
+            })()}</td>
             <td></td>
             <td></td>
             <td style="text-align:right; padding:6px">${cur}${taxDisplayTotal.toFixed(2)}</td>
@@ -1214,7 +1228,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
           <svg class="receipt-barcode" data-barcode-value="${order.id}"></svg>
         </div>
       ` : ''}
-      <div style="text-align:center; font-size:12px; opacity:0.75; margin-top:14px; border-top:1px solid #ddd; padding-top:12px">${escapeHtml(settings.receiptFooter || 'Thank you for your business!')}</div>
+      ${settings.receiptFooter ? `<div style="text-align:center; font-size:12px; opacity:0.75; margin-top:14px; padding-top:12px">${escapeHtml(settings.receiptFooter)}</div>` : ''}
     </div>
   `;
 }
@@ -1266,10 +1280,10 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
   return `
     <div class="receipt ${isTheme2 ? 'receipt-theme2' : ''}">
       <div class="receipt-header">
-        ${settings.receiptHeader ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-bottom:4px">${settings.receiptHeader}</div>` : ''}
+        ${settings.receiptHeader ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-bottom:4px">${escapeHtml(settings.receiptHeader)}</div>` : ''}
         ${settings.showLogoOnReceipt && settings.storeLogo ? `<img src="${settings.storeLogo}" style="max-width:80px; max-height:80px; object-fit:contain; margin-bottom:6px" />` : ''}
         ${settings.showStoreName !== false ? `<div class="receipt-store-name">${storeName}</div>` : ''}
-        ${settings.storeNameSubtitle ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-top:1px">(${settings.storeNameSubtitle})</div>` : ''}
+        ${settings.showStoreName !== false && settings.storeNameSubtitle ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-top:1px">(${escapeHtml(settings.storeNameSubtitle)})</div>` : ''}
         <div style="font-size:10.5px;opacity:0.8;margin-top:4px;white-space:normal;word-wrap:break-word">${settings.storeAddress || ''}</div>
         ${(() => {
           // .receipt-row is a `justify-content:space-between` flex row — fine
@@ -1392,7 +1406,10 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
       ` : ''}
 
       <div class="receipt-divider"></div>
-      <div class="receipt-row"><span>Total Items: ${order.items.length}</span><span>${order.items.reduce((s, i) => s + (parseFloat(i.qty) || 0), 0)}</span></div>
+      <div class="receipt-row"><span>Total Items: ${order.items.length}</span><span>Total Qty: ${(() => {
+        const totalQty = order.items.reduce((s, i) => s + (parseFloat(i.qty) || 0), 0);
+        return Number.isInteger(totalQty) ? totalQty : totalQty.toFixed(3);
+      })()}</span></div>
       <div class="receipt-row" style="font-weight:800; font-size:14px"><span>Total:</span><span>${cur}${subtotal.toFixed(2)}</span></div>
       ${order.discount > 0 ? `<div class="receipt-row"><span>Discount ${order.globalDiscountType === 'pct' ? `(${order.globalDiscountRaw}%)` : ''}</span><span>-${cur}${order.discount.toFixed(2)}</span></div>` : ''}
 
@@ -1489,7 +1506,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
           <svg class="receipt-barcode" data-barcode-value="${order.id}"></svg>
         </div>
       ` : ''}
-      <div class="receipt-footer" style="margin-top:12px; padding-top:8px; border-top:1px dashed currentColor">${settings.receiptFooter || 'Thank you for your business!'}</div>
+      ${settings.receiptFooter ? `<div class="receipt-footer" style="margin-top:12px; padding-top:8px">${escapeHtml(settings.receiptFooter)}</div>` : ''}
     </div>
   `;
 }
@@ -1516,7 +1533,27 @@ export async function showReceipt(order, settings, cur) {
 
     if (closeBtn) closeBtn.onclick = closeModal;
     if (printBtn) {
-      const doPrint = () => printReceiptHtml(document.querySelector('.modal-body')?.innerHTML || '', `Receipt - ${order.id}`);
+      // printReceiptHtml() does real async work before anything visible
+      // happens (settings read, CSS/IPC round-trip, a hidden Electron
+      // window has to spin up and load before it can even dispatch to the
+      // printer) — with no feedback at all on click, that gap reads as the
+      // button not having registered the click ("trigger late"). Give
+      // immediate feedback the instant it's clicked instead of only after
+      // the print (or preview modal) actually appears.
+      const doPrint = async () => {
+        const original = printBtn.innerHTML;
+        printBtn.disabled = true;
+        printBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Printing...';
+        try {
+          await printReceiptHtml(document.querySelector('.modal-body')?.innerHTML || '', `Receipt - ${order.id}`);
+        } finally {
+          // Button may already be gone if the preview modal closed this one.
+          if (document.body.contains(printBtn)) {
+            printBtn.disabled = false;
+            printBtn.innerHTML = original;
+          }
+        }
+      };
       printBtn.onclick = doPrint;
 
       // Auto-print if enabled in settings
@@ -1613,8 +1650,8 @@ export function renderOrderReturnsReceipt(order, allReturns, settings, cur) {
       <div class="receipt-header">
         ${settings.showLogoOnReceipt && settings.storeLogo ? `<img src="${settings.storeLogo}" style="max-width:70px; max-height:70px; object-fit:contain; margin-bottom:6px" />` : ''}
         <div style="background:var(--danger); color:white; padding:4px; font-weight:bold; margin-bottom:6px; border-radius:4px">REFUND VOUCHER</div>
-        <div class="receipt-store-name">${settings.storeName || 'Store'}</div>
-        ${settings.storeNameSubtitle ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-top:1px">(${settings.storeNameSubtitle})</div>` : ''}
+        ${settings.showStoreName !== false ? `<div class="receipt-store-name">${escapeHtml(settings.storeName || 'Store')}</div>` : ''}
+        ${settings.showStoreName !== false && settings.storeNameSubtitle ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-top:1px">(${escapeHtml(settings.storeNameSubtitle)})</div>` : ''}
         <div style="font-size:12px;opacity:0.8">${settings.storeAddress || ''}</div>
         ${settings.gstNumber ? `<div style="font-size:11px;opacity:0.7">GST NO : ${settings.gstNumber}</div>` : ''}
         <div class="receipt-row" style="font-size:11px; opacity:0.7; text-align:left;">
@@ -1674,8 +1711,8 @@ export function renderRefundReceipt(ret, settings, cur) {
       <div class="receipt-header">
         ${settings.showLogoOnReceipt && settings.storeLogo ? `<img src="${settings.storeLogo}" style="max-width:70px; max-height:70px; object-fit:contain; margin-bottom:6px" />` : ''}
         <div style="background:var(--danger); color:white; padding:4px; font-weight:bold; margin-bottom:6px; border-radius:4px">REFUND VOUCHER</div>
-        <div class="receipt-store-name">${settings.storeName || 'Store'}</div>
-        ${settings.storeNameSubtitle ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-top:1px">(${settings.storeNameSubtitle})</div>` : ''}
+        ${settings.showStoreName !== false ? `<div class="receipt-store-name">${escapeHtml(settings.storeName || 'Store')}</div>` : ''}
+        ${settings.showStoreName !== false && settings.storeNameSubtitle ? `<div style="font-size:11px;font-weight:600;opacity:0.85;margin-top:1px">(${escapeHtml(settings.storeNameSubtitle)})</div>` : ''}
         <div style="font-size:12px;opacity:0.8">${settings.storeAddress || ''}</div>
         ${settings.gstNumber ? `<div style="font-size:11px;opacity:0.7">GST NO : ${settings.gstNumber}</div>` : ''}
         <div class="receipt-row" style="font-size:11px; opacity:0.7; text-align:left;">

@@ -751,11 +751,23 @@ async function viewPurchaseDetails(purchase) {
     window.open(purchase.billAttachment, '_blank');
   });
 
-  document.getElementById('printVoucherBtn')?.addEventListener('click', async () => {
-    const settings = await getSettings(purchase.branchId);
-    const cur = settings.currency || '₹';
-    const html = renderPurchaseVoucherHtml(purchase, settings, cur, returnedTotal, amountPaid, outstanding);
-    await printReceiptHtml(html, `Purchase Voucher - ${purchase.id}`);
+  document.getElementById('printVoucherBtn')?.addEventListener('click', async (e) => {
+    // printReceiptHtml() does real async work (settings, CSS/IPC round-trip,
+    // spinning up a hidden Electron window) before anything is visible —
+    // give instant feedback on click instead of the button doing nothing
+    // for that whole stretch, which otherwise reads as "trigger late".
+    const btn = e.currentTarget;
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Printing...';
+    try {
+      const settings = await getSettings(purchase.branchId);
+      const cur = settings.currency || '₹';
+      const html = renderPurchaseVoucherHtml(purchase, settings, cur, returnedTotal, amountPaid, outstanding);
+      await printReceiptHtml(html, `Purchase Voucher - ${purchase.id}`);
+    } finally {
+      if (document.body.contains(btn)) { btn.disabled = false; btn.innerHTML = original; }
+    }
   });
 
   const recordPaymentBtn = document.getElementById('recordPaymentBtn');

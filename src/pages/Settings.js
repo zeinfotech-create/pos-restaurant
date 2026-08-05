@@ -530,8 +530,9 @@ export async function renderSettings(container) {
                 <p class="form-help-text">Shown above the store name/logo on receipts, tax invoices, and anywhere else the header is printed.</p>
               </div>
               <div class="form-group">
-                <label class="form-label">Receipt Footer</label>
-                <input class="form-input" id="sReceiptFooter" value="${s.receiptFooter || ''}" placeholder="Thank you for shopping!" />
+                <label class="form-label">Receipt Footer (optional)</label>
+                <input class="form-input" id="sReceiptFooter" value="${escapeHtml(s.receiptFooter || '')}" placeholder="Thank you for shopping!" />
+                <p class="form-help-text">Shown below the total on receipts, tax invoices, and anywhere else the footer is printed.</p>
               </div>
               <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
                 <input type="checkbox" id="sShowSignatureLine" ${s.showSignatureLine ? 'checked' : ''} />
