@@ -1397,7 +1397,14 @@ async function openLabelModal(product, type) {
     labelsAcross: savedConfig.labelsAcross ?? 1,
     showStoreName: savedConfig.showStoreName ?? false,
     storeName: savedConfig.storeName ?? defaultStoreName,
+    storeNameSize: savedConfig.storeNameSize ?? 6, // pt, matches the old fixed 6pt/8px
     prodNamePos: savedConfig.prodNamePos ?? 'bottom',
+    // Product name used to always be the product's own name with no way to
+    // edit or resize it for the label specifically — now editable per-print,
+    // still defaulting to the product's real name so nothing changes unless
+    // this is actually touched.
+    productNameVal: product.name,
+    productNameSize: savedConfig.productNameSize ?? 7, // pt, matches the old fixed 7pt/9px
     showMrp: savedConfig.showMrp ?? true,
     strikeMrp: savedConfig.strikeMrp ?? false,
     // Prefer the product's own MRP field — falls back to the tax-inclusive
@@ -1418,7 +1425,12 @@ async function openLabelModal(product, type) {
     // reusing whatever was typed into the label config for a PREVIOUS
     // product (savedConfig is a single shared, global label style).
     expVal: product.expiryDate || '',
-    datePos: savedConfig.datePos ?? 'left', // 'left' | 'right' | 'bottom'
+    // Mfg/Exp used to share one position (datePos). Split into independent
+    // positions per user request — each falls back to whatever datePos was
+    // previously saved (then 'left'), so an existing saved config keeps
+    // looking the same until the user actually diverges them.
+    mfdPos: savedConfig.mfdPos ?? savedConfig.datePos ?? 'left', // 'left' | 'right' | 'bottom'
+    expPos: savedConfig.expPos ?? savedConfig.datePos ?? 'left', // 'left' | 'right' | 'bottom'
     barcodeTextSize: savedConfig.barcodeTextSize ?? 12,
     showBarcodeText: savedConfig.showBarcodeText ?? true,
     // Was 35 — modest enough that raising the CSS max-height cap on the
@@ -1435,13 +1447,19 @@ async function openLabelModal(product, type) {
   };
 
   const renderPreviewHTML = (inPrint = false) => {
-    const hasDates = config.showMfd || config.showExp;
-    const datePos = config.datePos || 'left'; // 'left' | 'right' | 'bottom'
+    const mfdPos = config.mfdPos || 'left'; // 'left' | 'right' | 'bottom'
+    const expPos = config.expPos || 'left'; // 'left' | 'right' | 'bottom'
 
     // Left/Right: a rotated vertical strip running the full height of the
     // label, read bottom-to-top (writing-mode + 180° flip — the usual
-    // convention for text down the edge of a price tag).
-    const dateSidebarHtml = (side) => !hasDates ? '' : `
+    // convention for text down the edge of a price tag). Mfg/Exp can now
+    // each be positioned independently, so this only prints whichever of
+    // the two (or both, or neither) is actually assigned to this side.
+    const dateSidebarHtml = (side) => {
+      const showMfdHere = config.showMfd && mfdPos === side;
+      const showExpHere = config.showExp && expPos === side;
+      if (!showMfdHere && !showExpHere) return '';
+      return `
       <div class="label-date-sidebar" style="
         writing-mode: vertical-rl; transform: rotate(180deg);
         display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -1452,30 +1470,37 @@ async function openLabelModal(product, type) {
         margin-${side === 'left' ? 'right' : 'left'}: ${inPrint ? '1mm' : '6px'};
         white-space: nowrap; flex-shrink: 0;
       ">
-        ${config.showMfd ? `<span>Mfg: ${escapeHtml(formatLabelDate(config.mfdVal))}</span>` : ''}
-        ${config.showExp ? `<span>Exp: ${escapeHtml(formatLabelDate(config.expVal))}</span>` : ''}
+        ${showMfdHere ? `<span>Mfg: ${escapeHtml(formatLabelDate(config.mfdVal))}</span>` : ''}
+        ${showExpHere ? `<span>Exp: ${escapeHtml(formatLabelDate(config.expVal))}</span>` : ''}
       </div>
     `;
+    };
 
     // Bottom: the original horizontal, non-rotated, centered date rows.
-    const dateBottomHtml = !hasDates ? '' : `
+    // Same independent-position handling as the sidebar above.
+    const dateBottomHtml = () => {
+      const showMfdHere = config.showMfd && mfdPos === 'bottom';
+      const showExpHere = config.showExp && expPos === 'bottom';
+      if (!showMfdHere && !showExpHere) return '';
+      return `
       <div class="label-date-row" style="margin-top: ${inPrint ? '0.5mm' : '2px'}; display: flex; flex-direction: column; gap: ${inPrint ? '0.3mm' : '2px'}; align-items: center; font-family: Arial, sans-serif; font-size: ${inPrint ? '7pt' : '10px'}; font-weight: 600; color: #444; line-height: 1.2; white-space: nowrap;">
-        ${config.showMfd ? `<div style="display:flex; gap:4px"><span style="min-width:${inPrint ? '8mm' : '30px'}; text-align:left">Mfg</span><span>:</span><span>${escapeHtml(formatLabelDate(config.mfdVal))}</span></div>` : ''}
-        ${config.showExp ? `<div style="display:flex; gap:4px"><span style="min-width:${inPrint ? '8mm' : '30px'}; text-align:left">Exp</span><span>:</span><span>${escapeHtml(formatLabelDate(config.expVal))}</span></div>` : ''}
+        ${showMfdHere ? `<div style="display:flex; gap:4px"><span style="min-width:${inPrint ? '8mm' : '30px'}; text-align:left">Mfg</span><span>:</span><span>${escapeHtml(formatLabelDate(config.mfdVal))}</span></div>` : ''}
+        ${showExpHere ? `<div style="display:flex; gap:4px"><span style="min-width:${inPrint ? '8mm' : '30px'}; text-align:left">Exp</span><span>:</span><span>${escapeHtml(formatLabelDate(config.expVal))}</span></div>` : ''}
       </div>
     `;
+    };
 
     const mainContent = `
       <div style="flex:1; min-width:0; min-height:0; overflow:hidden; box-sizing:border-box; padding: ${inPrint ? '0.5mm' : '2px'} 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; text-align: center;">
         ${config.showStoreName && config.storeName ? `
-          <div class="label-store" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '6pt' : '8px'}; font-weight: 800; color: #000; margin-bottom: ${inPrint ? '0.5mm' : '2px'}; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;">
+          <div class="label-store" style="font-family: Arial, sans-serif; font-size: ${inPrint ? config.storeNameSize + 'pt' : Math.round(config.storeNameSize * 1.333) + 'px'}; font-weight: 800; color: #000; margin-bottom: ${inPrint ? '0.5mm' : '2px'}; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;">
             ${escapeHtml(config.storeName)}
           </div>
         ` : ''}
 
         ${config.prodNamePos === 'top' ? `
-          <div class="label-title" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '7pt' : '9px'}; font-weight: 900; color: #000; margin-bottom: ${inPrint ? '0.5mm' : '4px'}; line-height: 1.1; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;">
-            ${escapeHtml(product.name)}
+          <div class="label-title" style="font-family: Arial, sans-serif; font-size: ${inPrint ? config.productNameSize + 'pt' : Math.round(config.productNameSize * 1.333) + 'px'}; font-weight: 900; color: #000; margin-bottom: ${inPrint ? '0.5mm' : '4px'}; line-height: 1.1; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;">
+            ${escapeHtml(config.productNameVal)}
           </div>
         ` : ''}
 
@@ -1484,8 +1509,8 @@ async function openLabelModal(product, type) {
         </div>
 
         ${config.prodNamePos === 'bottom' ? `
-          <div class="label-title" style="font-family: Arial, sans-serif; font-size: ${inPrint ? '7pt' : '9px'}; font-weight: 900; color: #000; margin-top: ${inPrint ? '0.5mm' : '4px'}; line-height: 1.1; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;">
-            ${escapeHtml(product.name)}
+          <div class="label-title" style="font-family: Arial, sans-serif; font-size: ${inPrint ? config.productNameSize + 'pt' : Math.round(config.productNameSize * 1.333) + 'px'}; font-weight: 900; color: #000; margin-top: ${inPrint ? '0.5mm' : '4px'}; line-height: 1.1; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;">
+            ${escapeHtml(config.productNameVal)}
           </div>
         ` : ''}
 
@@ -1502,7 +1527,7 @@ async function openLabelModal(product, type) {
           </div>
         ` : ''}
 
-        ${datePos === 'bottom' ? dateBottomHtml : ''}
+        ${dateBottomHtml()}
       </div>
     `;
 
@@ -1513,9 +1538,9 @@ async function openLabelModal(product, type) {
         box-sizing: border-box; overflow: hidden;
         ${inPrint ? 'padding: 1.5mm;' : 'padding: 8px;'}
       ">
-        ${datePos === 'left' ? dateSidebarHtml('left') : ''}
+        ${dateSidebarHtml('left')}
         ${mainContent}
-        ${datePos === 'right' ? dateSidebarHtml('right') : ''}
+        ${dateSidebarHtml('right')}
       </div>
     `;
   };
@@ -1583,7 +1608,18 @@ async function openLabelModal(product, type) {
                 <input type="checkbox" class="config-check" data-key="showStoreName" ${config.showStoreName ? 'checked' : ''} />
                 Print Shop Name
               </label>
-              <input type="text" class="form-input config-input" data-key="storeName" value="${config.storeName}" placeholder="Shop Name" ${config.showStoreName ? '' : 'disabled'} />
+              <div style="display:flex; gap:8px;">
+                <input type="text" class="form-input config-input" data-key="storeName" value="${config.storeName}" placeholder="Shop Name" ${config.showStoreName ? '' : 'disabled'} style="flex:1" />
+                <input type="number" class="form-input config-input" data-key="storeNameSize" value="${config.storeNameSize}" min="4" max="20" title="Text Size (pt)" ${config.showStoreName ? '' : 'disabled'} style="width:60px" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" style="font-size:11px">Product Name</label>
+              <div style="display:flex; gap:8px;">
+                <input type="text" class="form-input config-input" data-key="productNameVal" value="${escapeHtml(config.productNameVal)}" placeholder="Product Name" ${config.prodNamePos === 'hidden' ? 'disabled' : ''} style="flex:1" />
+                <input type="number" class="form-input config-input" data-key="productNameSize" value="${config.productNameSize}" min="4" max="20" title="Text Size (pt)" ${config.prodNamePos === 'hidden' ? 'disabled' : ''} style="width:60px" />
+              </div>
             </div>
 
             <div class="form-group">
@@ -1642,11 +1678,19 @@ async function openLabelModal(product, type) {
                   <input type="text" class="form-input config-input" data-key="expVal" value="${config.expVal}" placeholder="e.g. 10/25" ${config.showExp ? '' : 'disabled'} />
                 </div>
                 <div style="display:flex; align-items:center; gap:8px; padding-top:6px; border-top:1px dashed var(--border);">
-                  <label style="font-size:12px; font-weight:600; flex: 0 0 70px;">Position</label>
+                  <label style="font-size:12px; font-weight:600; flex: 0 0 70px;">MFD Position</label>
                   <div style="display:flex; gap:12px;">
-                    <label style="font-size:12px; cursor:pointer;"><input type="radio" name="datePos" class="config-input config-check config-radio" data-key="datePos" value="left" ${(config.datePos || 'left') === 'left' ? 'checked' : ''} /> Left</label>
-                    <label style="font-size:12px; cursor:pointer;"><input type="radio" name="datePos" class="config-input config-check config-radio" data-key="datePos" value="right" ${config.datePos === 'right' ? 'checked' : ''} /> Right</label>
-                    <label style="font-size:12px; cursor:pointer;"><input type="radio" name="datePos" class="config-input config-check config-radio" data-key="datePos" value="bottom" ${config.datePos === 'bottom' ? 'checked' : ''} /> Bottom</label>
+                    <label style="font-size:12px; cursor:pointer;"><input type="radio" name="mfdPos" class="config-input config-check config-radio" data-key="mfdPos" value="left" ${(config.mfdPos || 'left') === 'left' ? 'checked' : ''} /> Left</label>
+                    <label style="font-size:12px; cursor:pointer;"><input type="radio" name="mfdPos" class="config-input config-check config-radio" data-key="mfdPos" value="right" ${config.mfdPos === 'right' ? 'checked' : ''} /> Right</label>
+                    <label style="font-size:12px; cursor:pointer;"><input type="radio" name="mfdPos" class="config-input config-check config-radio" data-key="mfdPos" value="bottom" ${config.mfdPos === 'bottom' ? 'checked' : ''} /> Bottom</label>
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <label style="font-size:12px; font-weight:600; flex: 0 0 70px;">EXP Position</label>
+                  <div style="display:flex; gap:12px;">
+                    <label style="font-size:12px; cursor:pointer;"><input type="radio" name="expPos" class="config-input config-check config-radio" data-key="expPos" value="left" ${(config.expPos || 'left') === 'left' ? 'checked' : ''} /> Left</label>
+                    <label style="font-size:12px; cursor:pointer;"><input type="radio" name="expPos" class="config-input config-check config-radio" data-key="expPos" value="right" ${config.expPos === 'right' ? 'checked' : ''} /> Right</label>
+                    <label style="font-size:12px; cursor:pointer;"><input type="radio" name="expPos" class="config-input config-check config-radio" data-key="expPos" value="bottom" ${config.expPos === 'bottom' ? 'checked' : ''} /> Bottom</label>
                   </div>
                 </div>
               </div>
@@ -1778,7 +1822,10 @@ async function openLabelModal(product, type) {
       await saveLabelConfig({
         ...config,
         mrpVal: undefined,
-        priceVal: undefined
+        priceVal: undefined,
+        // Per-product like mrpVal/priceVal above — don't let one product's
+        // edited name leak into the next product's label as a stale default.
+        productNameVal: undefined
       });
     } catch(e) {}
     
@@ -1812,7 +1859,7 @@ async function openLabelModal(product, type) {
           config[key] = Number(e.target.value) * 25.4;
         } else {
           config[key] = e.target.value;
-          if (['width', 'height', 'copies', 'labelsAcross', 'barcodeTextSize', 'barWidth', 'barHeight', 'qrSize'].includes(key)) {
+          if (['width', 'height', 'copies', 'labelsAcross', 'barcodeTextSize', 'barWidth', 'barHeight', 'qrSize', 'storeNameSize', 'productNameSize'].includes(key)) {
             config[key] = Number(e.target.value);
           }
         }

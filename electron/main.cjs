@@ -313,7 +313,16 @@ function waitForServer(cb, attempts = 0) {
     cb(result);
   };
 
-  if (attempts > 30) { settle(false); return; }
+  // 90s, not 30s: waitForMongo() only confirms Mongo's TCP port is open, not
+  // that it's actually ready to serve queries. On a first run, Mongo has to
+  // create its data files from scratch before it's truly ready — the port
+  // can open before that finishes. When that happens, the sync server's own
+  // connectDB() can hit its 10s Mongoose serverSelectionTimeoutMS, then
+  // retry after a 5s delay — one retry cycle alone can burn 25s+ before the
+  // server ever starts listening, blowing past a 30s budget on a slow first
+  // run even though the server would have come up fine given a bit longer.
+  // Subsequent runs are fast because Mongo's data files already exist.
+  if (attempts > 90) { settle(false); return; }
   const req = http.get('http://127.0.0.1:3030/health', res => {
     res.resume(); // drain the body so the socket doesn't linger and later error
     if (res.statusCode === 200) { settle(true); return; }
