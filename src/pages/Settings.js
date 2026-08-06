@@ -369,6 +369,26 @@ export async function renderSettings(container) {
                 </div>
               `).join('')}
             </div>
+            <div class="theme-section-title" style="margin-top:16px">🎨 Duo-Tone Themes <span style="font-size:11px;color:var(--text-muted);font-weight:400;margin-left:6px">Dark Sidebar · Light Content</span></div>
+            <div class="theme-grid">
+              ${[
+        { id: 'theme-inumey-forest', label: 'Forest', sidebarColor: '#1a3d2b', contentColor: '#faf7f2', icon: '🌿' },
+        { id: 'theme-inumey-graphite', label: 'Graphite', sidebarColor: '#1c1c1e', contentColor: '#f8f9fa', icon: '🪨' },
+        { id: 'theme-inumey-navy', label: 'Navy', sidebarColor: '#0f2444', contentColor: '#eff6ff', icon: '⚓' },
+        { id: 'theme-inumey-espresso', label: 'Espresso', sidebarColor: '#2c1a0e', contentColor: '#fdf8f2', icon: '☕' },
+        { id: 'theme-inumey-plum', label: 'Plum', sidebarColor: '#2d1457', contentColor: '#f5f3ff', icon: '🍇' },
+        { id: 'theme-inumey-slack', label: 'Aubergine', sidebarColor: '#4A154B', contentColor: '#f9f9f9', icon: '🟣' },
+        { id: 'theme-inumey-jungle', label: 'Jungle', sidebarColor: '#14532d', contentColor: '#f0fdf4', icon: '🌴' },
+        { id: 'theme-inumey-crimson', label: 'Crimson', sidebarColor: '#7f1d1d', contentColor: '#fff5f5', icon: '🔴' },
+        { id: 'theme-inumey-copper', label: 'Copper', sidebarColor: '#78350f', contentColor: '#fffbf5', icon: '🟠' },
+        { id: 'theme-inumey-zinc', label: 'Zinc', sidebarColor: '#18181b', contentColor: '#fafafa', icon: '⬛' }
+      ].map(t => `
+                <div class="theme-swatch ${activeTheme === t.id ? 'active' : ''}" data-theme="${t.id}" title="${t.label} Theme">
+                  <div class="swatch-color" style="background:linear-gradient(135deg, ${t.sidebarColor} 45%, ${t.contentColor} 45%); font-size:14px; line-height:36px">${t.icon}</div>
+                  <div class="swatch-label">${t.label}</div>
+                </div>
+              `).join('')}
+            </div>
             <input type="hidden" id="sThemeValue" value="${activeTheme}" />
           </div>
 

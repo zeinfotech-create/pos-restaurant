@@ -448,6 +448,464 @@ body {
   --accent: #ffe11b;
 }
 
+/* ============================================
+   INUMEY THEMES — Split Sidebar / Content Color Schemes
+   Each theme has a distinctly different sidebar vs content area color.
+   Sidebar text/icons are overridden via #sidebar selector to remain readable.
+   ============================================ */
+
+/* Inumey 01 — Forest Sidebar + Warm Cream Content */
+.theme-inumey-forest {
+  --primary: #2d9e6b;
+  --primary-light: #3ec87c;
+  --primary-dark: #1a7a4f;
+  --accent: #f59e0b;
+  --bg-app: #faf7f2;
+  --bg-sidebar: #1a3d2b;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #f0ebe2;
+  --bg-hover: #e8e0d4;
+  --text-primary: #1c1a16;
+  --text-secondary: #5a5248;
+  --text-muted: #8a7f74;
+  --border: #e5ddd0;
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.07);
+  --shadow-glow: 0 0 20px rgba(45, 158, 107, 0.25);
+}
+.theme-inumey-forest #sidebar {
+  background: #1a3d2b;
+  border-right: 1px solid #0e2518;
+  --text-primary: #e8f5ee;
+  --text-secondary: #a8d5b8;
+  --text-muted: #6dab86;
+  --border: #264d38;
+  --bg-hover: #234835;
+  --bg-elevated: #264d38;
+}
+.theme-inumey-forest #sidebar .nav-item.active {
+  background: rgba(45, 158, 107, 0.25);
+  color: #3ec87c;
+}
+.theme-inumey-forest #sidebar .nav-item:hover {
+  background: rgba(255,255,255,0.08);
+}
+.theme-inumey-forest #sidebar .profile-avatar {
+  background: linear-gradient(135deg, #2d9e6b, #1a7a4f);
+}
+
+/* Inumey 02 — Graphite Sidebar + Pure White Content */
+.theme-inumey-graphite {
+  --primary: #6366f1;
+  --primary-light: #818cf8;
+  --primary-dark: #4f46e5;
+  --accent: #f59e0b;
+  --bg-app: #f8f9fa;
+  --bg-sidebar: #1c1c1e;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #f1f3f5;
+  --bg-hover: #e8eaed;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
+  --border: #e5e7eb;
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.2);
+}
+.theme-inumey-graphite #sidebar {
+  background: #1c1c1e;
+  border-right: 1px solid #2c2c2e;
+  --text-primary: #f5f5f7;
+  --text-secondary: #ababab;
+  --text-muted: #6e6e73;
+  --border: #3a3a3c;
+  --bg-hover: #2c2c2e;
+  --bg-elevated: #2c2c2e;
+}
+.theme-inumey-graphite #sidebar .nav-item.active {
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+}
+.theme-inumey-graphite #sidebar .nav-item:hover {
+  background: rgba(255,255,255,0.06);
+}
+.theme-inumey-graphite #sidebar .profile-avatar {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+}
+
+/* Inumey 03 — Navy Sidebar + Sky Blue Content */
+.theme-inumey-navy {
+  --primary: #3b82f6;
+  --primary-light: #60a5fa;
+  --primary-dark: #2563eb;
+  --accent: #f59e0b;
+  --bg-app: #eff6ff;
+  --bg-sidebar: #0f2444;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #dbeafe;
+  --bg-hover: #bfdbfe;
+  --text-primary: #1e3a5f;
+  --text-secondary: #2563eb;
+  --text-muted: #64748b;
+  --border: #bfdbfe;
+  --shadow: 0 4px 12px rgba(15, 36, 68, 0.08);
+  --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.25);
+}
+.theme-inumey-navy #sidebar {
+  background: #0f2444;
+  border-right: 1px solid #091729;
+  --text-primary: #e0eeff;
+  --text-secondary: #93c5fd;
+  --text-muted: #4d7ab5;
+  --border: #1e3a6e;
+  --bg-hover: #1a3560;
+  --bg-elevated: #1e3a6e;
+}
+.theme-inumey-navy #sidebar .nav-item.active {
+  background: rgba(59, 130, 246, 0.25);
+  color: #60a5fa;
+}
+.theme-inumey-navy #sidebar .nav-item:hover {
+  background: rgba(255,255,255,0.06);
+}
+.theme-inumey-navy #sidebar .profile-avatar {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+}
+
+/* Inumey 04 — Espresso Sidebar + Warm Beige Content */
+.theme-inumey-espresso {
+  --primary: #c2651a;
+  --primary-light: #e07b28;
+  --primary-dark: #9a4e12;
+  --accent: #f59e0b;
+  --bg-app: #fdf8f2;
+  --bg-sidebar: #2c1a0e;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #f5ede0;
+  --bg-hover: #ede0cc;
+  --text-primary: #2c1a0e;
+  --text-secondary: #7a5c40;
+  --text-muted: #a08060;
+  --border: #e8d8c0;
+  --shadow: 0 4px 12px rgba(44, 26, 14, 0.08);
+  --shadow-glow: 0 0 20px rgba(194, 101, 26, 0.2);
+}
+.theme-inumey-espresso #sidebar {
+  background: #2c1a0e;
+  border-right: 1px solid #1a0e06;
+  --text-primary: #f5e8d6;
+  --text-secondary: #c4a07a;
+  --text-muted: #7a6040;
+  --border: #3e2414;
+  --bg-hover: #3e2414;
+  --bg-elevated: #3e2414;
+}
+.theme-inumey-espresso #sidebar .nav-item.active {
+  background: rgba(194, 101, 26, 0.25);
+  color: #e07b28;
+}
+.theme-inumey-espresso #sidebar .nav-item:hover {
+  background: rgba(255,255,255,0.06);
+}
+.theme-inumey-espresso #sidebar .profile-avatar {
+  background: linear-gradient(135deg, #c2651a, #9a4e12);
+}
+
+/* Inumey 05 — Plum Sidebar + Soft Lavender Content */
+.theme-inumey-plum {
+  --primary: #7c3aed;
+  --primary-light: #9d5cf6;
+  --primary-dark: #5b21b6;
+  --accent: #f59e0b;
+  --bg-app: #f5f3ff;
+  --bg-sidebar: #2d1457;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #ede9fe;
+  --bg-hover: #ddd6fe;
+  --text-primary: #2e1065;
+  --text-secondary: #5b21b6;
+  --text-muted: #8b5cf6;
+  --border: #ddd6fe;
+  --shadow: 0 4px 12px rgba(45, 20, 87, 0.08);
+  --shadow-glow: 0 0 20px rgba(124, 58, 237, 0.25);
+}
+.theme-inumey-plum #sidebar {
+  background: #2d1457;
+  border-right: 1px solid #1e0d3c;
+  --text-primary: #f0e9ff;
+  --text-secondary: #c4b5fd;
+  --text-muted: #7c5cbf;
+  --border: #3d1d6e;
+  --bg-hover: #3d1d6e;
+  --bg-elevated: #3d1d6e;
+}
+.theme-inumey-plum #sidebar .nav-item.active {
+  background: rgba(124, 58, 237, 0.3);
+  color: #a78bfa;
+}
+.theme-inumey-plum #sidebar .nav-item:hover {
+  background: rgba(255,255,255,0.07);
+}
+.theme-inumey-plum #sidebar .profile-avatar {
+  background: linear-gradient(135deg, #7c3aed, #5b21b6);
+}
+
+/* Inumey 06 — Slack Aubergine Sidebar + Pure White Content */
+.theme-inumey-slack {
+  --primary: #4A154B;
+  --primary-light: #7B2D8B;
+  --primary-dark: #350d36;
+  --accent: #ECB22E;
+  --bg-app: #f9f9f9;
+  --bg-sidebar: #4A154B;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #f0f0f0;
+  --bg-hover: #e8e8e8;
+  --text-primary: #1d1c1d;
+  --text-secondary: #616061;
+  --text-muted: #9d9d9d;
+  --border: #e8e8e8;
+  --shadow: 0 4px 12px rgba(74, 21, 75, 0.08);
+  --shadow-glow: 0 0 20px rgba(74, 21, 75, 0.2);
+}
+.theme-inumey-slack #sidebar {
+  background: #4A154B;
+  border-right: 1px solid #350d36;
+  --text-primary: #f8f0f8;
+  --text-secondary: #cdb4cf;
+  --text-muted: #9d6fa0;
+  --border: #5a1d5c;
+  --bg-hover: #5a1d5c;
+  --bg-elevated: #5a1d5c;
+}
+.theme-inumey-slack #sidebar .nav-item.active {
+  background: rgba(255,255,255,0.15);
+  color: #ffffff;
+}
+.theme-inumey-slack #sidebar .nav-item:hover {
+  background: rgba(255,255,255,0.1);
+}
+.theme-inumey-slack #sidebar .profile-avatar {
+  background: linear-gradient(135deg, #7B2D8B, #4A154B);
+}
+
+/* Inumey 07 — Jungle Green Sidebar + Fresh Mint Content */
+.theme-inumey-jungle {
+  --primary: #15803d;
+  --primary-light: #22c55e;
+  --primary-dark: #14532d;
+  --accent: #fbbf24;
+  --bg-app: #f0fdf4;
+  --bg-sidebar: #14532d;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #dcfce7;
+  --bg-hover: #bbf7d0;
+  --text-primary: #052e16;
+  --text-secondary: #166534;
+  --text-muted: #4ade80;
+  --border: #bbf7d0;
+  --shadow: 0 4px 12px rgba(20, 83, 45, 0.08);
+  --shadow-glow: 0 0 20px rgba(21, 128, 61, 0.2);
+}
+.theme-inumey-jungle #sidebar {
+  background: #14532d;
+  border-right: 1px solid #0b3d1e;
+  --text-primary: #dcfce7;
+  --text-secondary: #86efac;
+  --text-muted: #4ade80;
+  --border: #166534;
+  --bg-hover: #166534;
+  --bg-elevated: #166534;
+}
+.theme-inumey-jungle #sidebar .nav-item.active {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+.theme-inumey-jungle #sidebar .nav-item:hover {
+  background: rgba(255,255,255,0.07);
+}
+.theme-inumey-jungle #sidebar .profile-avatar {
+  background: linear-gradient(135deg, #15803d, #14532d);
+}
+
+/* Inumey 08 — Crimson Sidebar + Soft Rose Content */
+.theme-inumey-crimson {
+  --primary: #b91c1c;
+  --primary-light: #ef4444;
+  --primary-dark: #7f1d1d;
+  --accent: #f59e0b;
+  --bg-app: #fff5f5;
+  --bg-sidebar: #7f1d1d;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #fee2e2;
+  --bg-hover: #fecaca;
+  --text-primary: #450a0a;
+  --text-secondary: #991b1b;
+  --text-muted: #b91c1c;
+  --border: #fecaca;
+  --shadow: 0 4px 12px rgba(127, 29, 29, 0.08);
+  --shadow-glow: 0 0 20px rgba(185, 28, 28, 0.2);
+}
+.theme-inumey-crimson #sidebar {
+  background: #7f1d1d;
+  border-right: 1px solid #500d0d;
+  --text-primary: #fef2f2;
+  --text-secondary: #fca5a5;
+  --text-muted: #f87171;
+  --border: #991b1b;
+  --bg-hover: #991b1b;
+  --bg-elevated: #991b1b;
+}
+.theme-inumey-crimson #sidebar .nav-item.active {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+.theme-inumey-crimson #sidebar .nav-item:hover {
+  background: rgba(255,255,255,0.07);
+}
+.theme-inumey-crimson #sidebar .profile-avatar {
+  background: linear-gradient(135deg, #b91c1c, #7f1d1d);
+}
+
+/* Inumey 09 — Copper Sidebar + Warm Ivory Content */
+.theme-inumey-copper {
+  --primary: #b45309;
+  --primary-light: #d97706;
+  --primary-dark: #92400e;
+  --accent: #0ea5e9;
+  --bg-app: #fffbf5;
+  --bg-sidebar: #78350f;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #fef3c7;
+  --bg-hover: #fde68a;
+  --text-primary: #1c1009;
+  --text-secondary: #78350f;
+  --text-muted: #92400e;
+  --border: #fde68a;
+  --shadow: 0 4px 12px rgba(120, 53, 15, 0.08);
+  --shadow-glow: 0 0 20px rgba(180, 83, 9, 0.2);
+}
+.theme-inumey-copper #sidebar {
+  background: #78350f;
+  border-right: 1px solid #3f1a06;
+  --text-primary: #fef9f0;
+  --text-secondary: #fcd34d;
+  --text-muted: #d97706;
+  --border: #92400e;
+  --bg-hover: #92400e;
+  --bg-elevated: #92400e;
+}
+.theme-inumey-copper #sidebar .nav-item.active {
+  background: rgba(217, 119, 6, 0.25);
+  color: #fcd34d;
+}
+.theme-inumey-copper #sidebar .nav-item:hover {
+  background: rgba(255,255,255,0.07);
+}
+.theme-inumey-copper #sidebar .profile-avatar {
+  background: linear-gradient(135deg, #b45309, #78350f);
+}
+
+/* Inumey 10 — Zinc Sidebar + Clean White Content */
+.theme-inumey-zinc {
+  --primary: #3f3f46;
+  --primary-light: #71717a;
+  --primary-dark: #27272a;
+  --accent: #f59e0b;
+  --bg-app: #fafafa;
+  --bg-sidebar: #18181b;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #f4f4f5;
+  --bg-hover: #e4e4e7;
+  --text-primary: #09090b;
+  --text-secondary: #52525b;
+  --text-muted: #a1a1aa;
+  --border: #e4e4e7;
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-glow: 0 0 20px rgba(63, 63, 70, 0.15);
+}
+.theme-inumey-zinc #sidebar {
+  background: #18181b;
+  border-right: 1px solid #09090b;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --border: #27272a;
+  --bg-hover: #27272a;
+  --bg-elevated: #27272a;
+}
+.theme-inumey-zinc #sidebar .nav-item.active {
+  background: rgba(161, 161, 170, 0.15);
+  color: #e4e4e7;
+}
+.theme-inumey-zinc #sidebar .nav-item:hover {
+  background: rgba(255,255,255,0.05);
+}
+.theme-inumey-zinc #sidebar .profile-avatar {
+  background: linear-gradient(135deg, #52525b, #18181b);
+}
+
+/* Inumey themes — light-theme class needed for proper color-scheme */
+.theme-inumey-forest,
+.theme-inumey-graphite,
+.theme-inumey-navy,
+.theme-inumey-espresso,
+.theme-inumey-plum,
+.theme-inumey-slack,
+.theme-inumey-jungle,
+.theme-inumey-crimson,
+.theme-inumey-copper,
+.theme-inumey-zinc {
+  color-scheme: light;
+}
+
+/* Inumey themes — force sidebar text to use scoped light colors */
+.theme-inumey-forest #sidebar,
+.theme-inumey-graphite #sidebar,
+.theme-inumey-navy #sidebar,
+.theme-inumey-espresso #sidebar,
+.theme-inumey-plum #sidebar,
+.theme-inumey-slack #sidebar,
+.theme-inumey-jungle #sidebar,
+.theme-inumey-crimson #sidebar,
+.theme-inumey-copper #sidebar,
+.theme-inumey-zinc #sidebar {
+  color: var(--text-primary);
+}
+.theme-inumey-forest #sidebar .nav-item,
+.theme-inumey-graphite #sidebar .nav-item,
+.theme-inumey-navy #sidebar .nav-item,
+.theme-inumey-espresso #sidebar .nav-item,
+.theme-inumey-plum #sidebar .nav-item,
+.theme-inumey-slack #sidebar .nav-item,
+.theme-inumey-jungle #sidebar .nav-item,
+.theme-inumey-crimson #sidebar .nav-item,
+.theme-inumey-copper #sidebar .nav-item,
+.theme-inumey-zinc #sidebar .nav-item {
+  color: var(--text-secondary);
+}
+.theme-inumey-forest #sidebar .nav-section-label,
+.theme-inumey-graphite #sidebar .nav-section-label,
+.theme-inumey-navy #sidebar .nav-section-label,
+.theme-inumey-espresso #sidebar .nav-section-label,
+.theme-inumey-plum #sidebar .nav-section-label,
+.theme-inumey-slack #sidebar .nav-section-label,
+.theme-inumey-jungle #sidebar .nav-section-label,
+.theme-inumey-crimson #sidebar .nav-section-label,
+.theme-inumey-copper #sidebar .nav-section-label,
+.theme-inumey-zinc #sidebar .nav-section-label {
+  color: var(--text-muted);
+}
+
 /* ============================================ RESET */
 *,
 *::before,

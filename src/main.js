@@ -1281,6 +1281,8 @@ function applyTheme(themeName, saveToDb = true) {
     'theme-dark-midnight', 'theme-dark-obsidian', 'theme-dark-ocean', 'theme-dark-indigo', 'theme-dark-twilight',
     'theme-light-classic', 'theme-light-mint', 'theme-light-slate', 'theme-light-royal', 'theme-light-rose',
     'theme-light-google', 'theme-light-zoom', 'theme-light-amazon', 'theme-light-flipkart',
+    'theme-inumey-forest', 'theme-inumey-graphite', 'theme-inumey-navy', 'theme-inumey-espresso', 'theme-inumey-plum',
+    'theme-inumey-slack', 'theme-inumey-jungle', 'theme-inumey-crimson', 'theme-inumey-copper', 'theme-inumey-zinc',
     'light-theme'
   ];
   document.body.classList.remove(...themeClasses);
@@ -1290,7 +1292,7 @@ function applyTheme(themeName, saveToDb = true) {
 
   if (themeName) {
     document.body.classList.add(themeName);
-    if (themeName.startsWith('theme-light-')) {
+    if (themeName.startsWith('theme-light-') || themeName.startsWith('theme-inumey-')) {
       document.body.classList.add('light-theme');
     }
     setSessionTheme(themeName);
