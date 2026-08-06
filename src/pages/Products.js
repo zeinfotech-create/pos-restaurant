@@ -109,9 +109,12 @@ export async function renderProducts(container) {
           <i class="fa-solid fa-filter mr-8"></i> Filters
         </button>
         ${canManageProducts ? `
-          <div class="import-export-btns">
+          <div class="import-export-btns" style="display: flex; gap: 8px;">
               <button class="btn btn-ghost" id="importBtn" title="Import Products" style="border-radius: 10px; height: 42px;">
                   <i class="fa-solid fa-file-import"></i> Import
+              </button>
+              <button class="btn btn-ghost" id="exportBtn" title="Export Products" style="border-radius: 10px; height: 42px;">
+                  <i class="fa-solid fa-file-export"></i> Export
               </button>
           </div>
           <button class="btn btn-primary" id="addProductBtn" style="border-radius: 10px; height: 42px; font-weight: 600;">
@@ -279,6 +282,13 @@ export async function renderProducts(container) {
     document.getElementById('importBtn').onclick = async () => {
       const { openImportWizard } = await import('../components/ImportWizard.js');
       await openImportWizard(async () => await renderTable(container, settings.currency));
+    };
+  }
+
+  // Export
+  if (document.getElementById('exportBtn')) {
+    document.getElementById('exportBtn').onclick = async () => {
+      await exportProducts();
     };
   }
 
@@ -612,33 +622,52 @@ async function renderPagination(totalPages, container, cur) {
 
 function convertToCSV(data) {
   if (data.length === 0) return "";
-  // Columns: Name, SKU, Emoji, Cat, SubCat, Price, Stock, Barcode, HSN
-  const headers = ['Name', 'SKU', 'Emoji', 'Category', 'SubCategory', 'Price', 'Stock', 'Barcode', 'HSN'];
-  const rows = data.map(p => {
-    // Recompute from variants at export time instead of trusting the cached
-    // p.stock sum — a CSV row has no room for a per-variant breakdown, so
-    // this is the one place a variant product's true total stock is a hard
-    // requirement, not just a display nicety.
-    const stock = (p.variants && p.variants.length > 0)
-      ? p.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0)
-      : (p.stock || 0);
-    return [
-      `"${(p.name || '').replace(/"/g, '""')}"`,
-      `"${(p.sku || '').replace(/"/g, '""')}"`,
-      `"${(p.emoji || '📦').replace(/"/g, '""')}"`,
-      `"${(p.category || '').replace(/"/g, '""')}"`,
-      `"${(p.subCategory || '').replace(/"/g, '""')}"`,
-      p.price || 0,
-      stock,
-      `"${(p.barcode || '').replace(/"/g, '""')}"`,
-      `"${(p.hsnCode || '').replace(/"/g, '""')}"`
-    ].join(',');
+  
+  // Columns matched to ImportWizard's expected fields for a seamless export -> re-import cycle
+  const headers = ['Name', 'Variant Name', 'SKU', 'Barcode', 'Category', 'SubCategory', 'Price', 'Cost Price', 'MRP', 'Stock', 'Min Stock', 'HSN Code', 'Tax Rate (%)', 'Emoji', 'Expiry Date', 'Manufacturing Date'];
+  
+  const rows = [];
+  data.forEach(p => {
+    const name = `"${(p.name || '').replace(/"/g, '""')}"`;
+    const sku = `"${(p.sku || '').replace(/"/g, '""')}"`;
+    const barcode = `"${(p.barcode || '').replace(/"/g, '""')}"`;
+    const category = `"${(p.category || '').replace(/"/g, '""')}"`;
+    const subCat = `"${(p.subCategory || '').replace(/"/g, '""')}"`;
+    const hsn = `"${(p.hsnCode || '').replace(/"/g, '""')}"`;
+    const tax = p.taxRate !== undefined && p.taxRate !== null ? p.taxRate : '';
+    const emoji = `"${(p.emoji || '📦').replace(/"/g, '""')}"`;
+    const exp = `"${(p.expiryDate || '').replace(/"/g, '""')}"`;
+    const mfg = `"${(p.manufacturingDate || '').replace(/"/g, '""')}"`;
+    const mrp = p.mrp !== undefined && p.mrp !== null ? p.mrp : '';
+
+    if (p.variants && p.variants.length > 0) {
+      // Export each variant as its own row so ImportWizard can reconstruct the group
+      p.variants.forEach(v => {
+        const vName = `"${(v.name || '').replace(/"/g, '""')}"`;
+        const vPrice = v.price || 0;
+        const vCost = v.costPrice !== undefined && v.costPrice !== null ? v.costPrice : '';
+        const vStock = v.stock || 0;
+        const vMin = v.minStock !== undefined && v.minStock !== null ? v.minStock : '';
+        
+        rows.push([name, vName, sku, barcode, category, subCat, vPrice, vCost, mrp, vStock, vMin, hsn, tax, emoji, exp, mfg].join(','));
+      });
+    } else {
+      // Standalone product
+      const vName = '""';
+      const vPrice = p.price || 0;
+      const vCost = p.costPrice !== undefined && p.costPrice !== null ? p.costPrice : '';
+      const vStock = p.stock || 0;
+      const vMin = p.minStock !== undefined && p.minStock !== null ? p.minStock : '';
+
+      rows.push([name, vName, sku, barcode, category, subCat, vPrice, vCost, mrp, vStock, vMin, hsn, tax, emoji, exp, mfg].join(','));
+    }
   });
+
   return [headers.join(','), ...rows].join('\n');
 }
 
 async function exportProducts(ids = null) {
-  let products = await getProducts();
+  let products = await getProducts(store.branch?.id);
   if (ids && ids.length > 0) {
     const stringIds = ids.map(String);
     products = products.filter(p => stringIds.includes(String(p.id)));
