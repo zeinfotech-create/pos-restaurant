@@ -1396,22 +1396,24 @@ async function renderCustomerReport(container, cur) {
   const customers = await getCustomers(currentBranchFilter);
   const orders = await getOrders(currentBranchFilter, currentStartDate, currentEndDate);
 
-  // Calculate analytics
+  // Calculate analytics — tier comes from c.tier (already computed by
+  // getCustomers() off the customer's real lifetime totalSpent, using the
+  // same Settings > General thresholds/rates every other tier badge in the
+  // app reads). This used to recompute its own separate Bronze/Silver/
+  // Gold/Platinum tier from only THIS report's date-range-filtered orders,
+  // with different hardcoded thresholds and a "Bronze" tier that exists
+  // nowhere else — the same customer could show two different tiers
+  // depending which screen you looked at. "Total Spent" here intentionally
+  // stays scoped to the report's date range (that's this report's whole
+  // point), it just no longer doubles as the tier calculation too.
   const processed = customers.map(c => {
     const custOrders = orders.filter(o => o.customer?.id === c.id && o.status !== 'cancelled');
-    
-    // Simple Tiering Logic
-    let tier = { name: 'Bronze', color: '#cd7f32', icon: 'fa-award' };
-    const spent = custOrders.reduce((s, o) => s + (o.total || 0), 0);
-    if (spent > 50000) tier = { name: 'Platinum', color: '#e5e4e2', icon: 'fa-crown' };
-    else if (spent > 10000) tier = { name: 'Gold', color: '#ffd700', icon: 'fa-medal' };
-    else if (spent > 2000) tier = { name: 'Silver', color: '#c0c0c0', icon: 'fa-certificate' };
+    const spentInRange = custOrders.reduce((s, o) => s + (o.total || 0), 0);
 
     return {
       ...c,
-      tier,
       orderCount: custOrders.length,
-      totalSpent: spent
+      totalSpent: spentInRange
     };
   }).sort((a, b) => b.totalSpent - a.totalSpent);
 
