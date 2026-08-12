@@ -332,6 +332,14 @@ export async function openQuickCheckout(onSuccess = null) {
                             </div>
                             ` : ''}
 
+                            <div style="margin-top:16px">
+                                <label style="font-size:10px; font-weight:800; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:8px">Delivery Vehicle (optional)</label>
+                                <div style="position:relative">
+                                    <i class="fa-solid fa-truck-fast" style="position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--text-muted); font-size:13px"></i>
+                                    <input type="text" id="qc-delivery-vehicle" class="qc-split-input" placeholder="e.g. TN01AB1234" style="width:100%; height:40px; font-size:14px; text-align:left; border-bottom:1px solid var(--border); padding-left:32px" />
+                                </div>
+                            </div>
+
                             <div style="margin-top: 12px">
                                 <div class="qc-stat-row">
                                     <span class="qc-stat-label">Collected</span>
@@ -658,6 +666,7 @@ export async function openQuickCheckout(onSuccess = null) {
 
         const isUnpaid = checkoutMode === 'unpaid';
         const creditNote = document.getElementById('qc-credit-note')?.value;
+        const deliveryVehicle = document.getElementById('qc-delivery-vehicle')?.value.trim() || '';
 
         // Mode logic
         if (isUnpaid) {
@@ -705,7 +714,8 @@ export async function openQuickCheckout(onSuccess = null) {
             isCredit: isUnpaid,
             creditInfo: creditNote || (isUnpaid ? 'Unpaid Sale' : ''),
             redeemedPoints,
-            creditUsed: 0
+            creditUsed: 0,
+            deliveryVehicle
         });
 
         isConfirming = true;
