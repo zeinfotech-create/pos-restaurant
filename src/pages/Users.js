@@ -35,9 +35,13 @@ export async function renderUsers(container) {
       </div>
       ${await (async () => {
       const limits = window.syncEngine?.getLimits() || { maxUsers: 1 };
-      // Master/Super Admin is the system owner account, not a staff seat — it
-      // must never eat into the plan's staff quota.
-      const billableUsers = users.filter(u => u.role !== 'Master' && u.role !== 'Super Admin').length;
+      // Every account counts against maxUsers, Master/Super Admin included —
+      // matches saveUser()'s own enforcement in db.js (a plain total count),
+      // which was already blocking the save at this exact threshold; this
+      // button used to exclude Master/Super Admin from the count it showed,
+      // so it could stay enabled past the point a click would actually
+      // succeed.
+      const billableUsers = users.length;
       const canAdd = billableUsers < limits.maxUsers;
       if (await hasPermission('staff:manage')) {
         return `<button class="btn btn-primary" id="addUserBtn" ${!canAdd ? 'disabled style="opacity:0.5; cursor:not-allowed"' : ''}>
@@ -122,21 +126,21 @@ export async function renderUsers(container) {
     const limits = window.syncEngine?.getLimits() || { maxUsers: 1 };
     const canManageStaff = await hasPermission('staff:manage');
 
-    // Rank restriction against the plan's STAFF quota only — Master/Super Admin
-    // is the system owner, not a billable seat, and must never occupy a slot
-    // that pushes a real staff member into "LOCKED" (see billableUsers above).
-    let billableRank = 0;
-    const billableRankById = new Map();
+    // Rank restriction against the plan's total user quota — matches the
+    // (now also total-count) canAdd check above and saveUser()'s own
+    // enforcement in db.js, so a user showing as within-limit here is
+    // actually savable, and one flagged LOCKED actually would be rejected.
+    let rank = 0;
+    const rankById = new Map();
     for (const u of users) {
-      if (u.role === 'Master' || u.role === 'Super Admin') continue;
-      billableRankById.set(u.id, billableRank);
-      billableRank++;
+      rankById.set(u.id, rank);
+      rank++;
     }
 
     const rows = [];
     for (const u of items) {
-      const uRank = billableRankById.get(u.id) ?? 0;
-      const restricted = u.role !== 'Master' && u.role !== 'Super Admin' && uRank >= limits.maxUsers;
+      const uRank = rankById.get(u.id) ?? 0;
+      const restricted = uRank >= limits.maxUsers;
       const branchString = (u.branchIds && u.branchIds.length > 0)
         ? u.branchIds.map(bid => branches.find(b => b.id === bid)?.name || 'Unknown').join(', ')
         : 'All';
