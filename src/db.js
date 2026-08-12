@@ -990,8 +990,27 @@ export async function saveOrder(order) {
   if (!order.dailyNumber) {
     order.dailyNumber = await getNextDailyNumber();
   }
-  order.id = order.id || `ORD-${Date.now()}`;
-  order.date = order.date || new Date().toISOString();
+  // getTrueNow() = local clock corrected by the last known drift against
+  // the license server (see utils/trueTime.js) — so a manually changed or
+  // drifted system clock doesn't silently make every order's timestamp
+  // wrong. Falls back to the plain local clock when offline/never synced,
+  // same as before. Also tag orders created while the clock looked
+  // genuinely suspicious (not just normal skew) so Orders/Reports can flag
+  // them for review instead of the bad timestamp going unnoticed.
+  if (!order.id || !order.date) {
+    // Dynamic import — db.js deliberately has no static imports of its own
+    // (many other files import FROM db.js, so a static import going the
+    // other way risks a circular-dependency load-order bug); trueTime.js
+    // itself imports nothing, so this is a safe leaf dependency either way.
+    const { getTrueNow, isClockSuspicious, getClockDriftMs } = await import('./utils/trueTime.js');
+    const trueNow = getTrueNow();
+    order.id = order.id || `ORD-${trueNow}`;
+    order.date = order.date || new Date(trueNow).toISOString();
+    if (isClockSuspicious()) {
+      order.clockSuspicious = true;
+      order.clockDriftMs = getClockDriftMs();
+    }
+  }
   order.status = order.status || 'completed';
 
   if (!order.branchId) {

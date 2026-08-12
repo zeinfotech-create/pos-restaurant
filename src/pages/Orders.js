@@ -221,7 +221,10 @@ async function renderOrderList(cur) {
           ${paginatedOrders.map(o => `
             <tr>
               <td data-label="Order ID"><span class="badge badge-primary">${o.id}</span></td>
-              <td data-label="Date & Time" class="text-muted">${new Date(o.date).toLocaleString('en-IN')}</td>
+              <td data-label="Date & Time" class="text-muted">
+                ${new Date(o.date).toLocaleString('en-IN')}
+                ${o.clockSuspicious ? `<i class="fa-solid fa-triangle-exclamation" style="color:var(--warning); margin-left:6px; cursor:help" title="This device's clock looked off by ${Math.round(Math.abs(o.clockDriftMs || 0) / 60000)} min from the license server when this order was created (already corrected using the server's time) — could be a genuine clock drift, or the system date was changed at that moment. Worth a quick review if unexpected."></i>` : ''}
+              </td>
               <td data-label="Customer">
                 <div class="font-semibold">${o.customer?.name ? escapeHtml(o.customer.name) : '<span class="text-muted">Walk-in</span>'}</div>
                 <div class="text-muted" style="font-size:10px">${escapeHtml(o.customer?.phone || '')}</div>

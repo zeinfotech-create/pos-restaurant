@@ -1,5 +1,6 @@
 import { db, getSettings, getDeviceId, updateData, deleteData, getDataById, updateSettings, getOrders, saveOrder, updateOrder, clearStore, read, KEYS, getCachedLicenseStatus, saveCachedLicenseStatus, getDeletedTombstones, clearExpiredTombstones, verifyLocalUser } from '../db.js';
 import { showSuspendedOverlay } from './LicenseService.js';
+import { refreshTrueTimeOffset } from '../utils/trueTime.js';
 
 // Real, permanent public URL of the vendor-only license-signing server
 // (see D:\zeinfotech-admin-panel, a project deliberately kept separate from
@@ -268,6 +269,19 @@ class SyncEngine {
             clearInterval(this.reminderInterval);
             this.reminderInterval = null;
         }
+        if (this.trueTimeCheckInterval) {
+            clearInterval(this.trueTimeCheckInterval);
+            this.trueTimeCheckInterval = null;
+        }
+
+        // True-time drift check — deliberately universal (NOT gated by
+        // deploymentMode, unlike checkRevocationStatus() below which only
+        // runs for standalone+lifetime installs), so every install gets its
+        // local clock cross-checked against the license server whenever
+        // it's reachable. Fire-and-forget on boot, then every 30 min while
+        // the app stays open — see utils/trueTime.js for what this feeds.
+        refreshTrueTimeOffset();
+        this.trueTimeCheckInterval = setInterval(() => refreshTrueTimeOffset(), 30 * 60 * 1000);
 
         const settings = await getSettings();
         // deploymentMode is already set in constructor for immediate UI responsiveness
