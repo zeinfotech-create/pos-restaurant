@@ -760,6 +760,14 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
     };
   });
 
+  // Inter-state GST: only ever true for a real, selected customer whose own
+  // billing state is both set AND different from this branch's registered
+  // state (Settings > General). A walk-in/anonymous sale, or a customer
+  // with no state on file, has nothing to compare against — stays
+  // intra-state (CGST+SGST), same as this app's behavior always was.
+  const custStateCode = store.selectedCustomer?.stateCode || '';
+  const isInterState = !!(custStateCode && settings.stateCode && custStateCode !== settings.stateCode);
+
   try {
     const order = await saveOrder({
       items: orderItems,
@@ -786,8 +794,11 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
       customer: store.selectedCustomer ? {
         id: store.selectedCustomer.id,
         name: store.selectedCustomer.name,
-        phone: store.selectedCustomer.phone
+        phone: store.selectedCustomer.phone,
+        gstin: store.selectedCustomer.gstin || '',
+        stateCode: custStateCode
       } : null,
+      isInterState,
       status: creditData.isCredit ? 'credit' : 'completed'
     });
 
@@ -963,9 +974,19 @@ export async function printReceiptHtml(contentHtml, title = 'Receipt') {
 
 /**
  * Split a single GST rate/amount into CGST + SGST rows (standard Indian
- * intra-state invoice convention: half the rate and half the amount each).
+ * intra-state invoice convention: half the rate and half the amount each) —
+ * or, when isInterState is true (the order's customer's billing state
+ * differs from this branch's own — see CheckoutService.confirmOrder()), a
+ * single IGST row at the full rate/amount instead, per GST law.
  */
-function renderGstSplit(rate, amount, cur) {
+function renderGstSplit(rate, amount, cur, isInterState = false) {
+  if (isInterState) {
+    return `
+      <div class="receipt-row" style="padding-left:35%; font-size:12.5px">
+        <span>IGST :${(+rate).toFixed(2)}%</span><span>${cur}${amount.toFixed(2)}</span>
+      </div>
+    `;
+  }
   const halfRate = (rate / 2).toFixed(2);
   const halfAmount = amount / 2;
   return `
@@ -1195,7 +1216,9 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
         <div style="flex:0 0 220px">
           <div style="display:flex; justify-content:space-between"><span>Sub Total</span><span>${cur}${subtotal.toFixed(2)}</span></div>
           ${order.discount > 0 ? `<div style="display:flex; justify-content:space-between"><span>Discount</span><span>-${cur}${order.discount.toFixed(2)}</span></div>` : ''}
-          ${taxBreakdown.length > 0 ? taxBreakdown.map(t => `
+          ${taxBreakdown.length > 0 ? taxBreakdown.map(t => order.isInterState ? `
+            <div style="display:flex; justify-content:space-between; font-size:12px"><span>IGST @${(+t.rate).toFixed(2)}%</span><span>${cur}${t.amount.toFixed(2)}</span></div>
+          ` : `
             <div style="display:flex; justify-content:space-between; font-size:12px"><span>CGST @${(t.rate / 2).toFixed(2)}%</span><span>${cur}${(t.amount / 2).toFixed(2)}</span></div>
             <div style="display:flex; justify-content:space-between; font-size:12px"><span>SGST @${(t.rate / 2).toFixed(2)}%</span><span>${cur}${(t.amount / 2).toFixed(2)}</span></div>
           `).join('') : (tax > 0 ? `<div style="display:flex; justify-content:space-between"><span>Tax</span><span>${cur}${tax.toFixed(2)}</span></div>` : '')}
@@ -1424,10 +1447,10 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         // items themselves as the last resort instead.
         const { breakdown: itemTaxBreakdown } = computeTaxByRate(order);
         const taxHtml = hasGroupedTax
-          ? (order.grossGroupedTaxes || order.groupedTaxes).map(t => renderGstSplit(t.rate, t.amount, cur)).join('')
+          ? (order.grossGroupedTaxes || order.groupedTaxes).map(t => renderGstSplit(t.rate, t.amount, cur, order.isInterState)).join('')
           : (itemTaxBreakdown.length > 0
-              ? itemTaxBreakdown.map(t => renderGstSplit(t.rate, t.amount, cur)).join('')
-              : (order.tax > 0 ? renderGstSplit(taxRate, order.tax, cur) : ''));
+              ? itemTaxBreakdown.map(t => renderGstSplit(t.rate, t.amount, cur, order.isInterState)).join('')
+              : (order.tax > 0 ? renderGstSplit(taxRate, order.tax, cur, order.isInterState) : ''));
         const roundOffHtml = (order.roundOff && Math.abs(order.roundOff) > 0.001) ? `
           <div class="receipt-row">
             <span>Round Off</span>

@@ -3,6 +3,7 @@ import { openModal, closeModal } from './Modal.js';
 import { showToast } from './Toast.js';
 import { MediaService } from '../services/MediaService.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
+import { stateOptionsHtml } from '../utils/indianStates.js';
 
 export function openCustomerForm(cust = null, callback = null) {
   const isEdit = !!cust;
@@ -61,6 +62,23 @@ export function openCustomerForm(cust = null, callback = null) {
             <input type="date" class="form-input" id="cBirthday" value="${cust?.birthday || ''}">
           </div>
           <p class="form-help-text">Used for personalized offers & wishes.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">State</label>
+          <select class="form-select" id="cState">
+            ${stateOptionsHtml(cust?.stateCode || '')}
+          </select>
+          <p class="form-help-text">Compared against this branch's own state (Settings) to bill CGST+SGST or IGST correctly.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">GSTIN (optional)</label>
+          <div class="search-input-wrap">
+            <i class="fa-solid fa-file-invoice"></i>
+            <input class="form-input" id="cGstin" value="${escapeHtml(cust?.gstin || '')}" placeholder="e.g. 33AADCV2185M1Z0" style="text-transform:uppercase">
+          </div>
+          <p class="form-help-text">Only for a registered business customer — makes this sale count as B2B on the GSTR-1 export instead of B2C.</p>
         </div>
       </div>
     `,
@@ -126,7 +144,9 @@ export function openCustomerForm(cust = null, callback = null) {
         phone,
         image: document.getElementById('cImageBase64').value,
         email: document.getElementById('cEmail').value.trim(),
-        birthday: document.getElementById('cBirthday').value
+        birthday: document.getElementById('cBirthday').value,
+        stateCode: document.getElementById('cState').value,
+        gstin: document.getElementById('cGstin').value.trim().toUpperCase()
       });
     } catch (err) {
       saveCustBtn.disabled = false;

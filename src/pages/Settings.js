@@ -11,6 +11,7 @@ import { BackupService } from '../services/BackupService.js';
 import { MediaService } from '../services/MediaService.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { renderReceiptBody, renderReceiptBarcodes } from '../services/CheckoutService.js';
+import { stateOptionsHtml } from '../utils/indianStates.js';
 
 let activeSettingsTab = 'general';
 let advancedConnectionExpanded = false;
@@ -310,6 +311,13 @@ export async function renderSettings(container) {
               <div class="form-group">
                 <label class="form-label">GSTIN (optional)</label>
                 <input class="form-input" id="sGstNumber" value="${s.gstNumber || ''}" placeholder="e.g. 34AADCV2185M1Z0" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Business State (for GST)</label>
+                <select class="form-select" id="sStateCode">
+                  ${stateOptionsHtml(s.stateCode || '')}
+                </select>
+                <p style="font-size:11px; color:var(--text-muted); margin-top:4px">Used to tell CGST+SGST (same state) from IGST (different state) sales apart — set this to where this branch is actually registered.</p>
               </div>
               <div class="form-group">
                 <label class="form-label">UPI ID (optional)</label>
@@ -1003,6 +1011,7 @@ export async function renderSettings(container) {
       storeFax: container.querySelector('#sStoreFax')?.value.trim() || '',
       email: container.querySelector('#sStoreEmail')?.value.trim() || '',
       gstNumber: container.querySelector('#sGstNumber').value.trim(),
+      stateCode: container.querySelector('#sStateCode')?.value || '',
       upiId: container.querySelector('#sUpiId').value.trim(),
       storeLogo,
       currency: container.querySelector('#sCurrency').value,

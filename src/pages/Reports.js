@@ -1858,14 +1858,19 @@ async function renderGSTReport(container, cur) {
 
   function gstOutputRowHtml(o) {
     const gstAmt = o.tax || 0;
+    // Inter-state sale — GST law requires IGST (not CGST+SGST) here. Reusing
+    // the existing two columns rather than restructuring the table: the
+    // SGST column doubles as the IGST amount, clearly labelled, so this
+    // still reads correctly without a header/colspan change.
+    const isInter = !!o.isInterState;
     return `
                 <tr>
                   <td data-label="Date">${new Date(o.date).toLocaleDateString()}</td>
                   <td data-label="Customer">${escapeHtml(o.customer?.name || 'Walk-in')}</td>
                   <td data-label="Invoice ID" class="font-mono" style="font-size:11px">${o.id}</td>
                   <td data-label="Taxable Amt">${cur}${(o.subtotal || 0).toFixed(2)}</td>
-                  <td data-label="CGST">${cur}${(gstAmt / 2).toFixed(2)}</td>
-                  <td data-label="SGST">${cur}${(gstAmt / 2).toFixed(2)}</td>
+                  <td data-label="CGST">${isInter ? '—' : `${cur}${(gstAmt / 2).toFixed(2)}`}</td>
+                  <td data-label="SGST">${isInter ? `${cur}${gstAmt.toFixed(2)} (IGST)` : `${cur}${(gstAmt / 2).toFixed(2)}`}</td>
                   <td data-label="Total GST" class="font-bold text-accent">${cur}${gstAmt.toFixed(2)}</td>
                 </tr>
               `;
@@ -2731,6 +2736,12 @@ function buildTaxInvoiceHtml(order, settings, cur) {
         <tbody>${itemRows}</tbody>
       </table>
       <table style="width:100%; border-collapse:collapse; font-size:12px; border-top:1px solid #333;">
+        ${order.isInterState ? `
+        <tr>
+          <td style="padding:6px 8px; text-align:right; border-right:1px solid #333;" colspan="5">IGST ${rate.toFixed(1)}%</td>
+          <td style="padding:6px 8px; text-align:right;">${cur}${gstAmt.toFixed(2)}</td>
+        </tr>
+        ` : `
         <tr>
           <td style="padding:6px 8px; text-align:right; border-right:1px solid #333;" colspan="5">CGST ${halfRate}%</td>
           <td style="padding:6px 8px; text-align:right;">${cur}${halfGst}</td>
@@ -2739,6 +2750,7 @@ function buildTaxInvoiceHtml(order, settings, cur) {
           <td style="padding:6px 8px; text-align:right; border-right:1px solid #333; border-top:1px solid #ddd;" colspan="5">SGST ${halfRate}%</td>
           <td style="padding:6px 8px; text-align:right; border-top:1px solid #ddd;">${cur}${halfGst}</td>
         </tr>
+        `}
         <tr style="font-weight:bold; border-top:2px solid #333;">
           <td style="padding:8px; text-align:right; border-right:1px solid #333;" colspan="5">GRAND TOTAL</td>
           <td style="padding:8px; text-align:right;">${cur}${(order.total || 0).toFixed(2)}</td>
@@ -2873,6 +2885,16 @@ async function exportGSTR1Json(orders) {
       rateGroups[rate].tax += itemTax;
     });
 
+    // Place of Supply: the customer's own billing state for an inter-state
+    // sale (that's the actual point of the "place of supply" field — where
+    // the sale is legally deemed to happen), this branch's own state
+    // otherwise. Falls back to this branch's state if a genuinely
+    // inter-state order somehow has no customer state on file (shouldn't
+    // happen — isInterState is only ever set when one is — but a GSTR-1 row
+    // should never end up with a blank pos).
+    const isInter = !!o.isInterState;
+    const posCode = isInter ? (o.customer?.stateCode || settings.stateCode || "33") : (settings.stateCode || "33");
+
     if (o.customer?.gstin) {
       let b2bEntry = gstr1.b2b.find(ctin => ctin.ctin === o.customer.gstin);
       if (!b2bEntry) {
@@ -2884,9 +2906,9 @@ async function exportGSTR1Json(orders) {
         itm_det: {
           rt: parseFloat(rate),
           txval: parseFloat(g.txval.toFixed(2)),
-          iamt: 0,
-          camt: parseFloat((g.tax / 2).toFixed(2)),
-          samt: parseFloat((g.tax / 2).toFixed(2)),
+          iamt: isInter ? parseFloat(g.tax.toFixed(2)) : 0,
+          camt: isInter ? 0 : parseFloat((g.tax / 2).toFixed(2)),
+          samt: isInter ? 0 : parseFloat((g.tax / 2).toFixed(2)),
           csamt: 0
         }
       }));
@@ -2894,24 +2916,29 @@ async function exportGSTR1Json(orders) {
         inum: o.id,
         idt: new Date(o.date).toLocaleDateString('en-GB'),
         val: o.total,
-        pos: settings.stateCode || "33",
+        pos: posCode,
         rchrg: "N",
         inv_typ: "R",
         itms
       });
     } else {
       Object.entries(rateGroups).forEach(([rate, g]) => {
-        if (!b2csMap[rate]) {
-          // A walk-in/no-GSTIN retail sale is intra-state by default (this
-          // app has no separate customer-state field to determine
-          // otherwise) — "INTER" (inter-state, which legally requires IGST
-          // via `iamt`) was inconsistent with camt/samt (CGST+SGST) being
-          // the fields actually populated.
-          b2csMap[rate] = { sply_ty: "INTRA", pos: settings.stateCode || "33", typ: "OE", rt: parseFloat(rate), txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
+        // Keyed on rate+pos+supply-type, not rate alone — an inter-state
+        // sale to one destination state must never be merged into the same
+        // bucket as an intra-state sale at the same rate (or, now that
+        // multiple destination states are possible, another inter-state
+        // sale to a DIFFERENT one).
+        const mapKey = `${rate}_${posCode}_${isInter ? 'INTER' : 'INTRA'}`;
+        if (!b2csMap[mapKey]) {
+          b2csMap[mapKey] = { sply_ty: isInter ? "INTER" : "INTRA", pos: posCode, typ: "OE", rt: parseFloat(rate), txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
         }
-        b2csMap[rate].txval += g.txval;
-        b2csMap[rate].camt += g.tax / 2;
-        b2csMap[rate].samt += g.tax / 2;
+        b2csMap[mapKey].txval += g.txval;
+        if (isInter) {
+          b2csMap[mapKey].iamt += g.tax;
+        } else {
+          b2csMap[mapKey].camt += g.tax / 2;
+          b2csMap[mapKey].samt += g.tax / 2;
+        }
       });
     }
 
@@ -2926,14 +2953,19 @@ async function exportGSTR1Json(orders) {
       hsnMap[code].qty += item.qty;
       hsnMap[code].val += taxValueNet + itemTax;
       hsnMap[code].txval += taxValueNet;
-      hsnMap[code].camt += itemTax / 2;
-      hsnMap[code].samt += itemTax / 2;
+      if (isInter) {
+        hsnMap[code].iamt += itemTax;
+      } else {
+        hsnMap[code].camt += itemTax / 2;
+        hsnMap[code].samt += itemTax / 2;
+      }
     });
   });
 
   gstr1.b2cs = Object.values(b2csMap).map(b => ({
     ...b,
     txval: parseFloat(b.txval.toFixed(2)),
+    iamt: parseFloat(b.iamt.toFixed(2)),
     camt: parseFloat(b.camt.toFixed(2)),
     samt: parseFloat(b.samt.toFixed(2))
   }));
