@@ -1,5 +1,22 @@
 import { db, KEYS, getSettings, getCurrentBranch, getCurrentUser, getCurrentRegisterId, getProducts } from './db.js';
 import { showToast } from './components/Toast.js';
+import { showAlert } from './components/Modal.js';
+import { escapeHtml } from './utils/escapeHtml.js';
+
+// Same "parse as calendar date, not UTC instant" fix as db.js's parseLocalDate
+// (kept as its own copy here rather than exported/shared — db.js's is a
+// module-private helper, and this is the only other spot that needs it).
+// Without it, `new Date('2026-08-12')` is parsed as UTC midnight, which
+// prints as 12 Aug in timezones behind UTC but 11 Aug everywhere at or
+// ahead of it (IST included) — a real product could show as "expired" a
+// full day before it actually is, or vice versa.
+function isPastExpiry(expiryDateStr) {
+    const [y, m, d] = expiryDateStr.split('-').map(Number);
+    const expiry = new Date(y, m - 1, d);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return expiry < today;
+}
 
 export const store = {
     cart: [],
@@ -108,6 +125,20 @@ export function addToCart(product, variant = null, qty = 1) {
             originalStock: availableStock
         });
     }
+
+    // Warn AFTER the item is already in the cart — this is a heads-up for
+    // the cashier, not a hard block (some shops still legitimately sell
+    // near-expiry stock at a discount, mark it for return, etc.), so it must
+    // never silently stop the sale or make the item impossible to add.
+    if (product.expiryDate && isPastExpiry(product.expiryDate)) {
+        showAlert({
+            title: 'Expired Product',
+            message: `<b>${escapeHtml(product.name)}</b> expired on <b>${product.expiryDate}</b>. It has been added to the cart — please confirm before selling it.`,
+            btnText: 'Understood',
+            type: 'warning'
+        });
+    }
+
     renderCartEvent();
     return cartId;
 }
