@@ -1404,8 +1404,15 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
       : ((i.itemDiscount || 0) * itemQty);
 
     const exclusiveSubtotal = baseLineTotal - itemDiscountAmt;
-    const taxAmount = isInclusive ? 0 : (exclusiveSubtotal * itemTaxRate / 100);
-    const itemLineTotal = exclusiveSubtotal + taxAmount;
+    // Inclusive tax was previously left at 0 here since nothing displayed
+    // it — now that the receipt shows the actual ₹ tax amount (not just
+    // the rate %) per line, extract what's really embedded in the
+    // (already-discounted) line total, same formula QuickPOS's on-screen
+    // cart table uses: taxable − taxable/(1+rate/100).
+    const taxAmount = isInclusive
+      ? exclusiveSubtotal - exclusiveSubtotal / (1 + itemTaxRate / 100)
+      : (exclusiveSubtotal * itemTaxRate / 100);
+    const itemLineTotal = isInclusive ? exclusiveSubtotal : exclusiveSubtotal + taxAmount;
 
     // The RATE column must show the taxable (tax-exclusive) unit price, matching how
     // store.js's getCartTotals() derives the Subtotal line — for inclusive-tax items the
@@ -1417,7 +1424,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
       i.variantName ? `(${i.variantName})` : '',
       i.hsnCode ? `HSN: ${i.hsnCode}` : '',
       itemDiscountAmt > 0 ? `Disc: -${cur}${itemDiscountAmt.toFixed(2)}${i.itemDiscountType === 'pct' ? ` (${i.itemDiscount}%)` : ''}` : '',
-      itemTaxRate > 0 ? `Tax ${itemTaxRate}%${isInclusive ? ' Incl.' : ''}` : ''
+      itemTaxRate > 0 ? `Tax ${itemTaxRate}%${isInclusive ? ' Incl.' : ''} (${cur}${taxAmount.toFixed(2)})` : ''
     ].filter(Boolean).join(' | ');
 
     return `
