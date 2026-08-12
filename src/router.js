@@ -121,11 +121,11 @@ export async function navigate(page) {
     // check). The nav item is hidden for this branch, so the only way to
     // land here is a stale link/back-button — redirect away instead of
     // rendering a page with nothing real to manage.
-    if (mainPage === 'register') {
+    if (mainPage === 'register' || page === 'reports/registers') {
         const { getBranchRegisters, getCurrentBranch } = await import('./db.js');
         const currentBranch = await getCurrentBranch();
         if (currentBranch?.id && (await getBranchRegisters(currentBranch.id)).length === 0) {
-            console.log('[Router] Branch has no registers — redirecting away from Register page.');
+            console.log(`[Router] Branch has no registers — redirecting away from ${page}.`);
             navigate('dashboard');
             return;
         }

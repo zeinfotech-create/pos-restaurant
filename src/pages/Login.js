@@ -106,7 +106,6 @@ export function renderLogin(container) {
                     ${(() => {
           try {
             const limits = window.syncEngine?.getLimits() || { maxBranches: 1 };
-            const allowedB = Array.isArray(cloudBranches) ? cloudBranches : [];
             // Master/Super Admin is the system owner account — the same
             // exemption already applied to the staff-seat quota (Users.js)
             // and the "must pick at least one branch" requirement — must
@@ -114,7 +113,21 @@ export function renderLogin(container) {
             // this, the owner's own account could get locked out of
             // branches they created themselves the moment the branch count
             // passed whatever the current plan allows.
-            const isFullAccessUser = authenticatedUser?.role === 'Master' || authenticatedUser?.role === 'Super Admin';
+            const isFullAccessUser = authenticatedUser?.role === 'Master' || authenticatedUser?.role === 'Super Admin' || authenticatedUser?.role === 'Admin';
+            // Staff/Manager/Custom only ever see the branches explicitly
+            // assigned to them in Users.js's "Authorized Branches" picker —
+            // this used to show every branch on the license (with unassigned
+            // ones just visually greyed out as "PREMIUM ONLY", a plan-tier
+            // label that had nothing to do with why they were actually
+            // blocked here: assignment, not plan capacity). An empty/missing
+            // branchIds means "All" everywhere else in the app (Users.js's
+            // own branchString fallback), so mirror that here too.
+            const myBranchIds = authenticatedUser?.branchIds || [];
+            const allowedB = (Array.isArray(cloudBranches) ? cloudBranches : []).filter(b => {
+              if (isFullAccessUser || myBranchIds.length === 0) return true;
+              const bId = b.id || b.branchId || b._id;
+              return myBranchIds.includes(bId);
+            });
             return allowedB.map((b, idx) => {
               const bId = b.id || b.branchId || b._id;
               const restricted = !isFullAccessUser && idx >= limits.maxBranches;

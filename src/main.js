@@ -142,7 +142,7 @@ async function renderSidebar() {
           <button class="submenu-item ${getCurrentPage() === 'reports/gst' ? 'active' : ''}" data-page="reports/gst"><i class="fa-solid fa-file-invoice-dollar"></i> <span>GST Summary</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/customers' ? 'active' : ''}" data-page="reports/customers"><i class="fa-solid fa-users"></i> <span>Customer Based</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/staff' ? 'active' : ''}" data-page="reports/staff"><i class="fa-solid fa-hand-holding-dollar"></i> <span>Staff Earnings</span></button>
-          <button class="submenu-item ${getCurrentPage() === 'reports/registers' ? 'active' : ''}" data-page="reports/registers"><i class="fa-solid fa-cash-register"></i> <span>Register Based</span></button>
+          ${branchHasRegisters ? `<button class="submenu-item ${getCurrentPage() === 'reports/registers' ? 'active' : ''}" data-page="reports/registers"><i class="fa-solid fa-cash-register"></i> <span>Register Based</span></button>` : ''}
           <button class="submenu-item ${getCurrentPage() === 'reports/login-activity' ? 'active' : ''}" data-page="reports/login-activity"><i class="fa-solid fa-shield-halved"></i> <span>Login Audit</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/returns' ? 'active' : ''}" data-page="reports/returns"><i class="fa-solid fa-rotate-left"></i> <span>Returns History</span></button>
         </div>
