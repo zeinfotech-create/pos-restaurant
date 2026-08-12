@@ -817,9 +817,24 @@ export async function renderQuickPOS(container) {
         ? `<td style="text-align:center"><input id="colInput" type="number" min="0.001" step="0.001" value="${Number.isInteger(item.qty) ? item.qty : item.qty.toFixed(3)}" style="width:68px;text-align:center;font-weight:900;border:2px solid var(--info);background:var(--bg-card);color:var(--text-main);border-radius:4px;padding:2px 4px;outline:none"></td>`
         : `<td style="text-align:center; font-weight:900">${Number.isInteger(item.qty) ? item.qty : item.qty.toFixed(3)}</td>`;
 
+      // For an inclusive-tax Rate, break out exactly what's "inside" it —
+      // the pre-tax base price — instead of leaving the customer to work
+      // out ₹65.00's base themselves. This is computed straight off the
+      // Rate itself (item.price), independent of any per-line discount, so
+      // it doesn't get mixed up with the Tx column's ₹2.86 (which is the
+      // tax actually charged, on the *discounted* taxable amount — a
+      // different, smaller figure on purpose, see that column's tooltip).
+      const preTaxRate = (item.taxType === 'inclusive' && taxRate > 0)
+        ? item.price / (1 + taxRate / 100)
+        : null;
+
       const priceCell = isSelected && selectedColIndex === 1
         ? `<td style="text-align:right"><input id="colInput" type="number" min="0" step="0.01" value="${item.price.toFixed(2)}" style="width:80px;text-align:right;border:2px solid var(--info);background:var(--bg-card);color:var(--text-main);border-radius:4px;padding:2px 4px;outline:none"></td>`
-        : `<td style="text-align:right">${item.price.toFixed(2)}</td>`;
+        : `<td style="text-align:right" title="${item.taxType === 'inclusive' ? `This Rate already includes ${taxRate}% tax — base price (before tax) is ${cur}${preTaxRate !== null ? preTaxRate.toFixed(2) : '0.00'}` : 'This Rate is before tax — tax is added on top (see Tx column)'}">
+             <div>${item.price.toFixed(2)}</div>
+             ${taxRate > 0 ? `<div style="font-size:10px; font-weight:700; opacity:0.65; white-space:nowrap">${item.taxType === 'inclusive' ? 'Tax Incl' : 'Tax Excl'}</div>` : ''}
+             ${preTaxRate !== null ? `<div style="font-size:9px; opacity:0.55; white-space:nowrap">Base: ${cur}${preTaxRate.toFixed(2)}</div>` : ''}
+           </td>`;
 
       const discCell = isSelected && selectedColIndex === 2
         ? `<td style="text-align:right; position:relative;">
@@ -848,7 +863,9 @@ export async function renderQuickPOS(container) {
           ` : '<span style="opacity:0.5">—</span>'}
         </td>
         ${discCell}
-        <td style="text-align:right; font-weight:900">${beforeDiscTotal !== null ? `<span style="text-decoration:line-through; opacity:0.5; font-weight:400; font-size:11px; margin-right:4px">${cur}${beforeDiscTotal.toFixed(2)}</span>` : ''}${lineTotal.toFixed(2)}</td>
+        <td style="text-align:right; font-weight:900" title="${item.taxType === 'inclusive'
+            ? `Rate ${cur}${item.price.toFixed(2)} − Discount ${cur}${itemDisc.toFixed(2)} = ${cur}${lineTotal.toFixed(2)} (tax was already inside the Rate — nothing more to add)`
+            : `Rate ${cur}${item.price.toFixed(2)} − Discount ${cur}${itemDisc.toFixed(2)} + Tax ${cur}${taxAmt.toFixed(2)} = ${cur}${lineTotal.toFixed(2)}`}">${beforeDiscTotal !== null ? `<span style="text-decoration:line-through; opacity:0.5; font-weight:400; font-size:11px; margin-right:4px">${cur}${beforeDiscTotal.toFixed(2)}</span>` : ''}${lineTotal.toFixed(2)}</td>
       </tr>`;
     }).join('');
 
