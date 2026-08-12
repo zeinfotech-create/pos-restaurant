@@ -609,6 +609,21 @@ export async function renderCart(cur) {
             <span class="cart-loyalty-tier" style="color:${store.selectedCustomer.tier?.color || 'var(--primary)'}">${store.selectedCustomer.tier?.name || 'Silver'}</span>
           </div>
         ` : ''}
+        ${settings.enableStaffEarnings !== false ? `
+        <div class="cart-meta-row no-hover" style="padding:4px 10px; position:relative">
+          <span class="cart-meta-icon"><i class="fa-solid fa-user-tie"></i></span>
+          <div style="flex:1; position:relative; display:flex; align-items:center;">
+             <input type="text" id="posStaffSearch" placeholder="Assign Staff (optional)..."
+               autocomplete="off"
+               style="border:none; padding:4px 0; background:transparent; font-weight:700; width:100%; outline:none; font-size:13px; color:var(--text-main)"
+               value="${escapeHtml(store.selectedStaff ? store.selectedStaff.name : '')}" />
+             <div id="posStaffSuggestions" class="ep-suggestions hidden" style="position:absolute; top:36px; left:-34px; width:calc(100% + 56px); z-index:100; background:var(--bg-elevated); box-shadow:var(--shadow-lg); border-radius:12px; border:1px solid var(--border); overflow:hidden"></div>
+          </div>
+          ${store.selectedStaff ? `
+            <button id="posClearStaffBtn" class="cart-meta-add" style="color:var(--danger)" title="Clear"><i class="fa-solid fa-circle-xmark"></i></button>
+          ` : ''}
+        </div>
+        ` : ''}
       ` : `
         <div class="cart-meta-row">
           <span class="cart-meta-icon"><i class="fa-solid fa-calendar-check" style="color:var(--accent)"></i></span>
@@ -1023,6 +1038,68 @@ export async function renderCart(cur) {
   panel.querySelector('#posClearAppoCust')?.addEventListener('click', () => {
     store.selectedCustomer = null;
     store.selectedAppointmentId = null;
+    renderCart(cur);
+  });
+
+  // Staff picker — same search/suggestions pattern as the customer picker
+  // above. Optional (unlike customer, no "Walk-in" placeholder/fallback):
+  // most sales legitimately have no specific staff attribution, so leaving
+  // it blank is the normal case, not an error state.
+  const staffSearch = panel.querySelector('#posStaffSearch');
+  const staffSugs = panel.querySelector('#posStaffSuggestions');
+
+  if (staffSearch && staffSugs) {
+    const showStaffSuggestions = async (query) => {
+      const val = query.toLowerCase();
+      const staffList = await getStaff(store.branch?.id);
+      const matches = staffList.filter(s =>
+        s.name.toLowerCase().includes(val) || (s.specialization || '').toLowerCase().includes(val)
+      );
+
+      if (matches.length === 0) {
+        staffSugs.classList.add('hidden');
+        return;
+      }
+
+      staffSugs.classList.remove('hidden');
+      staffSugs.innerHTML = matches.slice(0, 6).map(s => `
+        <div class="staff-suggestion-item" data-id="${s.id}" style="padding:10px 12px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition:background 0.15s; background:var(--bg-elevated)" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='var(--bg-elevated)'">
+          <div style="min-width:0; flex:1">
+            <div style="font-weight:700; color:var(--text-main); font-size:13px; line-height:1.2">${escapeHtml(s.name)}</div>
+            <div style="font-size:11px; color:#6366f1; font-weight:600">${escapeHtml(s.specialization || 'Generalist')}</div>
+          </div>
+          <div style="font-size:10px; color:#94a3b8"><i class="fa-solid fa-chevron-right"></i></div>
+        </div>
+      `).join('');
+
+      staffSugs.querySelectorAll('.staff-suggestion-item').forEach(item => {
+        item.onclick = (e) => {
+          e.stopPropagation();
+          const staffMember = matches.find(m => String(m.id) === String(item.dataset.id));
+          if (staffMember) {
+            import('../store.js').then(s => {
+              s.setStaff(staffMember);
+              renderCart(cur);
+            });
+          }
+        };
+      });
+    };
+
+    staffSearch.addEventListener('focus', () => showStaffSuggestions(staffSearch.value));
+    staffSearch.addEventListener('input', (e) => showStaffSuggestions(e.target.value));
+
+    const hideStaffOnOutside = (e) => {
+      if (!staffSearch.contains(e.target) && !staffSugs.contains(e.target)) {
+        staffSugs.classList.add('hidden');
+        document.removeEventListener('click', hideStaffOnOutside);
+      }
+    };
+    document.addEventListener('click', hideStaffOnOutside);
+  }
+
+  panel.querySelector('#posClearStaffBtn')?.addEventListener('click', () => {
+    store.selectedStaff = null;
     renderCart(cur);
   });
 

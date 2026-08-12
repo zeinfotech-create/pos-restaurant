@@ -819,16 +819,35 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
     await updateShiftSales(store.branch?.id || 'b1', totals.total, payments, store.registerId);
 
     // Save Staff Incentive if applicable
-    if (order.staff) {
-      const commissionRate = parseFloat(order.staff.commissionRate) || 0;
+    if (settings.enableStaffEarnings !== false && order.staff) {
+      // The staff member's own rate (Staff Management) wins if set; the
+      // Settings > General default only ever applies to staff who were
+      // never given one of their own (used to be a silent 0% — no commission
+      // at all — for any staff member the owner hadn't gotten around to
+      // configuring individually).
+      const commissionRate = parseFloat(order.staff.commissionRate) || parseFloat(settings.staffDefaultCommission) || 0;
       if (commissionRate > 0) {
-        const amount = (order.total * commissionRate) / 100;
+        // Profit (default, and the only option exposed in Settings right
+        // now) = sale amount minus each item's own cost price, so
+        // commission never rewards a big-ticket sale that was actually sold
+        // at a thin or negative margin (e.g. a heavily discounted clearance
+        // item) the same as a full-margin one. Revenue mode still exists in
+        // code — just not selectable from Settings currently — for a
+        // possible future toggle; anyone with 'revenue' already saved from
+        // before keeps that behavior until they save Settings again.
+        let commissionBase = order.total;
+        if (settings.staffCommissionBasis !== 'revenue') {
+          const totalCost = (order.items || []).reduce((s, i) => s + ((i.costPrice || 0) * (i.qty || 0)), 0);
+          commissionBase = Math.max(0, order.total - totalCost);
+        }
+        const amount = (commissionBase * commissionRate) / 100;
         await saveStaffIncentive({
           staffId: order.staff.id,
           staffName: order.staff.name,
           orderId: order.id,
           orderTotal: order.total,
           commissionRate: commissionRate,
+          commissionBasis: settings.staffCommissionBasis || 'profit',
           amount: parseFloat(amount.toFixed(2)),
           branchId: order.branchId
         });

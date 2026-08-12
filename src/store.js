@@ -354,6 +354,11 @@ export function setCustomer(customer) {
     renderCartEvent();
 }
 
+export function setStaff(staff) {
+    store.selectedStaff = staff;
+    renderCartEvent();
+}
+
 const displayChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('pos_customer_display') : null;
 
 // Force a broadcast of the current state

@@ -1,5 +1,5 @@
-import { getProducts, getSettings, getCustomers, saveCustomer, isRegisterOpen, hasPermission, getCurrentBranch, getCurrentRegisterId } from '../db.js';
-import { store, addToCart, onCartUpdate, getCartTotals, updateQty, removeFromCart, clearCart, setDiscount, setExtraTax, updateCartItem, setCustomer } from '../store.js';
+import { getProducts, getSettings, getCustomers, saveCustomer, isRegisterOpen, hasPermission, getCurrentBranch, getCurrentRegisterId, getStaff } from '../db.js';
+import { store, addToCart, onCartUpdate, getCartTotals, updateQty, removeFromCart, clearCart, setDiscount, setExtraTax, updateCartItem, setCustomer, setStaff } from '../store.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { openCustomerForm } from '../components/CustomerForm.js';
 import { openQuickCheckout } from '../services/QuickCheckoutService.js';
@@ -28,6 +28,7 @@ export async function renderQuickPOS(container) {
   store.registerId = await getCurrentRegisterId();
   const branchId = store.branch?.id;
   const registerId = store.registerId;
+  const staffList = settings.enableStaffEarnings !== false ? await getStaff(branchId) : [];
 
   if (!(await isRegisterOpen(branchId, registerId))) {
     container.innerHTML = `
@@ -185,6 +186,26 @@ export async function renderQuickPOS(container) {
                </details>
 
                <button id="qcSaveBtn" tabindex="2" class="btn btn-primary btn-sm" style="width:100%; font-weight:bold; font-size:12px; border-radius:4px; height:32px">Save Profile</button>
+
+               <!-- Assign Staff (optional — most sales have none, that's normal).
+                    Same type-to-filter keyboard-driven autosuggest pattern as
+                    the customer search box above (#qcSearchPhone/#qcSuggestions)
+                    instead of a click-only dropdown — QuickPOS is a
+                    keyboard-first screen, so typing + Arrow keys + Enter is
+                    the expected way to pick staff here, matching every other
+                    picker on this screen. -->
+               ${settings.enableStaffEarnings !== false && staffList.length > 0 ? `
+               <div class="form-group" style="margin-top:12px; padding-top:10px; border-top:1px dashed #e5e7eb; position:relative">
+                 <label class="form-label" style="font-size:11px; font-weight:700; margin-bottom:2px">Assign Staff</label>
+                 <div style="position:relative;">
+                   <input type="text" id="qpStaffSearch" placeholder="Type staff name..." autocomplete="off"
+                     style="width:100%; border:1px solid #d1d5db; padding:6px 10px; font-size:13px; border-radius:4px; outline:none; color:#1e293b"
+                     value="${escapeHtml(store.selectedStaff ? store.selectedStaff.name : '')}" />
+                   <div id="qpStaffSuggestions" class="ep-suggestions hidden" style="top:36px; left:0; width:100%; max-height:160px; overflow-y:auto;"></div>
+                 </div>
+                 ${store.selectedStaff ? `<button type="button" id="qpClearStaffBtn" class="btn btn-ghost btn-xs" style="color:#ef4444; padding:3px 0 0; font-size:11px; font-weight:700"><i class="fa-solid fa-circle-xmark"></i> Clear</button>` : ''}
+               </div>
+               ` : ''}
             </div>
 
             <!-- Fixed Loyalty Area at Bottom (COMPACT) -->
@@ -524,6 +545,7 @@ export async function renderQuickPOS(container) {
   const resetQuickPOS = () => {
     store.cart = [];
     store.selectedCustomer = null;
+    store.selectedStaff = null;
     selectedCartIndex = -1;
     selectedColIndex = -1;
     renderQuickPOS(container);
@@ -1171,13 +1193,23 @@ export async function renderQuickPOS(container) {
   };
   window.addEventListener('keydown', handleGlobalKeys);
 
+  // Assigned further down (Assign Staff dropdown) — declared here so
+  // cleanup() below can close over the variable itself, not whatever value
+  // it happened to hold when cleanup() was defined. Without this, every
+  // re-render's outside-click listener stacked up on `document` forever
+  // instead of the previous one being torn down first, the same class of
+  // leak checkElectronInstallState()/setupStorageListener() elsewhere in
+  // this app had already been bitten by.
+  let staffDropdownOutsideClick = null;
+
   const cleanup = () => {
     clearInterval(focusInterval);
     window.removeEventListener('keydown', handleGlobalKeys);
     if (observer) observer.disconnect();
+    if (staffDropdownOutsideClick) document.removeEventListener('click', staffDropdownOutsideClick);
   };
   window._qpCleanup = cleanup;
-  
+
   const observer = new MutationObserver(() => {
     // If the Quick POS root element is gone from the DOM, cleanup
     if (!document.body.contains(container) || !container.querySelector('.enterprise-pos-container')) { 
@@ -1227,7 +1259,108 @@ export async function renderQuickPOS(container) {
   const qcSuggestions = container.querySelector('#qcSuggestions');
   const quickResetBtn = container.querySelector('#quickResetBtn');
   if (quickResetBtn) quickResetBtn.onclick = resetQuickPOS;
-  
+
+  const qpStaffSearch = container.querySelector('#qpStaffSearch');
+  const qpStaffSuggestions = container.querySelector('#qpStaffSuggestions');
+  if (qpStaffSearch && qpStaffSuggestions) {
+    // Re-render the whole panel on select (like syncCustomerDisplay below)
+    // instead of just calling setStaff() — setStaff()'s renderCartEvent()
+    // only refreshes the cart-total strip, not this sidebar, so the
+    // input/label would otherwise stay stale after a pick.
+    const syncStaffDisplay = async (staffMember) => {
+      setStaff(staffMember || null);
+      await renderQuickPOS(container);
+      setTimeout(() => {
+        const search = container.querySelector('#quickProductSearch');
+        if (search) search.focus();
+      }, 100);
+    };
+
+    const showStaffSuggestions = (query) => {
+      const val = query.trim().toLowerCase();
+      const matches = val
+        ? staffList.filter(s => s.name.toLowerCase().includes(val) || (s.specialization || '').toLowerCase().includes(val))
+        : staffList;
+
+      if (matches.length === 0) {
+        qpStaffSuggestions.classList.add('hidden');
+        return;
+      }
+
+      qpStaffSuggestions.classList.remove('hidden');
+      qpStaffSuggestions.innerHTML = `
+        <div class="ep-suggestion-item" data-staff-id="" style="padding:8px 10px; border-bottom:1px solid #f1f5f9; font-weight:700; color:#64748b">
+          <i class="fa-solid fa-user-slash mr-8"></i> — None —
+        </div>
+      ` + matches.slice(0, 6).map(s => `
+        <div class="ep-suggestion-item" data-staff-id="${s.id}" style="padding:8px 10px; font-size:13px; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-weight:700; color:#1e293b">${escapeHtml(s.name)}</div>
+            ${s.specialization ? `<div style="font-size:11px; color:#6366f1; font-weight:600">${escapeHtml(s.specialization)}</div>` : ''}
+          </div>
+          <div style="font-size:10px; color:#94a3b8"><i class="fa-solid fa-chevron-right"></i></div>
+        </div>
+      `).join('');
+
+      qpStaffSuggestions.querySelectorAll('.ep-suggestion-item').forEach(item => {
+        item.onclick = async () => {
+          const staffId = item.dataset.staffId;
+          const staffMember = staffId ? staffList.find(s => String(s.id) === staffId) : null;
+          await syncStaffDisplay(staffMember);
+        };
+      });
+    };
+
+    qpStaffSearch.addEventListener('focus', () => showStaffSuggestions(qpStaffSearch.value));
+    qpStaffSearch.addEventListener('input', (e) => showStaffSuggestions(e.target.value));
+
+    qpStaffSearch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (!qpStaffSuggestions.classList.contains('hidden')) {
+          const active = qpStaffSuggestions.querySelector('.ep-suggestion-item.active');
+          const target = active || qpStaffSuggestions.querySelector('.ep-suggestion-item');
+          if (target) target.click();
+        }
+      }
+      if (e.key === 'ArrowDown' && !qpStaffSuggestions.classList.contains('hidden')) {
+        e.preventDefault();
+        const items = Array.from(qpStaffSuggestions.querySelectorAll('.ep-suggestion-item'));
+        const activeIdx = items.findIndex(i => i.classList.contains('active'));
+        items.forEach(i => i.classList.remove('active'));
+        items[(activeIdx + 1) % items.length].classList.add('active');
+      }
+      if (e.key === 'ArrowUp' && !qpStaffSuggestions.classList.contains('hidden')) {
+        e.preventDefault();
+        const items = Array.from(qpStaffSuggestions.querySelectorAll('.ep-suggestion-item'));
+        const activeIdx = items.findIndex(i => i.classList.contains('active'));
+        items.forEach(i => i.classList.remove('active'));
+        items[(activeIdx - 1 + items.length) % items.length].classList.add('active');
+      }
+      if (e.key === 'Escape') {
+        qpStaffSuggestions.classList.add('hidden');
+      }
+    });
+
+    // Close on outside click — torn down by cleanup() above on the next
+    // render (or when this page is navigated away from) so this never
+    // stacks up duplicate listeners on `document`.
+    staffDropdownOutsideClick = (e) => {
+      if (!qpStaffSearch.contains(e.target) && !qpStaffSuggestions.contains(e.target)) {
+        qpStaffSuggestions.classList.add('hidden');
+      }
+    };
+    document.addEventListener('click', staffDropdownOutsideClick);
+  }
+
+  container.querySelector('#qpClearStaffBtn')?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const qpStaffSearch2 = container.querySelector('#qpStaffSearch');
+    if (qpStaffSearch2) qpStaffSearch2.value = '';
+    setStaff(null);
+    await renderQuickPOS(container);
+  });
+
   const btnReset = container.querySelector('#btnReset');
   if (btnReset) btnReset.onclick = resetQuickPOS;
 

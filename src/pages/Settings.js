@@ -518,6 +518,28 @@ export async function renderSettings(container) {
                   <p style="font-size:11px; color:var(--text-muted); margin-top:4px">A customer below the Gold threshold is Silver by default. Badge only — see the earn rate above for how points are actually calculated.</p>
                 </div>
               </div>
+              <div class="form-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border)">
+                <label class="flex items-center gap-12 cursor-pointer">
+                  <input type="checkbox" id="sEnableStaffEarnings" ${s.enableStaffEarnings !== false ? 'checked' : ''} style="width:20px;height:20px" />
+                  <div>
+                    <div class="font-bold">Enable Staff Earnings / Commission</div>
+                    <p style="font-size:12px;opacity:0.6">Tracks per-sale commission for the staff member assigned at checkout. Turn off if you don't pay commission.</p>
+                  </div>
+                </label>
+                <div style="margin-top:12px; padding:12px; background:var(--bg-elevated); border-radius:10px; border:1px solid var(--border)">
+                  <input type="hidden" id="sStaffCommissionBasis" value="profit" />
+                  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+                    <span style="font-size:13px; white-space:nowrap">Commission is calculated on:</span>
+                    <span style="font-size:13px; font-weight:700">Profit (after cost price)</span>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:8px; margin-top:12px">
+                    <span style="font-size:13px; white-space:nowrap">Default rate for new staff:</span>
+                    <input type="number" id="sStaffDefaultCommission" min="0" max="100" step="0.5" value="${s.staffDefaultCommission ?? 0}" class="form-input" style="width:80px; text-align:center" />
+                    <span style="font-size:13px">%</span>
+                  </div>
+                  <p style="font-size:11px; color:var(--text-muted); margin-top:8px">Each staff member can still be given their own rate on the Staff Management page (overrides this default). Revenue = full sale amount; Profit = sale amount minus each item's cost price, so it never rewards a big-ticket sale that was actually sold at a thin or negative margin.</p>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1091,7 +1113,10 @@ export async function renderSettings(container) {
       loyaltyGoldPoints: parseFloat(container.querySelector('#sLoyaltyGoldPoints')?.value) ?? 1.5,
       loyaltyPlatinumPoints: parseFloat(container.querySelector('#sLoyaltyPlatinumPoints')?.value) ?? 2,
       loyaltyGoldThreshold: parseFloat(container.querySelector('#sLoyaltyGoldThreshold')?.value) || 5000,
-      loyaltyPlatinumThreshold: parseFloat(container.querySelector('#sLoyaltyPlatinumThreshold')?.value) || 15000
+      loyaltyPlatinumThreshold: parseFloat(container.querySelector('#sLoyaltyPlatinumThreshold')?.value) || 15000,
+      enableStaffEarnings: container.querySelector('#sEnableStaffEarnings')?.checked !== false,
+      staffCommissionBasis: container.querySelector('#sStaffCommissionBasis')?.value || 'profit',
+      staffDefaultCommission: parseFloat(container.querySelector('#sStaffDefaultCommission')?.value) || 0
     });
 
     // Keep the current branch's own record in sync with what was just saved
