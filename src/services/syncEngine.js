@@ -226,7 +226,17 @@ class SyncEngine {
             if (!data.success) return { success: false, message: data.error || 'Activation failed' };
 
             console.log('[Lifetime] Activation succeeded, saving token. licenseKey used:', licenseKey);
-            await updateSettings({ lifetimeToken: data.token, licenseKey });
+            // Persisted (not just held in memory) because init() recomputes
+            // licenseStatus from scratch on every boot — without saving these,
+            // the very next app restart would fall back to some guessed
+            // default instead of what this specific key was actually
+            // configured for (see init()'s isLifetimeActivated branch below).
+            await updateSettings({
+                lifetimeToken: data.token,
+                licenseKey,
+                lifetimeBranchLimit: data.branchLimit || null,
+                lifetimeUserLimit: data.userLimit || null
+            });
             await window.electronAPI.markLifetimeActivated();
             this.isLifetimeActivated = true;
 
@@ -288,9 +298,17 @@ class SyncEngine {
                     type: 'premium',
                     isExpired: false,
                     daysLeft: 9999,
-                    branchLimit: 99,
-                    userLimit: 99,
-                    registerLimit: 99,
+                    // Whatever this device's key was actually configured with
+                    // (persisted at activation time — see activateLifetimeKey()),
+                    // not a blanket "premium = unlimited" guess. Falls back to 1
+                    // (matching the admin panel's own License schema default) only
+                    // for a key that genuinely left the field blank, or a token
+                    // activated before this device persisted these fields at all.
+                    branchLimit: settings.lifetimeBranchLimit || 1,
+                    userLimit: settings.lifetimeUserLimit || 1,
+                    // Fixed platform rule, not part of the key — every branch gets
+                    // 3 registers regardless of plan.
+                    registerLimit: 3,
                     productLimit: 99999,
                     modules: {
                         inventory: 'full', reports: 'full',

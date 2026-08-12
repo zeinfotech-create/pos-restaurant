@@ -971,34 +971,47 @@ wss.on('connection', (ws, req) => {
                     let limitExceeded = false;
                     let limitMsg = '';
 
-                    if (store === 'branches') {
-                        const existing = await DBManager.findOne(Model, store, { licenseKey: finalLicense, branchId: data.id });
-                        if (!existing && recordCount >= status.branchLimit) {
-                            limitExceeded = true;
-                            limitMsg = `License limit reached: Your current plan allows max ${status.branchLimit} branch${status.branchLimit > 1 ? 'es' : ''}.`;
+                    // A MONGODB_MODE=local hub is this one shop's own bundled instance —
+                    // it never has a real License document for its device's licenseKey
+                    // (those only ever live in the Atlas-hosted admin panel), so
+                    // getLicenseStatus() always fell back to defaultTrial's branchLimit:2
+                    // / userLimit:5 / etc. regardless of what the client had actually
+                    // activated (Lifetime tokens are verified entirely client-side via
+                    // RSA signature — this hub is never told about them). That silently
+                    // rejected adds the client's own UI showed as allowed the moment a
+                    // real device unlocked more than the trial defaults. Standalone
+                    // builds' real enforcement is the client's Lifetime activation state,
+                    // not this hub's (always-empty-for-local-mode) license collection.
+                    if (MONGODB_MODE !== 'local') {
+                        if (store === 'branches') {
+                            const existing = await DBManager.findOne(Model, store, { licenseKey: finalLicense, branchId: data.id });
+                            if (!existing && recordCount >= status.branchLimit) {
+                                limitExceeded = true;
+                                limitMsg = `License limit reached: Your current plan allows max ${status.branchLimit} branch${status.branchLimit > 1 ? 'es' : ''}.`;
+                            }
+                        } else if (store === 'users') {
+                            const existing = await DBManager.findOne(Model, store, { licenseKey: finalLicense, userId: data.id });
+                            if (!existing && recordCount >= status.userLimit) {
+                                limitExceeded = true;
+                                limitMsg = `License limit reached: Your current plan allows max ${status.userLimit} users.`;
+                            }
+                        } else if (store === 'registers') {
+                            const existing = await DBManager.findOne(Model, store, { licenseKey: finalLicense, registerId: data.id });
+                            const registerCountForBranch = finalBranchId
+                                ? await DBManager.count(Model, store, { licenseKey: finalLicense, branchId: finalBranchId })
+                                : recordCount;
+                            if (!existing && registerCountForBranch >= status.registerLimit) {
+                                limitExceeded = true;
+                                limitMsg = `License limit reached: Your current plan allows max ${status.registerLimit} registers per branch.`;
+                            }
+                        } else if (store === 'products') {
+                            const existing = await DBManager.findOne(Model, store, { licenseKey: finalLicense, productId: data.id });
+                            if (!existing && recordCount >= status.productLimit) {
+                                limitExceeded = true;
+                                limitMsg = `License limit reached: Your plan allows max ${status.productLimit} products.`;
+                            }
                         }
-                    } else if (store === 'users') {
-                        const existing = await DBManager.findOne(Model, store, { licenseKey: finalLicense, userId: data.id });
-                        if (!existing && recordCount >= status.userLimit) {
-                            limitExceeded = true;
-                            limitMsg = `License limit reached: Your current plan allows max ${status.userLimit} users.`;
-                        }
-                    } else if (store === 'registers') {
-                        const existing = await DBManager.findOne(Model, store, { licenseKey: finalLicense, registerId: data.id });
-                        const registerCountForBranch = finalBranchId
-                            ? await DBManager.count(Model, store, { licenseKey: finalLicense, branchId: finalBranchId })
-                            : recordCount;
-                        if (!existing && registerCountForBranch >= status.registerLimit) {
-                            limitExceeded = true;
-                            limitMsg = `License limit reached: Your current plan allows max ${status.registerLimit} registers per branch.`;
-                        }
-                    } else if (store === 'products') {
-                        const existing = await DBManager.findOne(Model, store, { licenseKey: finalLicense, productId: data.id });
-                        if (!existing && recordCount >= status.productLimit) {
-                            limitExceeded = true;
-                            limitMsg = `License limit reached: Your plan allows max ${status.productLimit} products.`;
-                        }
-                    }
+                    } // end MONGODB_MODE !== 'local'
 
                     if (limitExceeded) {
                         console.warn(`[Hub] 🛑 Limit Reached: ${store} for ${finalLicense}`);
