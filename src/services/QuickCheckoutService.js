@@ -65,7 +65,10 @@ export async function openQuickCheckout(onSuccess = null) {
         return;
     }
 
-    const configuredMethods = settings.paymentMethods || [];
+    // Same enableCredit gate as CheckoutService.openCheckout() — "Store
+    // Credit" can still be sitting in the shop's configured payment methods
+    // list even after the feature's turned off in Settings > General.
+    const configuredMethods = (settings.paymentMethods || []).filter(m => settings.enableCredit !== false || m.toLowerCase() !== 'store credit');
 
     // Case-insensitive lookup of base configs
     const configLookupByLower = Object.fromEntries(
@@ -256,6 +259,7 @@ export async function openQuickCheckout(onSuccess = null) {
                     <div>
                         <div class="qc-summary-card">
                             <div>
+                                ${settings.enableCredit !== false ? `
                                 <div class="qc-section-title">Transaction Mode</div>
                                 <div style="display:flex; background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:4px; margin-bottom:16px; gap:4px;">
                                     <button class="qc-mode-btn ${checkoutMode === 'paid' ? 'active' : ''}" data-mode="paid" style="flex:1; padding:10px; border-radius:12px; border:none; font-weight:800; font-size:12px; cursor:pointer; background:${checkoutMode === 'paid' ? 'var(--success)' : 'transparent'}; color:${checkoutMode === 'paid' ? '#fff' : 'var(--text-muted)'}; transition:all 0.2s">
@@ -265,6 +269,7 @@ export async function openQuickCheckout(onSuccess = null) {
                                         <i class="fa-solid fa-hand-holding-dollar mr-4"></i> UNPAID
                                     </button>
                                 </div>
+                                ` : ''}
 
                                 <div class="qc-section-title">Net Payable</div>
                                 <div class="qc-huge-total" id="net-payable-val">${cur}${(total - redeemedPoints).toFixed(2)}</div>
@@ -295,7 +300,7 @@ export async function openQuickCheckout(onSuccess = null) {
                                 </div>
                                 ` : ''}
                             </div>
-                            ${customer ? `
+                            ${settings.enableLoyalty !== false && customer ? `
                             <div class="qc-loyalty-widget ${usePoints ? 'active' : ''}" id="qc-loyalty-widget" style="${checkoutMode === 'unpaid' ? 'display:none' : ''}">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <div style="flex:1">

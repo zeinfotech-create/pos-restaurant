@@ -1,4 +1,4 @@
-import { getCustomers, saveCustomer, getLoyaltyHistory, getCurrentBranch, getCurrentUser, deleteCustomer, hasPermission, getCreditHistory, adjustCustomerCredit } from '../db.js';
+import { getCustomers, saveCustomer, getLoyaltyHistory, getCurrentBranch, getCurrentUser, deleteCustomer, hasPermission, getCreditHistory, adjustCustomerCredit, getSettings } from '../db.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { openCustomerForm } from '../components/CustomerForm.js';
@@ -20,6 +20,14 @@ let selectedIds = new Set();
 export async function renderCustomers(container, subPage) {
   const branch = await getCurrentBranch();
   const branchId = branch?.id;
+  // Owner's own choice (Settings > General) — most POS shops never run a
+  // store-credit tab or a loyalty program, and showing empty ₹0/0pt columns
+  // and management UI for a feature they'll never touch is just noise.
+  // Defaults to true (both on) so this is a no-op for every existing
+  // install until they explicitly turn one off.
+  const settings = await getSettings();
+  const showLoyalty = settings.enableLoyalty !== false;
+  const showCredit = settings.enableCredit !== false;
   
   async function fetchAndFilter() {
     let list = await getCustomers(branchId);
@@ -121,13 +129,13 @@ export async function renderCustomers(container, subPage) {
                 <th>Customer Name</th>
                 <th>Phone</th>
                 <th>Email</th>
-                <th>Points</th>
-                <th>Credit</th>
+                ${showLoyalty ? '<th>Points</th>' : ''}
+                ${showCredit ? '<th>Credit</th>' : ''}
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              ${paginatedCustomers.length === 0 ? `<tr><td colspan="7" style="text-align:center;padding:40px;opacity:0.5">No customers found</td></tr>` :
+              ${paginatedCustomers.length === 0 ? `<tr><td colspan="${5 + (showLoyalty ? 1 : 0) + (showCredit ? 1 : 0)}" style="text-align:center;padding:40px;opacity:0.5">No customers found</td></tr>` :
         paginatedCustomers.map(c => `
                 <tr class="${selectedIds.has(String(c.id)) ? 'selected' : ''}" data-id="${c.id}">
                   <td class="th-checkbox" data-label="Select">
@@ -141,17 +149,19 @@ export async function renderCustomers(container, subPage) {
                     <div>
                       <div style="display:flex;align-items:center;gap:8px">
                         ${escapeHtml(c.name)}
+                        ${showLoyalty ? `
                         <span style="background:${c.tier.color}15;color:${c.tier.color};font-size:9px;padding:1px 6px;border-radius:10px;border:1px solid ${c.tier.color}30;text-transform:uppercase;font-weight:700">
                           <i class="fa-solid ${c.tier.icon}" style="font-size:8px;margin-right:2px"></i> ${c.tier.name}
                         </span>
+                        ` : ''}
                       </div>
                     </div>
                   </div>
                 </td>
                 <td data-label="Phone">${escapeHtml(c.phone)}</td>
                 <td data-label="Email">${escapeHtml(c.email || '-')}</td>
-                <td data-label="Points" class="font-bold text-accent">${c.loyaltyPoints || 0}</td>
-                <td data-label="Credit" class="font-bold ${c.creditBalance < 0 ? 'text-danger' : 'text-success'}">\u20B9${(c.creditBalance || 0).toLocaleString()}</td>
+                ${showLoyalty ? `<td data-label="Points" class="font-bold text-accent">${c.loyaltyPoints || 0}</td>` : ''}
+                ${showCredit ? `<td data-label="Credit" class="font-bold ${c.creditBalance < 0 ? 'text-danger' : 'text-success'}">\u20B9${(c.creditBalance || 0).toLocaleString()}</td>` : ''}
                 <td>
                   <div style="display:flex;gap:4px">
                     <button class="btn btn-ghost btn-sm view-details-btn" data-id="${c.id}" title="View Profile"><i class="fa-solid fa-user-tag"></i></button>
@@ -205,7 +215,7 @@ export async function renderCustomers(container, subPage) {
     wrap.querySelectorAll('.view-details-btn').forEach(btn => {
       btn.onclick = () => {
         const c = customers.find(x => x.id === btn.dataset.id);
-        openCustomerDetails(c);
+        openCustomerDetails(c, showLoyalty, showCredit);
       };
     });
 
@@ -405,9 +415,9 @@ function renderPagination(totalPages, container) {
   });
 }
 
-async function openCustomerDetails(cust) {
-  const loyaltyHistory = await getLoyaltyHistory(cust.id);
-  const creditHistory = await getCreditHistory(cust.id);
+async function openCustomerDetails(cust, showLoyalty = true, showCredit = true) {
+  const loyaltyHistory = showLoyalty ? await getLoyaltyHistory(cust.id) : [];
+  const creditHistory = showCredit ? await getCreditHistory(cust.id) : [];
   const cur = '\u20B9';
 
   openModal({
@@ -424,22 +434,28 @@ async function openCustomerDetails(cust) {
               <p style="margin:4px 0 0 0;font-size:12px;color:var(--text-muted)">${escapeHtml(cust.phone)} • ${escapeHtml(cust.email || 'No email')}</p>
             </div>
           </div>
+          ${showLoyalty ? `
           <div style="text-align:right">
             <span style="background:${cust.tier.color};color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700">
               <i class="fa-solid ${cust.tier.icon} mr-4"></i> ${cust.tier.name.toUpperCase()} TIER
             </span>
           </div>
+          ` : ''}
         </div>
-        
+
         <div class="grid-3 gap-16" style="margin-top:20px">
+          ${showLoyalty ? `
           <div style="text-align:center;padding:12px;background:var(--bg-main);border-radius:12px">
             <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Points Balance</div>
             <div style="font-size:24px;font-weight:800;color:var(--accent)">${cust.loyaltyPoints || 0}</div>
           </div>
+          ` : ''}
+          ${showCredit ? `
           <div style="text-align:center;padding:12px;background:var(--bg-main);border-radius:12px; border: 2px solid ${cust.creditBalance < 0 ? 'var(--danger)' : 'var(--success)'}20">
             <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Store Credit</div>
             <div style="font-size:24px;font-weight:800;color:${cust.creditBalance < 0 ? 'var(--danger)' : 'var(--success)'}">${cur}${(cust.creditBalance || 0).toLocaleString()}</div>
           </div>
+          ` : ''}
           <div style="text-align:center;padding:12px;background:var(--bg-main);border-radius:12px">
             <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Spent</div>
             <div style="font-size:24px;font-weight:800;color:var(--text-main)">${cur}${(cust.totalSpent || 0).toLocaleString()}</div>
@@ -447,19 +463,21 @@ async function openCustomerDetails(cust) {
         </div>
       </div>
 
+      ${(showLoyalty || showCredit) ? `
       <!-- Management Tabs -->
       <div style="display:flex;gap:12px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">
-        <button class="btn btn-ghost btn-sm active-tab" id="tabLoyalty">Loyalty Points</button>
-        <button class="btn btn-ghost btn-sm" id="tabCredit">Store Credit</button>
+        ${showLoyalty ? `<button class="btn btn-ghost btn-sm active-tab" id="tabLoyalty">Loyalty Points</button>` : ''}
+        ${showCredit ? `<button class="btn btn-ghost btn-sm ${showLoyalty ? '' : 'active-tab'}" id="tabCredit">Store Credit</button>` : ''}
       </div>
 
       <div id="customerDetailsContent">
-          <!-- Default: Loyalty History -->
+          <!-- Default: whichever tab is enabled and shown first -->
       </div>
+      ` : ''}
     `,
     footer: `
       <div style="display:flex; gap:12px; width:100%">
-        <button class="btn btn-secondary" id="manageCreditBtn" style="flex:1"><i class="fa-solid fa-wallet mr-4"></i> Manage Credit</button>
+        ${showCredit ? `<button class="btn btn-secondary" id="manageCreditBtn" style="flex:1"><i class="fa-solid fa-wallet mr-4"></i> Manage Credit</button>` : ''}
         <button class="btn btn-primary" onclick="closeModal()" style="flex:1">Done</button>
       </div>
     `
@@ -513,30 +531,35 @@ async function openCustomerDetails(cust) {
     `;
   };
 
-  renderLoyalty();
+  // Show whichever tab is actually enabled and rendered first — Loyalty if
+  // on, else Credit, else nothing (no tabs/content block exists at all).
+  if (showLoyalty) renderLoyalty();
+  else if (showCredit) renderCredit();
 
-  // Tab Switchers
+  // Tab Switchers — either button may not exist if its feature is off, so
+  // each handler is wired only when its own button is actually present.
   const tabL = document.getElementById('tabLoyalty');
   const tabC = document.getElementById('tabCredit');
-  
-  tabL.onclick = () => {
+
+  if (tabL) tabL.onclick = () => {
       tabL.classList.add('active-tab');
-      tabC.classList.remove('active-tab');
+      tabC?.classList.remove('active-tab');
       renderLoyalty();
   };
-  tabC.onclick = () => {
+  if (tabC) tabC.onclick = () => {
       tabC.classList.add('active-tab');
-      tabL.classList.remove('active-tab');
+      tabL?.classList.remove('active-tab');
       renderCredit();
   };
 
-  document.getElementById('manageCreditBtn').onclick = () => {
+  const manageCreditBtn = document.getElementById('manageCreditBtn');
+  if (manageCreditBtn) manageCreditBtn.onclick = () => {
       closeModal();
-      openCreditManagement(cust);
+      openCreditManagement(cust, showLoyalty);
   };
 }
 
-function openCreditManagement(cust) {
+function openCreditManagement(cust, showLoyalty = true) {
     const cur = '\u20B9';
     openModal({
         title: `Manage Credit: ${escapeHtml(cust.name)}`,
@@ -642,7 +665,7 @@ function openCreditManagement(cust) {
         // Return to details to see the update
         const allCats = await getCustomers();
         const updated = allCats.find(c => c.id === cust.id);
-        await openCustomerDetails(updated);
+        await openCustomerDetails(updated, showLoyalty, true);
         
         // Re-render table in background
         const container = document.getElementById('page-container');

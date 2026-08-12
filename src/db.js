@@ -1016,19 +1016,45 @@ export async function saveOrder(order) {
     // also abort the stock-deduction loop below, or make confirmOrder's
     // caller show a "payment failed" toast for an order that's actually
     // already saved (see the updateData('orders', order) call above).
+    const settings = await getSettings();
+    const loyaltyOn = settings.enableLoyalty !== false;
     try {
     if (order.customer && order.customer.id) {
-        const customers = await getCustomers();
-        const customer = customers.find(c => c.id === order.customer.id);
-        const tier = getLoyaltyTier(customer?.totalSpent || 0);
-        const earnRate = tier.earnRate;
-        const pointsEarned = Math.floor(order.total * earnRate);
+        // Owner's own choice (Settings > General) — this ran unconditionally
+        // before, silently accruing points in the background for every
+        // customer-linked sale even with the checkout UI's "Redeem Loyalty
+        // Points" toggle nowhere in sight (that only ever gated REDEEMING,
+        // never EARNING). A shop that turned loyalty off would still watch
+        // balances quietly climb, then get confused when they turned it back
+        // on and every customer already had a pile of points.
+        if (loyaltyOn) {
+            // Configurable (Settings > General): "Every ₹<amountPerPoint>
+            // spent earns <tier's own point rate>" — Silver/Gold/Platinum
+            // each have their own editable rate now (replacing the old
+            // fixed, non-editable 1%/1.5%/2%). The tier used is the
+            // customer's status BEFORE this sale (their totalSpent as
+            // already on record) — same convention as the tier badge shown
+            // everywhere else, and avoids a purchase that itself crosses a
+            // threshold retroactively earning at the tier it only just
+            // reached.
+            const customers = await getCustomers();
+            const customer = customers.find(c => c.id === order.customer.id);
+            const tier = getLoyaltyTier(customer?.totalSpent || 0, settings.loyaltyGoldThreshold || 5000, settings.loyaltyPlatinumThreshold || 15000);
+            const tierPointsMap = {
+                Silver: settings.loyaltySilverPoints ?? 1,
+                Gold: settings.loyaltyGoldPoints ?? 1.5,
+                Platinum: settings.loyaltyPlatinumPoints ?? 2
+            };
+            const amountPerPoint = settings.loyaltyAmountPerPoint || 500;
+            const pointsPerAmount = tierPointsMap[tier.name] ?? 1;
+            const pointsEarned = Math.floor((order.total / amountPerPoint) * pointsPerAmount);
 
-        order.awardedPoints = pointsEarned;
-        await awardLoyaltyPoints(order.customer.id, pointsEarned, order.total, order.id);
+            order.awardedPoints = pointsEarned;
+            await awardLoyaltyPoints(order.customer.id, pointsEarned, order.total, order.id);
 
-        if (order.redeemedPoints) {
-            await redeemLoyaltyPoints(order.customer.id, order.redeemedPoints, order.id);
+            if (order.redeemedPoints) {
+                await redeemLoyaltyPoints(order.customer.id, order.redeemedPoints, order.id);
+            }
         }
         
         // Handle Store Credit Balance usage
@@ -1799,8 +1825,11 @@ export async function deleteUser(id) {
 export async function getCustomers(branchId = null) {
   let data = await db.getAll(KEYS.CUSTOMERS) || [];
   if (branchId) data = data.filter(c => (c.branchId || 'b1') === branchId);
-  
+
   const history = await db.getAll(KEYS.LOYALTY_HISTORY) || [];
+  const settings = await getSettings();
+  const goldThreshold = settings.loyaltyGoldThreshold || 5000;
+  const platinumThreshold = settings.loyaltyPlatinumThreshold || 15000;
 
   return data.map(c => {
     // Audit & Auto-Sync: Points balance should always match history sum
@@ -1820,7 +1849,7 @@ export async function getCustomers(branchId = null) {
 
     return {
         ...c,
-        tier: getLoyaltyTier(c.totalSpent || 0)
+        tier: getLoyaltyTier(c.totalSpent || 0, goldThreshold, platinumThreshold)
     };
   });
 }
@@ -1924,9 +1953,14 @@ export async function redeemLoyaltyPoints(customerId, points, orderId = null) {
   return success ? updatedCust : null;
 }
 
-export function getLoyaltyTier(totalSpent) {
-  if (totalSpent >= 15000) return { name: 'Platinum', color: '#10b981', earnRate: 0.02, icon: 'fa-crown' };
-  if (totalSpent >= 5000) return { name: 'Gold', color: '#f59e0b', earnRate: 0.015, icon: 'fa-star' };
+// Thresholds default to the old hardcoded ₹5,000/₹15,000 so an install that
+// never visits Settings > General sees no change — actual values come from
+// there (loyaltyGoldThreshold/loyaltyPlatinumThreshold). earnRate is kept on
+// each tier only for any old code/data still reading it; saveOrder() no
+// longer consults it (see Settings > General's configurable points rate).
+export function getLoyaltyTier(totalSpent, goldThreshold = 5000, platinumThreshold = 15000) {
+  if (totalSpent >= platinumThreshold) return { name: 'Platinum', color: '#10b981', earnRate: 0.02, icon: 'fa-crown' };
+  if (totalSpent >= goldThreshold) return { name: 'Gold', color: '#f59e0b', earnRate: 0.015, icon: 'fa-star' };
   return { name: 'Silver', color: '#94a3b8', earnRate: 0.01, icon: 'fa-medal' };
 }
 

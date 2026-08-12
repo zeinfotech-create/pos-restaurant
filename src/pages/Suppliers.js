@@ -4,6 +4,7 @@ import { showToast } from '../components/Toast.js';
 import { initDateRangePicker, getDefaultRange } from '../utils/dateRangeHelper.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
+import { stateOptionsHtml } from '../utils/indianStates.js';
 
 let searchQ = '';
 const { start: defaultStart, end: defaultEnd } = getDefaultRange();
@@ -446,6 +447,14 @@ export async function openSupplierForm(sup = null, container = null) {
             </select>
           </div>
         </div>
+
+        <div class="form-group">
+          <label class="form-label">State</label>
+          <select class="form-select" id="sStateCode">
+            ${stateOptionsHtml(sup?.stateCode || '')}
+          </select>
+          <p class="form-help-text">Compared against this branch's own state (Settings) to bill CGST+SGST or IGST on purchases correctly. Auto-fills from the GSTIN's first 2 digits if left blank.</p>
+        </div>
       </div>
     `,
     footer: `
@@ -482,6 +491,20 @@ export async function openSupplierForm(sup = null, container = null) {
     imgInput.value = '';
     removeBtn.style.display = 'none';
   };
+
+  // GSTIN's first 2 digits ARE the GST state code — auto-fill the State
+  // select from it so a registered supplier's GSTIN doesn't have to be
+  // entered twice in two different forms. Only when the state hasn't
+  // already been picked by hand, so it never overwrites a deliberate choice
+  // (e.g. correcting a supplier's GSTIN without touching an already-correct
+  // state, or the rare case where the state field is set before the GSTIN).
+  document.getElementById('sGstin').addEventListener('input', (e) => {
+    const digits = e.target.value.slice(0, 2);
+    const stateSelect = document.getElementById('sStateCode');
+    if (/^\d{2}$/.test(digits) && !stateSelect.value) {
+      stateSelect.value = digits;
+    }
+  });
 
   const saveSupBtn = document.getElementById('saveSupBtn');
   saveSupBtn.onclick = async () => {
@@ -527,7 +550,8 @@ export async function openSupplierForm(sup = null, container = null) {
         image: base64Input.value,
         gstin: gstin.toUpperCase(),
         type: document.getElementById('sType').value,
-        contact: document.getElementById('sContact').value.trim()
+        contact: document.getElementById('sContact').value.trim(),
+        stateCode: document.getElementById('sStateCode').value
       });
     } catch (err) {
       saveSupBtn.disabled = false;

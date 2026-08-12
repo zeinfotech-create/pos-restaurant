@@ -602,7 +602,7 @@ export async function renderCart(cur) {
           ` : ''}
           <button id="posAddCustomerBtn" class="cart-meta-add" title="Add New Customer"><i class="fa-solid fa-circle-plus"></i></button>
         </div>
-        ${store.selectedCustomer ? `
+        ${settings.enableLoyalty !== false && store.selectedCustomer ? `
           <div class="cart-loyalty-strip" style="padding:4px 10px; font-size:11px; margin-top:2px">
             <i class="fa-solid fa-star" style="color:var(--warning);font-size:10px"></i>
             <span>${store.selectedCustomer.loyaltyPoints || 0} pts</span>

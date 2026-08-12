@@ -537,6 +537,21 @@ export async function openPurchaseForm(container) {
     renderItems();
   };
 
+  // Auto-fill Place of Supply from the selected supplier's own state — same
+  // GSTIN-first-2-digits convenience as Suppliers.js, just sourced from the
+  // supplier record's stateCode here since that's already resolved. Only
+  // when Place of Supply still holds the branch's own default (untouched)
+  // — never overwrites a value the user already edited by hand.
+  const purSupplierSelect = document.getElementById('purSupplier');
+  const purPosInput = document.getElementById('purPos');
+  const branchStateCode = store.settings.stateCode || '33';
+  purSupplierSelect.addEventListener('change', () => {
+    const sup = suppliers.find(s => String(s.id) === String(purSupplierSelect.value));
+    if (sup?.stateCode && purPosInput.value.trim() === branchStateCode) {
+      purPosInput.value = sup.stateCode;
+    }
+  });
+
   const completePurchaseBtn = document.getElementById('completePurchaseBtn');
   completePurchaseBtn.onclick = async () => {
     // Guards against a fast double-click saving the same purchase (and
@@ -595,6 +610,13 @@ export async function openPurchaseForm(container) {
       return;
     }
 
+    const placeOfSupply = document.getElementById('purPos').value.trim();
+    // Same rule as sales checkout (CheckoutService.confirmOrder): inter-state
+    // only when Place of Supply is both set AND different from this branch's
+    // own registered state — CGST+SGST otherwise, matching this app's
+    // existing default.
+    const isInterState = !!(placeOfSupply && branchStateCode && placeOfSupply !== branchStateCode);
+
     completePurchaseBtn.disabled = true;
     try {
       const currentUser = await getCurrentUser();
@@ -604,7 +626,8 @@ export async function openPurchaseForm(container) {
         supplierName: sup.name || 'Unknown Supplier',
         supplierGstin: sup.gstin || '',
         supplierInvoiceNo: invNo,
-        placeOfSupply: document.getElementById('purPos').value.trim(),
+        placeOfSupply,
+        isInterState,
         items: itemsToProcess,
         subtotal,
         taxRate,

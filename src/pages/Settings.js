@@ -455,6 +455,69 @@ export async function renderSettings(container) {
                   </div>
                 </label>
               </div>
+              <div class="form-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border)">
+                <label class="flex items-center gap-12 cursor-pointer">
+                  <input type="checkbox" id="sEnableCredit" ${s.enableCredit !== false ? 'checked' : ''} style="width:20px;height:20px" />
+                  <div>
+                    <div class="font-bold">Enable Customer Store Credit</div>
+                    <p style="font-size:12px;opacity:0.6">Shows Credit balance/history and "Manage Credit" everywhere in the app. Turn off if you never run tabs/store credit for customers.</p>
+                  </div>
+                </label>
+              </div>
+              <div class="form-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border)">
+                <label class="flex items-center gap-12 cursor-pointer">
+                  <input type="checkbox" id="sEnableLoyalty" ${s.enableLoyalty !== false ? 'checked' : ''} style="width:20px;height:20px" />
+                  <div>
+                    <div class="font-bold">Enable Loyalty Points</div>
+                    <p style="font-size:12px;opacity:0.6">Shows Points balance/history and point redemption at checkout. Turn off if you don't run a loyalty program.</p>
+                  </div>
+                </label>
+                <div style="margin-top:12px; padding:12px; background:var(--bg-elevated); border-radius:10px; border:1px solid var(--border)">
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px">
+                    <span style="font-size:13px; white-space:nowrap">Every ₹</span>
+                    <input type="number" id="sLoyaltyAmountPerPoint" min="1" step="1" value="${s.loyaltyAmountPerPoint || 500}" class="form-input" style="width:90px; text-align:center" />
+                    <span style="font-size:13px; white-space:nowrap">spent, a customer earns:</span>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap">
+                    <div style="display:flex; align-items:center; gap:8px">
+                      <span style="font-size:16px">🥉</span>
+                      <span style="font-size:13px">Silver</span>
+                      <input type="number" id="sLoyaltySilverPoints" min="0" step="0.1" value="${s.loyaltySilverPoints ?? 1}" class="form-input" style="width:70px; text-align:center" />
+                      <span style="font-size:12px; color:var(--text-muted)">pt</span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px">
+                      <span style="font-size:16px">⭐</span>
+                      <span style="font-size:13px">Gold</span>
+                      <input type="number" id="sLoyaltyGoldPoints" min="0" step="0.1" value="${s.loyaltyGoldPoints ?? 1.5}" class="form-input" style="width:70px; text-align:center" />
+                      <span style="font-size:12px; color:var(--text-muted)">pt</span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px">
+                      <span style="font-size:16px">👑</span>
+                      <span style="font-size:13px">Platinum</span>
+                      <input type="number" id="sLoyaltyPlatinumPoints" min="0" step="0.1" value="${s.loyaltyPlatinumPoints ?? 2}" class="form-input" style="width:70px; text-align:center" />
+                      <span style="font-size:12px; color:var(--text-muted)">pt</span>
+                    </div>
+                  </div>
+                </div>
+                <p style="font-size:11px; color:var(--text-muted); margin-top:4px">Higher tiers earn faster — fully editable here instead of the old fixed 1%/1.5%/2% rate. A customer's CURRENT tier (see thresholds below) decides which rate applies to their next sale.</p>
+
+                <div style="margin-top:16px; padding-top:12px; border-top:1px dashed var(--border)">
+                  <div class="font-bold" style="font-size:13px; margin-bottom:8px">Tier Thresholds (Total Lifetime Spend)</div>
+                  <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+                    <div style="display:flex; align-items:center; gap:8px">
+                      <span style="font-size:16px">⭐</span>
+                      <span style="font-size:13px">Gold at ₹</span>
+                      <input type="number" id="sLoyaltyGoldThreshold" min="0" step="100" value="${s.loyaltyGoldThreshold || 5000}" class="form-input" style="width:110px; text-align:center" />
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px">
+                      <span style="font-size:16px">👑</span>
+                      <span style="font-size:13px">Platinum at ₹</span>
+                      <input type="number" id="sLoyaltyPlatinumThreshold" min="0" step="100" value="${s.loyaltyPlatinumThreshold || 15000}" class="form-input" style="width:110px; text-align:center" />
+                    </div>
+                  </div>
+                  <p style="font-size:11px; color:var(--text-muted); margin-top:4px">A customer below the Gold threshold is Silver by default. Badge only — see the earn rate above for how points are actually calculated.</p>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1020,7 +1083,15 @@ export async function renderSettings(container) {
       paymentMethods: JSON.parse(container.querySelector('#sPaymentMethods')?.value || '[]'),
       theme: container.querySelector('#sThemeValue')?.value || s.theme,
       enableRegisterRoutine: container.querySelector('#sEnableRegister')?.checked !== false,
-      roundOffEnabled: container.querySelector('#sRoundOffEnabled')?.checked || false
+      roundOffEnabled: container.querySelector('#sRoundOffEnabled')?.checked || false,
+      enableCredit: container.querySelector('#sEnableCredit')?.checked !== false,
+      enableLoyalty: container.querySelector('#sEnableLoyalty')?.checked !== false,
+      loyaltyAmountPerPoint: parseFloat(container.querySelector('#sLoyaltyAmountPerPoint')?.value) || 500,
+      loyaltySilverPoints: parseFloat(container.querySelector('#sLoyaltySilverPoints')?.value) ?? 1,
+      loyaltyGoldPoints: parseFloat(container.querySelector('#sLoyaltyGoldPoints')?.value) ?? 1.5,
+      loyaltyPlatinumPoints: parseFloat(container.querySelector('#sLoyaltyPlatinumPoints')?.value) ?? 2,
+      loyaltyGoldThreshold: parseFloat(container.querySelector('#sLoyaltyGoldThreshold')?.value) || 5000,
+      loyaltyPlatinumThreshold: parseFloat(container.querySelector('#sLoyaltyPlatinumThreshold')?.value) || 15000
     });
 
     // Keep the current branch's own record in sync with what was just saved

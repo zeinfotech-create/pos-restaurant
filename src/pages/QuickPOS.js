@@ -188,6 +188,7 @@ export async function renderQuickPOS(container) {
             </div>
 
             <!-- Fixed Loyalty Area at Bottom (COMPACT) -->
+            ${(settings.enableLoyalty !== false || settings.enableCredit !== false) ? `
             <div style="padding:10px; border-top:1px solid #e5e7eb; background:#fff; ${!store.selectedCustomer ? 'opacity:0.3; pointer-events:none;' : ''} border-radius:0 0 0 4px">
                 <div style="font-size:10px; font-weight:800; color:#64748b; margin-bottom:6px; letter-spacing:0.8px; text-transform:uppercase; display:flex; justify-content:space-between; align-items:center">
                    Loyalty Rewards
@@ -196,16 +197,21 @@ export async function renderQuickPOS(container) {
                    </button>
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:8px 10px; border:1px solid #e5e7eb; border-radius:4px;">
+                  ${settings.enableLoyalty !== false ? `
                   <div>
                      <div style="font-size:10px; color:#94a3b8; font-weight:600">Points</div>
                      <div style="font-size:18px; font-weight:900; color:#3b82f6" id="qcPointsDisplay">${store.selectedCustomer?.loyaltyPoints || 0}</div>
                   </div>
+                  ` : ''}
+                  ${settings.enableCredit !== false ? `
                   <div style="text-align:right">
                      <div style="font-size:10px; color:#94a3b8; font-weight:600">Credit</div>
                      <div style="font-size:16px; font-weight:900; color:${(store.selectedCustomer?.creditBalance || 0) < 0 ? '#ef4444' : '#10b981'}">${cur}${(store.selectedCustomer?.creditBalance || 0).toLocaleString()}</div>
                   </div>
+                  ` : ''}
                 </div>
             </div>
+            ` : ''}
          </div>
 
          <!-- Center Column: Transaction Table -->

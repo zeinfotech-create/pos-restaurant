@@ -59,7 +59,12 @@ export async function openCheckout() {
   }
 
   const { total } = getCartTotals();
-  const ALL_METHODS = [...(settings.paymentMethods || [])];
+  // "Store Credit" stays in Settings > Payment Methods for shops that use it,
+  // so turning the feature off in Settings > General (enableCredit) must
+  // also hide it here even though it's still sitting in that list — a
+  // dedicated toggle should not require also remembering to edit payment
+  // methods.
+  const ALL_METHODS = (settings.paymentMethods || []).filter(m => settings.enableCredit !== false || m !== 'Store Credit');
 
   // Initial state: Use the first available method from the database
   const defaultMethod = ALL_METHODS.length > 0 ? ALL_METHODS[0] : '';
@@ -203,6 +208,7 @@ export async function openCheckout() {
                    <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:24px; padding:32px; display:flex; flex-direction:column; gap:24px; box-shadow:var(--shadow); position:sticky; top:20px;">
                        
                        <div style="border-bottom: 2px solid var(--border); padding-bottom: 16px;">
+                           ${settings.enableCredit !== false ? `
                            <div class="qc-section-title">Transaction Mode</div>
                            <div style="display:flex; background:var(--bg-elevated); border:1px solid var(--border); border-radius:16px; padding:4px; margin-bottom:16px; gap:4px;">
                                <button class="mode-btn ${checkoutMode === 'paid' ? 'active' : ''}" data-mode="paid" style="flex:1; padding:10px; border-radius:12px; border:none; font-weight:800; font-size:12px; cursor:pointer; background:${checkoutMode === 'paid' ? 'var(--success)' : 'transparent'}; color:${checkoutMode === 'paid' ? '#fff' : 'var(--text-muted)'}; transition:all 0.2s">
@@ -212,6 +218,7 @@ export async function openCheckout() {
                                    <i class="fa-solid fa-hand-holding-dollar mr-4"></i> UNPAID
                                </button>
                            </div>
+                           ` : ''}
 
                            <div class="qc-section-title">Order Grand Total</div>
                            <div style="font-size: 56px; font-weight: 900; line-height: 1; letter-spacing: -2px; margin: 8px 0; color: var(--text-primary);">${cur}${total.toFixed(2)}</div>
@@ -262,7 +269,7 @@ export async function openCheckout() {
                        </div>
 
                        <!-- Loyalty Toggle -->
-                       ${store.selectedCustomer && checkoutMode === 'paid' ? `
+                       ${settings.enableLoyalty !== false && store.selectedCustomer && checkoutMode === 'paid' ? `
                          <div style="padding:20px;background:rgba(79, 70, 229, 0.03);border:2px solid ${usePoints ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius-md);transition:all 0.3s ease">
                            <label style="display:flex;align-items:flex-start;gap:16px;cursor:pointer">
                              <div style="margin-top:2px">
@@ -277,7 +284,7 @@ export async function openCheckout() {
                                    </span>
                                  ` : ''}
                                </div>
-                               <div style="font-size:12px;color:var(--text-muted);line-height:1.4">Customer has <b>${store.selectedCustomer.loyaltyPoints || 0}</b> points. (1 Pt = ${cur}1) ${store.selectedCustomer.tier ? `• Earning ${store.selectedCustomer.tier.earnRate * 100}%` : ''}</div>
+                               <div style="font-size:12px;color:var(--text-muted);line-height:1.4">Customer has <b>${store.selectedCustomer.loyaltyPoints || 0}</b> points. (1 Pt = ${cur}1) ${store.selectedCustomer.tier ? `• Earning ${({ Silver: settings.loyaltySilverPoints ?? 1, Gold: settings.loyaltyGoldPoints ?? 1.5, Platinum: settings.loyaltyPlatinumPoints ?? 2 })[store.selectedCustomer.tier.name]} pt per ${cur}${settings.loyaltyAmountPerPoint || 500}` : ''}</div>
                              </div>
                            </label>
                            ${usePoints ? `

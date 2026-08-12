@@ -1584,10 +1584,13 @@ function computeRateWiseSummary(orders) {
   orders.forEach(o => {
     (o.items || []).forEach(item => {
       const rate = item.taxRate || 0;
-      if (!map[rate]) map[rate] = { rate, taxable: 0, tax: 0 };
+      if (!map[rate]) map[rate] = { rate, taxable: 0, tax: 0, igstTax: 0 };
       const { taxValueNet, itemTax } = computeSalesItemTax(item);
       map[rate].taxable += taxValueNet;
       map[rate].tax += itemTax;
+      // Tracked separately (not mixed into CGST+SGST) — an inter-state sale
+      // at this rate is legally IGST, never split in half.
+      if (o.isInterState) map[rate].igstTax += itemTax;
     });
   });
   return Object.values(map).sort((a, b) => a.rate - b.rate);
@@ -1600,9 +1603,12 @@ function computePurchaseRateWiseSummary(purchases) {
   const map = {};
   purchases.forEach(p => {
     const rate = p.taxRate || 0;
-    if (!map[rate]) map[rate] = { rate, taxable: 0, tax: 0, count: 0 };
+    if (!map[rate]) map[rate] = { rate, taxable: 0, tax: 0, igstTax: 0, count: 0 };
     map[rate].taxable += (p.subtotal || p.total || 0);
     map[rate].tax += (p.taxAmount || 0);
+    // Tracked separately (not mixed into CGST+SGST) — an inter-state
+    // purchase at this rate is legally IGST, never split in half.
+    if (p.isInterState) map[rate].igstTax += (p.taxAmount || 0);
     map[rate].count += 1;
   });
   return Object.values(map).sort((a, b) => a.rate - b.rate);
@@ -1729,17 +1735,21 @@ async function renderGSTReport(container, cur) {
       </div>
       <div class="table-wrap">
         <table class="responsive-table" id="gstRateSummarySalesTable">
-          <thead><tr><th>Tax Rate</th><th>Taxable Value</th><th>CGST</th><th>SGST</th><th>Total Tax</th></tr></thead>
+          <thead><tr><th>Tax Rate</th><th>Taxable Value</th><th>CGST</th><th>SGST</th><th>IGST</th><th>Total Tax</th></tr></thead>
           <tbody>
-            ${rateSummarySales.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;opacity:0.5">No sales recorded</td></tr>' : rateSummarySales.map(r => `
+            ${rateSummarySales.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:20px;opacity:0.5">No sales recorded</td></tr>' : rateSummarySales.map(r => {
+              const cgstSgstTax = r.tax - r.igstTax;
+              return `
               <tr>
                 <td data-label="Tax Rate">${r.rate}%</td>
                 <td data-label="Taxable Value">${cur}${r.taxable.toFixed(2)}</td>
-                <td data-label="CGST">${cur}${(r.tax / 2).toFixed(2)}</td>
-                <td data-label="SGST">${cur}${(r.tax / 2).toFixed(2)}</td>
+                <td data-label="CGST">${cur}${(cgstSgstTax / 2).toFixed(2)}</td>
+                <td data-label="SGST">${cur}${(cgstSgstTax / 2).toFixed(2)}</td>
+                <td data-label="IGST">${cur}${r.igstTax.toFixed(2)}</td>
                 <td data-label="Total Tax" class="font-bold text-accent">${cur}${r.tax.toFixed(2)}</td>
               </tr>
-            `).join('')}
+            `;
+            }).join('')}
           </tbody>
         </table>
       </div>
@@ -1758,18 +1768,22 @@ async function renderGSTReport(container, cur) {
       </div>
       <div class="table-wrap">
         <table class="responsive-table" id="gstRateSummaryPurchasesTable">
-          <thead><tr><th>Tax Rate</th><th>Taxable Value</th><th>CGST</th><th>SGST</th><th>Total Tax</th><th>No. of Purchases</th></tr></thead>
+          <thead><tr><th>Tax Rate</th><th>Taxable Value</th><th>CGST</th><th>SGST</th><th>IGST</th><th>Total Tax</th><th>No. of Purchases</th></tr></thead>
           <tbody>
-            ${rateSummaryPurchases.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:20px;opacity:0.5">No purchases recorded</td></tr>' : rateSummaryPurchases.map(r => `
+            ${rateSummaryPurchases.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:20px;opacity:0.5">No purchases recorded</td></tr>' : rateSummaryPurchases.map(r => {
+              const cgstSgstTax = r.tax - r.igstTax;
+              return `
               <tr>
                 <td data-label="Tax Rate">${r.rate}%</td>
                 <td data-label="Taxable Value">${cur}${r.taxable.toFixed(2)}</td>
-                <td data-label="CGST">${cur}${(r.tax / 2).toFixed(2)}</td>
-                <td data-label="SGST">${cur}${(r.tax / 2).toFixed(2)}</td>
+                <td data-label="CGST">${cur}${(cgstSgstTax / 2).toFixed(2)}</td>
+                <td data-label="SGST">${cur}${(cgstSgstTax / 2).toFixed(2)}</td>
+                <td data-label="IGST">${cur}${r.igstTax.toFixed(2)}</td>
                 <td data-label="Total Tax" class="font-bold text-info">${cur}${r.tax.toFixed(2)}</td>
                 <td data-label="No. of Purchases">${r.count}</td>
               </tr>
-            `).join('')}
+            `;
+            }).join('')}
           </tbody>
         </table>
       </div>
@@ -1878,14 +1892,15 @@ async function renderGSTReport(container, cur) {
 
   function gstInputRowHtml(p) {
     const gstAmt = p.taxAmount || 0;
+    const isInter = !!p.isInterState;
     return `
                 <tr>
                   <td data-label="Date">${new Date(p.date).toLocaleDateString()}</td>
                   <td data-label="Supplier">${escapeHtml(p.supplierName)}</td>
                   <td data-label="Purchase ID" class="font-mono" style="font-size:11px">${p.id}</td>
                   <td data-label="Taxable Amt">${cur}${(p.subtotal || p.total).toFixed(2)}</td>
-                  <td data-label="CGST">${cur}${(gstAmt / 2).toFixed(2)}</td>
-                  <td data-label="SGST">${cur}${(gstAmt / 2).toFixed(2)}</td>
+                  <td data-label="CGST">${isInter ? '—' : `${cur}${(gstAmt / 2).toFixed(2)}`}</td>
+                  <td data-label="SGST">${isInter ? `${cur}${gstAmt.toFixed(2)} (IGST)` : `${cur}${(gstAmt / 2).toFixed(2)}`}</td>
                   <td data-label="Total GST" class="font-bold text-info">${cur}${gstAmt.toFixed(2)}</td>
                 </tr>
               `;
@@ -2808,21 +2823,25 @@ async function exportPurchaseRegisterJson(purchases) {
       totalValue: purchases.reduce((s, p) => s + p.total, 0),
       count: purchases.length
     },
-    purchases: purchases.map(p => ({
-      ctin: p.supplierGstin || "UNREGISTERED",
-      inum: p.supplierInvoiceNo || p.id,
-      idt: new Date(p.date).toLocaleDateString('en-GB'),
-      val: p.total,
-      pos: p.placeOfSupply || "33",
-      rchrg: "N",
-      inv_typ: "R",
-      txval: p.subtotal || p.total,
-      rt: p.taxRate || 0,
-      iamt: 0,
-      camt: (p.taxAmount || 0) / 2,
-      samt: (p.taxAmount || 0) / 2,
-      supplierName: p.supplierName
-    }))
+    purchases: purchases.map(p => {
+      const isInter = !!p.isInterState;
+      const taxAmt = p.taxAmount || 0;
+      return {
+        ctin: p.supplierGstin || "UNREGISTERED",
+        inum: p.supplierInvoiceNo || p.id,
+        idt: new Date(p.date).toLocaleDateString('en-GB'),
+        val: p.total,
+        pos: p.placeOfSupply || "33",
+        rchrg: "N",
+        inv_typ: "R",
+        txval: p.subtotal || p.total,
+        rt: p.taxRate || 0,
+        iamt: isInter ? taxAmt : 0,
+        camt: isInter ? 0 : taxAmt / 2,
+        samt: isInter ? 0 : taxAmt / 2,
+        supplierName: p.supplierName
+      };
+    })
   };
 
   const blob = new Blob([JSON.stringify(register, null, 2)], { type: 'application/json' });
