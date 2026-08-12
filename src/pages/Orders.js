@@ -215,10 +215,22 @@ async function renderOrderList(cur) {
       <table class="responsive-table">
         <thead><tr>
           <th>Order ID</th><th>Date & Time</th><th>Customer</th><th>Items</th>
-          <th>Subtotal</th><th>Tax</th><th>Total</th><th>Status</th><th>Payment</th><th>Action</th>
+          <th>Subtotal</th><th>Discount</th><th>Tax</th><th>Total</th><th>Status</th><th>Payment</th><th>Action</th>
         </tr></thead>
         <tbody>
-          ${paginatedOrders.map(o => `
+          ${paginatedOrders.map(o => {
+            // Derived straight from the row's own already-correct Subtotal/
+            // Tax/Total (Subtotal + Tax − Total), instead of independently
+            // reconstructing item-level discounts from o.items and adding
+            // the order-level o.discount on top — that path double-counted
+            // (came out to exactly 2x the real figure on a test order,
+            // ₹49.00 shown vs ₹24.50 actual) since o.discount already
+            // reflects the full picture the order was saved with, and
+            // re-deriving item discounts alongside it isn't guaranteed to
+            // land on the same basis. This version can't drift from what
+            // Subtotal/Tax/Total already show in the same row, by construction.
+            const totalDiscount = (o.subtotal || 0) + (o.tax || 0) + (o.roundOff || 0) - (o.total || 0);
+            return `
             <tr>
               <td data-label="Order ID"><span class="badge badge-primary">${o.id}</span></td>
               <td data-label="Date & Time" class="text-muted">
@@ -231,6 +243,7 @@ async function renderOrderList(cur) {
               </td>
               <td data-label="Items">${o.items.length} items</td>
               <td data-label="Subtotal">${cur}${o.subtotal.toFixed(2)}</td>
+              <td data-label="Discount" title="Subtotal + Tax − Total (item + order-level discounts combined)">${totalDiscount > 0.004 ? `<span style="color:var(--danger)">-${cur}${totalDiscount.toFixed(2)}</span>` : '<span class="text-muted">—</span>'}</td>
               <td data-label="Tax">${cur}${o.tax.toFixed(2)}</td>
               <td data-label="Total" class="font-bold text-accent">${cur}${o.total.toFixed(2)}</td>
               <td data-label="Status">${renderStatusBadge(o.status)}</td>
@@ -249,7 +262,8 @@ async function renderOrderList(cur) {
                 ` : ''}
               </td>
             </tr>
-          `).join('')}
+          `;
+          }).join('')}
         </tbody>
       </table>
     </div>
