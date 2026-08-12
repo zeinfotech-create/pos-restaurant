@@ -120,35 +120,35 @@ export async function renderQuickPOS(container) {
       <!-- Main Content Grid -->
       <div class="ep-main-grid">
          <!-- Left Column: Customer Details -->
-         <div class="ep-catalog-col" style="width:280px; background:#fff; border-right:1px solid #9ca3af; display:flex; flex-direction:column; padding:0; border-radius:4px 0 0 4px">
-            
+         <div class="ep-catalog-col" style="width:280px; background:var(--bg-card); border-right:1px solid var(--border); display:flex; flex-direction:column; padding:0; border-radius:4px 0 0 4px">
+
             <!-- Fixed Header & Search -->
-            <div style="padding:12px; border-bottom:1px solid #e5e7eb; background:#f8fafc; border-radius:4px 0 0 0">
-              <h2 style="font-size:15px; font-weight:800; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; color:#1e293b">
+            <div style="padding:12px; border-bottom:1px solid var(--border); background:var(--bg-elevated); border-radius:4px 0 0 0">
+              <h2 style="font-size:15px; font-weight:800; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; color:var(--text-main)">
                 Customer Profile
-                ${store.selectedCustomer ? `<button id="qcClearBtn" class="btn btn-ghost btn-sm" style="color:#6366f1; font-size:11px; padding:0 4px; font-weight:700" title="Switch to Walk-in"><i class="fa-solid fa-redo"></i> Reset</button>` : ''}
+                ${store.selectedCustomer ? `<button id="qcClearBtn" class="btn btn-ghost btn-sm" style="color:var(--primary-light); font-size:11px; padding:0 4px; font-weight:700" title="Switch to Walk-in"><i class="fa-solid fa-redo"></i> Reset</button>` : ''}
               </h2>
               <div style="display:flex; gap:6px; margin-bottom:12px; position:relative;">
                 <div style="position:relative; flex:1; display:flex;">
-                  <input type="text" id="qcSearchPhone" placeholder="Name or Phone..." autocomplete="off" style="flex:1; border:2px solid #3b82f6; padding:6px 10px; font-size:14px; border-radius:6px; outline:none;" />
+                  <input type="text" id="qcSearchPhone" placeholder="Name or Phone..." autocomplete="off" style="flex:1; border:2px solid var(--info); background:var(--bg-card); color:var(--text-main); padding:6px 10px; font-size:14px; border-radius:6px; outline:none;" />
                   <div id="qcSuggestions" class="ep-suggestions hidden" style="top:42px; left:0; width:100%; min-width:250px;"></div>
                 </div>
-                <button id="qcSearchBtn" class="btn btn-secondary btn-sm" style="padding:0 12px; border-radius:6px; background:#f1f5f9; border:1px solid #d1d5db"><i class="fa-solid fa-search"></i></button>
+                <button id="qcSearchBtn" class="btn btn-secondary btn-sm" style="padding:0 12px; border-radius:6px; background:var(--bg-elevated); border:1px solid var(--border)"><i class="fa-solid fa-search"></i></button>
                 <button id="quickCustBtn" style="display:none"></button>
               </div>
 
               <!-- Default / Selected State Card -->
-              <div id="qcActiveCard" style="display:flex; align-items:center; justify-content:space-between; background:#f8faff; border:1px solid #e0e7ff; padding:10px; border-radius:12px;">
+              <div id="qcActiveCard" style="display:flex; align-items:center; justify-content:space-between; background:var(--bg-elevated); border:1px solid var(--border); padding:10px; border-radius:12px;">
                  <div style="display:flex; align-items:center; gap:12px;">
-                    <div style="width:36px; height:36px; border-radius:8px; background:#e0e7ff; display:flex; align-items:center; justify-content:center; color:#6366f1;">
+                    <div style="width:36px; height:36px; border-radius:8px; background:var(--bg-hover); display:flex; align-items:center; justify-content:center; color:var(--primary-light);">
                        ${store.selectedCustomer?.image ? `<img src="${store.selectedCustomer.image}" style="width:100%; height:100%; border-radius:8px; object-fit:cover" />` : `<i class="fa-solid fa-user"></i>`}
                     </div>
                     <div>
-                       <div style="font-size:14px; font-weight:700; color:#1e1b4b;">${escapeHtml(store.selectedCustomer?.name || 'Walk-in Customer')}</div>
-                       <div style="font-size:11px; color:#6366f1; font-weight:600;">${store.selectedCustomer ? escapeHtml(store.selectedCustomer.phone || 'No Phone') : 'General Guest'}</div>
+                       <div style="font-size:14px; font-weight:700; color:var(--text-main);">${escapeHtml(store.selectedCustomer?.name || 'Walk-in Customer')}</div>
+                       <div style="font-size:11px; color:var(--primary-light); font-weight:600;">${store.selectedCustomer ? escapeHtml(store.selectedCustomer.phone || 'No Phone') : 'General Guest'}</div>
                     </div>
                  </div>
-                 ${!store.selectedCustomer ? `<button id="qcAddBtn" style="width:28px; height:28px; border-radius:6px; background:#e0e7ff; color:#6366f1; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px;"><i class="fa-solid fa-plus"></i></button>` : ''}
+                 ${!store.selectedCustomer ? `<button id="qcAddBtn" style="width:28px; height:28px; border-radius:6px; background:var(--bg-hover); color:var(--primary-light); border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px;"><i class="fa-solid fa-plus"></i></button>` : ''}
               </div>
             </div>
 
@@ -164,19 +164,19 @@ export async function renderQuickPOS(container) {
                  <input class="form-input" id="qcPhone" value="${escapeHtml(store.selectedCustomer?.phone || '')}" placeholder="Enter phone" tabindex="2" style="border-radius:4px; font-size:13px; height:28px" />
                </div>
 
-               <details style="margin-bottom:12px; border:1px solid #e5e7eb; border-radius:4px; background:#f9fafb; overflow:hidden">
-                 <summary style="padding:6px 10px; font-size:11px; font-weight:700; cursor:pointer; color:#64748b; outline:none;">
+               <details style="margin-bottom:12px; border:1px solid var(--border); border-radius:4px; background:var(--bg-elevated); overflow:hidden">
+                 <summary style="padding:6px 10px; font-size:11px; font-weight:700; cursor:pointer; color:var(--text-secondary); outline:none;">
                    More Options
                  </summary>
-                 <div style="padding:10px; border-top:1px solid #e5e7eb; background:#fff">
+                 <div style="padding:10px; border-top:1px solid var(--border); background:var(--bg-card)">
                     <div class="form-group" style="margin-bottom:8px">
                       <div style="display:flex;gap:10px;align-items:center;">
-                        <div id="qcImagePreview" style="width:40px;height:40px;border-radius:20px;background:#f3f4f6;border:1px solid #d1d5db;display:flex;align-items:center;justify-content:center;overflow:hidden">
+                        <div id="qcImagePreview" style="width:40px;height:40px;border-radius:20px;background:var(--bg-elevated);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden">
                           ${store.selectedCustomer?.image ? `<img src="${store.selectedCustomer.image}" style="width:100%;height:100%;object-fit:cover" />` : `<i class="fa-solid fa-user" style="opacity:0.3;font-size:16px"></i>`}
                         </div>
                         <div>
                           <input type="file" id="qcImageFile" accept="image/*" style="display:none" />
-                          <button class="btn btn-ghost btn-xs" onclick="document.getElementById('qcImageFile').click()" style="padding:0 6px; font-size:11px; border:1px solid #d1d5db"><i class="fa-solid fa-camera mr-4"></i> Photo</button>
+                          <button class="btn btn-ghost btn-xs" onclick="document.getElementById('qcImageFile').click()" style="padding:0 6px; font-size:11px; border:1px solid var(--border)"><i class="fa-solid fa-camera mr-4"></i> Photo</button>
                         </div>
                       </div>
                       <input type="hidden" id="qcImageBase64" value="${store.selectedCustomer?.image || ''}" />
@@ -199,39 +199,39 @@ export async function renderQuickPOS(container) {
                     the expected way to pick staff here, matching every other
                     picker on this screen. -->
                ${settings.enableStaffEarnings !== false && staffList.length > 0 ? `
-               <div class="form-group" style="margin-top:12px; padding-top:10px; border-top:1px dashed #e5e7eb; position:relative">
+               <div class="form-group" style="margin-top:12px; padding-top:10px; border-top:1px dashed var(--border); position:relative">
                  <label class="form-label" style="font-size:11px; font-weight:700; margin-bottom:2px">Assign Staff</label>
                  <div style="position:relative;">
                    <input type="text" id="qpStaffSearch" placeholder="Type staff name..." autocomplete="off"
-                     style="width:100%; border:1px solid #d1d5db; padding:6px 10px; font-size:13px; border-radius:4px; outline:none; color:#1e293b"
+                     style="width:100%; border:1px solid var(--border); background:var(--bg-card); padding:6px 10px; font-size:13px; border-radius:4px; outline:none; color:var(--text-main)"
                      value="${escapeHtml(store.selectedStaff ? store.selectedStaff.name : '')}" />
                    <div id="qpStaffSuggestions" class="ep-suggestions hidden" style="top:36px; left:0; width:100%; max-height:160px; overflow-y:auto;"></div>
                  </div>
-                 ${store.selectedStaff ? `<button type="button" id="qpClearStaffBtn" class="btn btn-ghost btn-xs" style="color:#ef4444; padding:3px 0 0; font-size:11px; font-weight:700"><i class="fa-solid fa-circle-xmark"></i> Clear</button>` : ''}
+                 ${store.selectedStaff ? `<button type="button" id="qpClearStaffBtn" class="btn btn-ghost btn-xs" style="color:var(--danger); padding:3px 0 0; font-size:11px; font-weight:700"><i class="fa-solid fa-circle-xmark"></i> Clear</button>` : ''}
                </div>
                ` : ''}
             </div>
 
             <!-- Fixed Loyalty Area at Bottom (COMPACT) -->
             ${(settings.enableLoyalty !== false || settings.enableCredit !== false) ? `
-            <div style="padding:10px; border-top:1px solid #e5e7eb; background:#fff; ${!store.selectedCustomer ? 'opacity:0.3; pointer-events:none;' : ''} border-radius:0 0 0 4px">
-                <div style="font-size:10px; font-weight:800; color:#64748b; margin-bottom:6px; letter-spacing:0.8px; text-transform:uppercase; display:flex; justify-content:space-between; align-items:center">
+            <div style="padding:10px; border-top:1px solid var(--border); background:var(--bg-card); ${!store.selectedCustomer ? 'opacity:0.3; pointer-events:none;' : ''} border-radius:0 0 0 4px">
+                <div style="font-size:10px; font-weight:800; color:var(--text-secondary); margin-bottom:6px; letter-spacing:0.8px; text-transform:uppercase; display:flex; justify-content:space-between; align-items:center">
                    Loyalty Rewards
-                   <button id="quickResetBtn" class="btn btn-ghost btn-xs" style="color:#ef4444; padding:0" title="Reset (Alt+R)">
+                   <button id="quickResetBtn" class="btn btn-ghost btn-xs" style="color:var(--danger); padding:0" title="Reset (Alt+R)">
                      <i class="fa-solid fa-rotate-right"></i>
                    </button>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:8px 10px; border:1px solid #e5e7eb; border-radius:4px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:8px 10px; border:1px solid var(--border); border-radius:4px;">
                   ${settings.enableLoyalty !== false ? `
                   <div>
-                     <div style="font-size:10px; color:#94a3b8; font-weight:600">Points</div>
-                     <div style="font-size:18px; font-weight:900; color:#3b82f6" id="qcPointsDisplay">${store.selectedCustomer?.loyaltyPoints || 0}</div>
+                     <div style="font-size:10px; color:var(--text-secondary); font-weight:600">Points</div>
+                     <div style="font-size:18px; font-weight:900; color:var(--info)" id="qcPointsDisplay">${store.selectedCustomer?.loyaltyPoints || 0}</div>
                   </div>
                   ` : ''}
                   ${settings.enableCredit !== false ? `
                   <div style="text-align:right">
-                     <div style="font-size:10px; color:#94a3b8; font-weight:600">Credit</div>
-                     <div style="font-size:16px; font-weight:900; color:${(store.selectedCustomer?.creditBalance || 0) < 0 ? '#ef4444' : '#10b981'}">${cur}${(store.selectedCustomer?.creditBalance || 0).toLocaleString()}</div>
+                     <div style="font-size:10px; color:var(--text-secondary); font-weight:600">Credit</div>
+                     <div style="font-size:16px; font-weight:900; color:${(store.selectedCustomer?.creditBalance || 0) < 0 ? 'var(--danger)' : 'var(--success)'}">${cur}${(store.selectedCustomer?.creditBalance || 0).toLocaleString()}</div>
                   </div>
                   ` : ''}
                 </div>
@@ -308,27 +308,34 @@ export async function renderQuickPOS(container) {
     </div>
 
     <style>
+      /* Themed with the app's CSS variables (defined per Appearance theme
+         on <body> — see style.css/main.js applyTheme()) instead of fixed
+         hex values, so this screen switches with the rest of the app
+         instead of always rendering as a fixed light-mode surface. A
+         handful of deliberately theme-independent spots (the LED-style
+         grand-total readout, and white text sitting on solid accent-color
+         buttons) are called out below and kept hardcoded on purpose. */
       .enterprise-pos-container {
         display: flex;
         flex-direction: column;
         height: 100vh;
-        background: #e5e7eb;
-        color: #1f2937;
+        background: var(--bg-app);
+        color: var(--text-main);
         font-family: 'Segoe UI', Tahoma, sans-serif;
         padding: 0;
         box-sizing: border-box;
         overflow: hidden;
       }
 
-      .ep-status-panel { width: 250px; border-left: 1px solid #d1d5db; padding-left: 16px; }
+      .ep-status-panel { width: 250px; border-left: 1px solid var(--border); padding-left: 16px; }
       .ep-status-row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
-      .ep-status-row label { color: #4b5563; }
+      .ep-status-row label { color: var(--text-secondary); }
       .ep-status-row span { font-weight: 700; }
 
       /* Search Bar (PREMIUM COMPACT) */
       .ep-search-bar {
-        background: #fff;
-        border-bottom: 2px solid #3b82f6;
+        background: var(--bg-card);
+        border-bottom: 2px solid var(--info);
         padding: 4px 16px;
         display: flex;
         align-items: center;
@@ -336,33 +343,35 @@ export async function renderQuickPOS(container) {
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
       }
       .ep-f5-label { font-size: 20px; display: flex; align-items: center; gap: 8px; font-weight: 800; }
-      .ep-key-red { color: #ef4444; font-weight: 900; }
+      .ep-key-red { color: var(--danger); font-weight: 900; }
       .ep-input-wrap { flex: 1; display: flex; align-items: center; gap: 12px; }
-      .ep-input-wrap label { font-size: 15px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; }
+      .ep-input-wrap label { font-size: 15px; font-weight: 800; color: var(--text-main); text-transform: uppercase; letter-spacing: 0.5px; }
       .ep-input-wrap input {
         flex: 1;
         height: 32px;
         border: none;
-        border-bottom: 2px solid #e2e8f0;
+        border-bottom: 2px solid var(--border);
+        background: transparent;
+        color: var(--text-main);
         font-size: 18px;
         font-weight: 700;
         padding: 0 4px;
         outline: none;
         transition: border-color 0.2s;
       }
-      .ep-input-wrap input:focus { border-color: #3b82f6; }
-      .ep-cashier-info { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: #64748b; }
-      .ep-cashier-info span { color: #1e293b; }
+      .ep-input-wrap input:focus { border-color: var(--info); }
+      .ep-cashier-info { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--text-secondary); }
+      .ep-cashier-info span { color: var(--text-main); }
 
       /* Main Grid */
       .ep-main-grid { flex: 1; display: flex; gap: 8px; overflow: hidden; margin-bottom: 8px; }
-      
+
       /* Left Column: Catalog */
-      .ep-catalog-col { width: 400px; display: flex; flex-direction: column; background: #fff; border: 1px solid #9ca3af; }
-      .ep-catalog-header { background: #f3f4f6; padding: 4px 8px; font-size: 12px; border-bottom: 1px solid #9ca3af; }
+      .ep-catalog-col { width: 400px; display: flex; flex-direction: column; background: var(--bg-card); border: 1px solid var(--border); }
+      .ep-catalog-header { background: var(--bg-elevated); padding: 4px 8px; font-size: 12px; border-bottom: 1px solid var(--border); }
       .ep-product-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 8px; }
       .ep-product-card {
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--border);
         padding: 8px;
         text-align: center;
         cursor: pointer;
@@ -371,38 +380,38 @@ export async function renderQuickPOS(container) {
         flex-direction: column;
         align-items: center;
       }
-      .ep-product-card:hover { border-color: #dc2626; box-shadow: 0 0 5px rgba(220, 38, 38, 0.2); }
+      .ep-product-card:hover { border-color: var(--danger); box-shadow: 0 0 5px var(--danger-glow); }
       .ep-product-card img { width: 100px; height: 100px; object-fit: contain; margin-bottom: 8px; }
       .ep-product-card span { font-size: 12px; font-weight: 600; line-height: 1.2; height: 2.4em; overflow: hidden; }
 
       /* Center Column: Table */
-      .ep-transaction-col { flex: 1; background: #fff; border: 1px solid #9ca3af; display: flex; flex-direction: column; }
-      .ep-table-title { background: #e2e8f0; padding: 4px 10px; font-size: 13px; font-weight: 700; color: #475569; border-bottom: 1px solid #9ca3af; }
+      .ep-transaction-col { flex: 1; background: var(--bg-card); border: 1px solid var(--border); display: flex; flex-direction: column; }
+      .ep-table-title { background: var(--bg-elevated); padding: 4px 10px; font-size: 13px; font-weight: 700; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
       .ep-table-wrap { flex: 1; overflow-y: auto; }
       .ep-table { width: 100%; border-collapse: collapse; }
       .ep-table th {
-        background: #f1f5f9;
-        border-bottom: 1px solid #9ca3af;
-        border-right: 1px solid #cbd5e1;
+        background: var(--bg-elevated);
+        border-bottom: 1px solid var(--border);
+        border-right: 1px solid var(--border);
         padding: 6px 10px;
         text-align: left;
         font-size: 13px;
-        color: #334155;
+        color: var(--text-secondary);
         position: sticky;
         top: 0;
         z-index: 10;
       }
       .ep-table th:last-child { border-right: none; }
-      .ep-table td { 
-        border-bottom: 1px solid #e2e8f0; 
-        border-right: 1px solid #f1f5f9;
-        padding: 6px 10px; 
-        font-size: 14px; 
-        font-weight: 600; 
-        color: #1e293b;
+      .ep-table td {
+        border-bottom: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+        padding: 6px 10px;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-main);
       }
       .ep-table td:last-child { border-right: none; }
-      .ep-table tr.selected-row { background: #3b82f6 !important; }
+      .ep-table tr.selected-row { background: var(--primary) !important; }
       .ep-table tr.selected-row td { color: #ffffff !important; }
 
       /* Bottom Section */
@@ -418,8 +427,8 @@ export async function renderQuickPOS(container) {
         gap: 4px;
       }
       .ep-f-btn {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
         border-radius: 6px;
         display: flex;
         flex-direction: column;
@@ -430,13 +439,13 @@ export async function renderQuickPOS(container) {
         font-weight: 700;
         font-size: 11px;
         transition: all 0.2s;
-        color: #475569;
+        color: var(--text-secondary);
       }
-      .ep-f-btn span { color: #ef4444; font-size: 10px; margin-bottom: 2px; font-weight: 900; }
-      .ep-f-btn:hover, .ep-f-btn.active { background: #fee2e2; border-color: #ef4444; color: #b91c1c; }
+      .ep-f-btn span { color: var(--danger); font-size: 10px; margin-bottom: 2px; font-weight: 900; }
+      .ep-f-btn:hover, .ep-f-btn.active { background: var(--danger-glow); border-color: var(--danger); color: var(--danger); }
       .ep-f-btn:active { transform: scale(0.95); }
-      
-      .ep-summary-section { width: 680px; display: flex; gap: 6px; align-items: stretch; background: #fff; padding: 4px; border-radius: 8px; border: 1px solid #cbd5e1; }
+
+      .ep-summary-section { width: 680px; display: flex; gap: 6px; align-items: stretch; background: var(--bg-card); padding: 4px; border-radius: 8px; border: 1px solid var(--border); }
       .ep-totals-box {
         flex: 1;
         display: grid;
@@ -445,33 +454,37 @@ export async function renderQuickPOS(container) {
         padding: 4px 8px;
         align-content: center;
       }
-      .ep-total-row { 
-        display: flex; 
-        justify-content: space-between; 
-        font-size: 12px; 
-        font-weight: 700; 
+      .ep-total-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        font-weight: 700;
         padding: 2px 0;
-        border-bottom: 1px solid #f1f5f9;
+        border-bottom: 1px solid var(--border);
         align-items: center;
       }
       .ep-total-row:last-child, .ep-total-row:nth-last-child(2) { border-bottom: none; }
-      .ep-total-row label { color: #64748b; font-size: 11px; text-transform: uppercase; }
-      .ep-total-row span { color: #1e293b; }
-      
+      .ep-total-row label { color: var(--text-secondary); font-size: 11px; text-transform: uppercase; }
+      .ep-total-row span { color: var(--text-main); }
+
       .ep-total-row[id*="order"] {
         cursor: pointer;
         transition: background 0.2s;
         border-radius: 4px;
         padding: 2px 6px;
         margin: 0 -4px;
-        background: #f8fafc;
+        background: var(--bg-elevated);
         border: 1px solid transparent;
       }
       .ep-total-row[id*="order"]:hover {
-        background: #f1f5f9;
-        border-color: #e2e8f0;
+        background: var(--bg-hover);
+        border-color: var(--border);
       }
-      
+
+      /* Deliberately theme-independent — an "LED readout" look (near-black
+         panel, neon-green digits) reads correctly in every theme, whereas
+         inheriting --bg-app would turn this washed-out/illegible on light
+         themes where --bg-app is pale instead of near-black. */
       .ep-grand-total {
         width: auto;
         min-width: 160px;
@@ -493,9 +506,15 @@ export async function renderQuickPOS(container) {
         line-height: 1;
       }
 
+      /* Uses the theme's own brand color (--primary), same as .btn-primary
+         elsewhere in the app, so PAY visibly matches whichever Appearance
+         theme is active instead of always being a fixed green. White text
+         on it stays fixed regardless of theme (same reasoning as the
+         grand-total readout below) — every theme's --primary is dark/
+         saturated enough for that, matching .btn-primary's own convention. */
       .ep-finish-btn {
         width: 100px;
-        background: #22c55e;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
         color: white;
         border: none;
         border-radius: 6px;
@@ -506,10 +525,10 @@ export async function renderQuickPOS(container) {
         align-items: center;
         justify-content: center;
         transition: all 0.2s;
-        box-shadow: 0 4px 0 #15803d;
+        box-shadow: 0 4px 0 rgba(0,0,0,0.25);
       }
-      .ep-finish-btn:hover { background: #16a34a; transform: translateY(-1px); box-shadow: 0 5px 0 #15803d; }
-      .ep-finish-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #15803d; }
+      .ep-finish-btn:hover { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 5px 0 rgba(0,0,0,0.25); }
+      .ep-finish-btn:active { filter: brightness(0.95); transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,0.25); }
       .ep-finish-top { font-size: 16px; opacity: 0.9; }
       .ep-finish-bot { font-size: 13px; text-transform: uppercase; }
 
@@ -518,26 +537,26 @@ export async function renderQuickPOS(container) {
         top: 48px;
         left: 300px;
         width: 600px;
-        background: white;
-        border: 2px solid #3b82f6;
+        background: var(--bg-card);
+        border: 2px solid var(--info);
         z-index: 1000;
         box-shadow: 0 10px 25px rgba(0,0,0,0.2);
         border-radius: 6px;
       }
-      .ep-suggestion-item { padding: 12px; border-bottom: 1px solid #e5e7eb; cursor: pointer; display: flex; justify-content: space-between; }
-      .ep-suggestion-item.active { background: #fee2e2; }
+      .ep-suggestion-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; justify-content: space-between; color: var(--text-main); }
+      .ep-suggestion-item.active { background: var(--danger-glow); }
 
       .ep-btn-sm {
-        background: #f1f5f9;
-        border: 1px solid #cbd5e1;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
         border-radius: 4px;
         cursor: pointer;
         transition: all 0.2s;
         height: 24px;
         font-weight: 800;
-        color: #475569;
+        color: var(--text-secondary);
       }
-      .ep-btn-sm:hover { background: #e2e8f0; color: #1e293b; }
+      .ep-btn-sm:hover { background: var(--bg-hover); color: var(--text-main); }
       .ep-btn-sm:active { transform: scale(0.95); }
 
       .hidden { display: none !important; }
@@ -610,7 +629,7 @@ export async function renderQuickPOS(container) {
           discRow.innerHTML = `
             <label>Extra Disc (Alt+D):</label>
             <div style="display:flex; align-items:center; gap:4px;">
-              <input id="globalDiscInput" type="number" step="0.01" value="${store.discountRaw || 0}" style="width:70px; height:24px; text-align:right; border:2px solid #3b82f6; border-radius:4px; font-weight:700; outline:none; padding: 0 4px;" />
+              <input id="globalDiscInput" type="number" step="0.01" value="${store.discountRaw || 0}" style="width:70px; height:24px; text-align:right; border:2px solid var(--info); background:var(--bg-card); color:var(--text-main); border-radius:4px; font-weight:700; outline:none; padding: 0 4px;" />
               <button id="globalDiscTypeBtn" class="ep-btn-sm" data-type="${store.discountType}" style="padding: 2px 6px;">${store.discountType === 'flat' ? cur : '%'}</button>
             </div>
           `;
@@ -667,7 +686,7 @@ export async function renderQuickPOS(container) {
           extraTaxRow.innerHTML = `
             <label>Extra Tax (Alt+L):</label>
             <div style="display:flex; align-items:center; gap:4px;">
-              <input id="extraTaxInput" type="number" step="0.01" value="${store.extraTaxRaw || 0}" style="width:70px; height:24px; text-align:right; border:2px solid #ef4444; border-radius:4px; font-weight:700; outline:none; padding: 0 4px;" />
+              <input id="extraTaxInput" type="number" step="0.01" value="${store.extraTaxRaw || 0}" style="width:70px; height:24px; text-align:right; border:2px solid var(--danger); background:var(--bg-card); color:var(--text-main); border-radius:4px; font-weight:700; outline:none; padding: 0 4px;" />
               <button id="extraTaxTypeBtn" class="ep-btn-sm" data-type="${store.extraTaxType}" style="padding: 2px 6px;">${store.extraTaxType === 'flat' ? cur : '%'}</button>
             </div>
           `;
@@ -761,17 +780,17 @@ export async function renderQuickPOS(container) {
 
       // Inline editable cell renderer
       const qtyCell = isSelected && selectedColIndex === 0
-        ? `<td style="text-align:center"><input id="colInput" type="number" min="0.001" step="0.001" value="${Number.isInteger(item.qty) ? item.qty : item.qty.toFixed(3)}" style="width:68px;text-align:center;font-weight:900;border:2px solid #3b82f6;border-radius:4px;padding:2px 4px;outline:none"></td>`
+        ? `<td style="text-align:center"><input id="colInput" type="number" min="0.001" step="0.001" value="${Number.isInteger(item.qty) ? item.qty : item.qty.toFixed(3)}" style="width:68px;text-align:center;font-weight:900;border:2px solid var(--info);background:var(--bg-card);color:var(--text-main);border-radius:4px;padding:2px 4px;outline:none"></td>`
         : `<td style="text-align:center; font-weight:900">${Number.isInteger(item.qty) ? item.qty : item.qty.toFixed(3)}</td>`;
 
       const priceCell = isSelected && selectedColIndex === 1
-        ? `<td style="text-align:right"><input id="colInput" type="number" min="0" step="0.01" value="${item.price.toFixed(2)}" style="width:80px;text-align:right;border:2px solid #3b82f6;border-radius:4px;padding:2px 4px;outline:none"></td>`
+        ? `<td style="text-align:right"><input id="colInput" type="number" min="0" step="0.01" value="${item.price.toFixed(2)}" style="width:80px;text-align:right;border:2px solid var(--info);background:var(--bg-card);color:var(--text-main);border-radius:4px;padding:2px 4px;outline:none"></td>`
         : `<td style="text-align:right">${item.price.toFixed(2)}</td>`;
 
       const discCell = isSelected && selectedColIndex === 2
         ? `<td style="text-align:right; position:relative;">
              <div style="display:flex; align-items:center; justify-content:flex-end; gap:2px;">
-               <input id="colInput" type="number" min="0" step="0.01" value="${item.itemDiscount || 0}" style="width:62px;text-align:right;border:2px solid #3b82f6;border-radius:4px;padding:2px 4px;outline:none">
+               <input id="colInput" type="number" min="0" step="0.01" value="${item.itemDiscount || 0}" style="width:62px;text-align:right;border:2px solid var(--info);background:var(--bg-card);color:var(--text-main);border-radius:4px;padding:2px 4px;outline:none">
                <button id="colDiscTypeBtn" class="ep-btn-sm" data-type="${item.itemDiscountType || 'flat'}" style="padding: 2px 4px; font-size:10px;">${(item.itemDiscountType || 'flat') === 'flat' ? cur : '%'}</button>
              </div>
            </td>`
@@ -863,9 +882,9 @@ export async function renderQuickPOS(container) {
         body: `
         <div class="ep-variant-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
           ${product.variants.map(v => `
-            <button class="btn btn-ghost w-full quick-variant-btn" data-vname="${escapeHtml(v.name)}" style="justify-content:space-between; padding:16px; border:1px solid #d1d5db;">
+            <button class="btn btn-ghost w-full quick-variant-btn" data-vname="${escapeHtml(v.name)}" style="justify-content:space-between; padding:16px; border:1px solid var(--border);">
               <div style="font-weight:700">${escapeHtml(v.name)}</div>
-              <div style="color:#059669;font-weight:900">${cur}${v.price}</div>
+              <div style="color:var(--success);font-weight:900">${cur}${v.price}</div>
             </button>
           `).join('')}
         </div>
@@ -894,11 +913,11 @@ export async function renderQuickPOS(container) {
       <div style="padding:10px;">
         <div class="form-group" style="margin-bottom:15px">
           <label class="form-label" style="font-weight:700">Discount Value</label>
-          <input type="number" id="discValue" class="form-input" value="${currentVal}" step="0.01" style="font-size:18px; height:40px; border:2px solid #3b82f6; border-radius:6px; outline:none" />
+          <input type="number" id="discValue" class="form-input" value="${currentVal}" step="0.01" style="font-size:18px; height:40px; border:2px solid var(--info); border-radius:6px; outline:none" />
         </div>
         <div class="form-group" style="margin-bottom:20px">
           <label class="form-label" style="font-weight:700">Discount Type</label>
-          <select id="discType" class="form-select" style="font-size:16px; height:40px; border-radius:6px; border:1px solid #d1d5db; width:100%">
+          <select id="discType" class="form-select" style="font-size:16px; height:40px; border-radius:6px; border:1px solid var(--border); width:100%">
             <option value="flat" ${currentType === 'flat' ? 'selected' : ''}>Amount (${cur})</option>
             <option value="pct" ${currentType === 'pct' ? 'selected' : ''}>Percentage (%)</option>
           </select>
@@ -981,7 +1000,7 @@ export async function renderQuickPOS(container) {
         return `
         <div class="ep-suggestion-item ${idx === 0 ? 'active' : ''}" data-id="${p.id}" ${vNameAttr}>
           <div style="font-weight:700">${displayName}</div>
-          <div style="font-weight:900; color:#dc2626">${cur}${displayPrice}</div>
+          <div style="font-weight:900; color:var(--danger)">${cur}${displayPrice}</div>
         </div>
         `;
       }).join('');
@@ -1355,16 +1374,16 @@ export async function renderQuickPOS(container) {
 
       qpStaffSuggestions.classList.remove('hidden');
       qpStaffSuggestions.innerHTML = `
-        <div class="ep-suggestion-item" data-staff-id="" style="padding:8px 10px; border-bottom:1px solid #f1f5f9; font-weight:700; color:#64748b">
+        <div class="ep-suggestion-item" data-staff-id="" style="padding:8px 10px; border-bottom:1px solid var(--border); font-weight:700; color:var(--text-secondary)">
           <i class="fa-solid fa-user-slash mr-8"></i> — None —
         </div>
       ` + matches.slice(0, 6).map(s => `
-        <div class="ep-suggestion-item" data-staff-id="${s.id}" style="padding:8px 10px; font-size:13px; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
+        <div class="ep-suggestion-item" data-staff-id="${s.id}" style="padding:8px 10px; font-size:13px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
           <div>
-            <div style="font-weight:700; color:#1e293b">${escapeHtml(s.name)}</div>
-            ${s.specialization ? `<div style="font-size:11px; color:#6366f1; font-weight:600">${escapeHtml(s.specialization)}</div>` : ''}
+            <div style="font-weight:700; color:var(--text-main)">${escapeHtml(s.name)}</div>
+            ${s.specialization ? `<div style="font-size:11px; color:var(--primary-light); font-weight:600">${escapeHtml(s.specialization)}</div>` : ''}
           </div>
-          <div style="font-size:10px; color:#94a3b8"><i class="fa-solid fa-chevron-right"></i></div>
+          <div style="font-size:10px; color:var(--text-secondary)"><i class="fa-solid fa-chevron-right"></i></div>
         </div>
       `).join('');
 
@@ -1469,7 +1488,7 @@ export async function renderQuickPOS(container) {
           qcSuggestions.classList.remove('hidden');
           
           let listHtml = `
-            <div class="ep-suggestion-item" data-cust-id="walkin" style="padding:10px; border-bottom:1px solid #f1f5f9; font-weight:700; color:#3b82f6; background:#f0f7ff">
+            <div class="ep-suggestion-item" data-cust-id="walkin" style="padding:10px; border-bottom:1px solid var(--border); font-weight:700; color:var(--info); background:var(--bg-elevated)">
                 <i class="fa-solid fa-user-group mr-8"></i> Walk-in Customer
             </div>
           `;
@@ -1477,12 +1496,12 @@ export async function renderQuickPOS(container) {
           listHtml += matches.slice(0, 5).map((c, idx) => {
             const currentVal = qcSearchPhone.value.trim();
             return `
-            <div class="ep-suggestion-item ${idx === 0 && !currentVal ? 'active' : ''}" data-cust-id="${c.id}" style="padding:10px; font-size:13px; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
+            <div class="ep-suggestion-item ${idx === 0 && !currentVal ? 'active' : ''}" data-cust-id="${c.id}" style="padding:10px; font-size:13px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
                 <div>
-                   <div style="font-weight:700; color:#1e293b">${escapeHtml(c.name)}</div>
-                   <div style="font-size:11px; color:#6366f1; font-weight:600">${escapeHtml(c.phone || 'No Phone')}</div>
+                   <div style="font-weight:700; color:var(--text-main)">${escapeHtml(c.name)}</div>
+                   <div style="font-size:11px; color:var(--primary-light); font-weight:600">${escapeHtml(c.phone || 'No Phone')}</div>
                 </div>
-                <div style="font-size:10px; color:#94a3b8"><i class="fa-solid fa-chevron-right"></i></div>
+                <div style="font-size:10px; color:var(--text-secondary)"><i class="fa-solid fa-chevron-right"></i></div>
             </div>
           `;}).join('');
           
