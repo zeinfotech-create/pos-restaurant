@@ -940,6 +940,13 @@ export async function renderQuickPOS(container) {
     const query = e.target.value.toLowerCase().trim();
     if (!query) {
       suggestionsEl.classList.add('hidden');
+      // Clear the stale list too, not just hide it — leaving the old
+      // (still-"active") suggestion items sitting in the DOM meant that
+      // pressing Enter (or Alt+Enter) right after clearing the search box
+      // would silently re-add whatever product had been on top of the
+      // last search, since the keydown handler below looks up ".active"
+      // by DOM presence, not by whether the box is visibly open.
+      suggestionsEl.innerHTML = '';
       return;
     }
 
@@ -985,7 +992,7 @@ export async function renderQuickPOS(container) {
 
   searchInput.addEventListener('keydown', async (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { // Ignore Shift+Enter here to avoid double-triggering product add
-      const active = suggestionsEl.querySelector('.ep-suggestion-item.active');
+      const active = !suggestionsEl.classList.contains('hidden') ? suggestionsEl.querySelector('.ep-suggestion-item.active') : null;
       if (active) {
         const id = active.dataset.id;
         const vname = active.dataset.vname;
