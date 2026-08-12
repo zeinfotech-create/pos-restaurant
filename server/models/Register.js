@@ -8,7 +8,9 @@ const registerSchema = new mongoose.Schema({
     status: { type: String, default: 'active' },
     data: { type: mongoose.Schema.Types.Mixed },
     updatedAt: { type: Date, default: Date.now }
-});
+}, { strict: false });
+// strict:false (matching Branch.js/Product.js/User.js) — same 'id' field
+// silently stripped on echo/full-state-pull bug as User.js, see its comment.
 
 registerSchema.index({ licenseKey: 1, branchId: 1, registerId: 1 }, { unique: true });
 

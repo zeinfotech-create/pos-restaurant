@@ -52,7 +52,7 @@ export async function renderUsers(container) {
       <div class="data-mgmt-bar products-filter-stack p-16">
         <div class="search-input-wrap">
           <i class="fa-solid fa-magnifying-glass"></i>
-          <input class="form-input" id="userSearch" placeholder="Search by name or email..." value="${searchQ || ''}" />
+          <input class="form-input" id="userSearch" placeholder="Search by name or phone..." value="${searchQ || ''}" />
         </div>
         
         <div class="filter-group">
@@ -102,7 +102,7 @@ export async function renderUsers(container) {
           <thead>
             <tr>
               <th>Name</th>
-              <th>Email</th>
+              <th>Phone</th>
               <th>PIN</th>
               <th>Role</th>
               <th>Branch</th>
@@ -152,7 +152,7 @@ export async function renderUsers(container) {
                     ${restricted ? '<span style="font-size:9px; background:var(--warning); color:black; padding:2px 6px; border-radius:4px; font-weight:700; margin-left:8px">LOCKED</span>' : ''}
                   </div>
                 </td>
-                <td data-label="Email">${escapeHtml(u.email || u.username || '—')}</td>
+                <td data-label="Phone">${escapeHtml(u.username || u.email || '—')}</td>
                 <td data-label="PIN" class="font-mono">${u.pin || '----'}</td>
                 <td data-label="Role"><span class="badge ${(u.role === 'Admin' || u.role === 'Super Admin') ? 'badge-primary' : 'badge-ghost'}">${u.role}</span></td>
                 <td data-label="Branch">${branchString}</td>

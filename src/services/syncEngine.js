@@ -369,7 +369,23 @@ class SyncEngine {
             if (store === 'settings') {
                 let shouldReconnect = false;
                 
-                if (data.licenseKey && this.licenseKey && data.licenseKey !== this.licenseKey) {
+                // Placeholder tenant tags ('LOCAL_EXE', 'GLOBAL', 'FREE-POS-ZEI-AUTO') are this
+                // device's bootstrap identity before onboarding assigns its own real key — the
+                // constructor/connect() default this.licenseKey to 'LOCAL_EXE' whenever settings
+                // has none yet. That first-ever placeholder → real-key transition is completely
+                // normal onboarding, not a device being repurposed for a DIFFERENT business, but
+                // the check below couldn't tell the two apart: both are "licenseKey changed",
+                // so it wiped 'users'/'branches'/etc. moments after completeInstallation() had
+                // just written the fresh admin/branch to them — before either had any chance to
+                // reach the hub. Since nothing genuine was ever stored under a placeholder key,
+                // there is nothing that needs protecting from cross-tenant contamination here;
+                // only a real-key → different-real-key transition (an actual re-onboarded/reused
+                // device) still needs the wipe.
+                const PLACEHOLDER_LICENSE_KEYS = new Set(['LOCAL_EXE', 'GLOBAL', 'FREE-POS-ZEI-AUTO']);
+                const licenseKeyChanged = data.licenseKey && this.licenseKey && data.licenseKey !== this.licenseKey;
+                const isGenuineTenantSwitch = licenseKeyChanged && !PLACEHOLDER_LICENSE_KEYS.has(this.licenseKey);
+
+                if (isGenuineTenantSwitch) {
                     console.log(`[SyncEngine] 🔑 License changed from ${this.licenseKey} to ${data.licenseKey}. Wiping local tenant data before resync.`);
                     // This device previously held another business's data locally (products, orders, etc.
                     // all use per-record IDs that don't collide across tenants, so old + new would otherwise
@@ -391,7 +407,13 @@ class SyncEngine {
                     // tenant's in-progress cart/bulk-selection follows you into the new one.
                     await db.delete(KEYS.SESSION, 'pos_cart');
                     try { localStorage.removeItem('pos_selected_products'); } catch (e) {}
+                }
 
+                // Track the new key and reconnect regardless of whether this was a genuine
+                // switch (wiped above) or just the placeholder → real-key bootstrap (not
+                // wiped) — either way this.licenseKey must stop pointing at the old value,
+                // or every broadcast/reconnect after this keeps registering under it.
+                if (licenseKeyChanged) {
                     this.licenseKey = data.licenseKey;
                     shouldReconnect = true;
                 }
@@ -1148,7 +1170,9 @@ class SyncEngine {
             { label: 'Orders', store: 'orders', key: KEYS.ORDERS },
             { label: 'Suppliers', store: 'suppliers', key: KEYS.SUPPLIERS },
             { label: 'Settings', store: 'settings', key: KEYS.SETTINGS },
-            { label: 'Users', store: 'users', key: KEYS.USERS }
+            { label: 'Users', store: 'users', key: KEYS.USERS },
+            { label: 'Branches', store: 'branches', key: KEYS.BRANCHES },
+            { label: 'Registers', store: 'registers', key: KEYS.REGISTERS }
         ];
 
         // Load tombstones once — skip pushing records that were deleted locally

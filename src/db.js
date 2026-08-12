@@ -2898,9 +2898,30 @@ export async function checkElectronInstallState() {
           await updateSettings({ isInstalled: true });
           return true;
         }
-        // Hub reachable and confirmed empty — genuinely fresh/reset install.
-        // Clear any stale cached flag so other code reading settings directly
-        // (e.g. router.js) also sees the correct state.
+        // Hub reachable but reports no users yet — this is NOT necessarily a
+        // genuinely fresh/reset install. A just-completed onboarding writes
+        // its admin/branch to IndexedDB first and only broadcasts to the hub
+        // afterward (retried in the background if the first attempt missed —
+        // see syncAllLocalData()'s 'users'/'branches'/'registers' handling);
+        // that broadcast can easily still be in flight the moment this
+        // install-check runs on the very next boot/reload. Trusting the hub
+        // alone here previously forced a freshly-onboarded device straight
+        // back to Onboarding, which wipes IndexedDB via completeInstallation()'s
+        // own resetDatabase() and creates a brand-new admin/branch — repeating
+        // forever, every reload, until the hub happened to catch up first.
+        try {
+          const localUsers = await db.getAll(KEYS.USERS) || [];
+          if (localUsers.length > 0) {
+            console.log('[InstallCheck] Hub reports no users yet, but a local admin record already exists (not yet synced). Trusting local — not genuinely fresh.');
+            await updateSettings({ isInstalled: true });
+            return true;
+          }
+        } catch (e) {
+          console.warn('[InstallCheck] Failed to check local users while hub reported empty:', e);
+        }
+        // Hub confirmed empty AND local IndexedDB has no user either —
+        // genuinely fresh/reset install. Clear any stale cached flag so other
+        // code reading settings directly (e.g. router.js) also sees this.
         await updateSettings({ isInstalled: false });
         return false;
       }
@@ -3069,16 +3090,19 @@ export async function updateData(store, data, isSilent = false) {
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable
-        // 'users' belongs here too — syncAllLocalData() already retries any
-        // store whose record has isSynced !== true (see its syncKeys list,
-        // which already includes 'users'), but stamping isSynced:true here
-        // unconditionally, before broadcast() has even attempted the hub
-        // push, meant a dropped/queued broadcast (hub not yet registered,
-        // reconnect in progress, etc.) was never retried — the record looked
-        // "done" the instant it was saved locally, regardless of whether the
-        // hub ever actually got it. This is exactly how a freshly-added staff
-        // user's passwordHash/branchIds could silently never reach Mongo.
-        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users'];
+        // 'users'/'branches'/'registers' belong here too — syncAllLocalData()
+        // now retries these stores (see its syncKeys list), but stamping
+        // isSynced:true here unconditionally, before broadcast() has even
+        // attempted the hub push, meant a dropped/queued broadcast (hub not
+        // yet registered — e.g. right after onboarding's reload, before the
+        // WS handshake finishes — or a reconnect in progress) was never
+        // retried: the record looked "done" the instant it was saved
+        // locally, regardless of whether the hub ever actually got it. This
+        // is exactly how a freshly-onboarded device's own admin user and
+        // main branch could silently never reach Mongo, leaving both invisible
+        // to any OTHER device/session that reads them back from the hub
+        // instead of this exact IndexedDB.
+        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers'];
         if (syncStores.includes(store.toLowerCase())) {
           data.isSynced = false;
         } else {
