@@ -1164,6 +1164,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
           <div style="font-weight:700; margin-bottom:4px">Bill To:</div>
           <div style="font-weight:700">${order.customer ? escapeHtml(order.customer.name) : 'Walk-in Customer'}</div>
           ${order.customer?.phone ? `<div>Contact No.: ${escapeHtml(order.customer.phone)}</div>` : ''}
+          ${order.deliveryVehicle ? `<div>Delivery Vehicle: <strong>${escapeHtml(order.deliveryVehicle)}</strong></div>` : ''}
         </div>
         <div style="text-align:right">
           <div>Invoice No.: <strong>${escapeHtml(String(order.dailyNumber || order.id))}</strong></div>
@@ -1389,6 +1390,11 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
             <div>Phone: ${escapeHtml(order.customer.phone)}</div>
           </div>
         ` : ''}
+        ${order.deliveryVehicle ? `
+          <div style="margin-top:4px;padding-top:4px;border-top:1px dashed var(--border);font-size:12px">
+            <div>Delivery Vehicle: <strong>${escapeHtml(order.deliveryVehicle)}</strong></div>
+          </div>
+        ` : ''}
       </div>
 
       <div class="receipt-divider"></div>
@@ -1427,17 +1433,25 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
       : (exclusiveSubtotal * itemTaxRate / 100);
     const itemLineTotal = isInclusive ? exclusiveSubtotal : exclusiveSubtotal + taxAmount;
 
-    // The RATE column must show the taxable (tax-exclusive) unit price, matching how
-    // store.js's getCartTotals() derives the Subtotal line — for inclusive-tax items the
-    // stored price already has tax baked in, so divide it back out for display only; AMOUNT
-    // stays as itemLineTotal (the final tax-inclusive line total) unchanged either way.
-    const displayRate = isInclusive ? itemPrice / (1 + itemTaxRate / 100) : itemPrice;
+    // RATE shows the actual selling price (itemPrice) — NOT the tax-
+    // exclusive base — because Disc and Amount are both computed against
+    // itemPrice too (itemDiscountAmt comes from baseLineTotal = itemPrice
+    // × qty). Showing the pre-tax base here instead made Rate − Disc +
+    // Tax stop reconstructing Amount for inclusive items (e.g. a printed
+    // "₹61.90 − ₹5.00 + ₹2.86" reads as ₹59.76, not the ₹60.00 actually
+    // charged) — every number on the line has to share the same basis for
+    // simple left-to-right arithmetic to check out. The base price is
+    // still shown, just as an informational sub-line instead of swapped
+    // into the primary Rate figure — same convention as the on-screen
+    // Quick POS cart table and the A4/A5 invoice.
+    const unitBaseRate = isInclusive && itemTaxRate > 0 ? itemPrice / (1 + itemTaxRate / 100) : null;
 
     const subLines = [
       i.variantName ? `(${i.variantName})` : '',
       i.hsnCode ? `HSN: ${i.hsnCode}` : '',
       itemDiscountAmt > 0 ? `Disc: -${cur}${itemDiscountAmt.toFixed(2)}${i.itemDiscountType === 'pct' ? ` (${i.itemDiscount}%)` : ''}` : '',
-      itemTaxRate > 0 ? `Tax ${itemTaxRate}%${isInclusive ? ' Incl.' : ''} (${cur}${taxAmount.toFixed(2)})` : ''
+      itemTaxRate > 0 ? `Tax ${itemTaxRate}%${isInclusive ? ' Incl.' : ''} (${cur}${taxAmount.toFixed(2)})` : '',
+      unitBaseRate !== null ? `Base: ${cur}${unitBaseRate.toFixed(2)}` : ''
     ].filter(Boolean).join(' | ');
 
     return `
@@ -1447,7 +1461,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
             ${subLines ? `<div style="font-size:9px; opacity:0.65">${subLines}</div>` : ''}
           </td>
           <td style="text-align:center; vertical-align:top; padding:4px 0">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}</td>
-          <td style="text-align:right; vertical-align:top; padding:4px 0">${cur}${displayRate.toFixed(2)}</td>
+          <td style="text-align:right; vertical-align:top; padding:4px 0">${cur}${itemPrice.toFixed(2)}</td>
           <td style="text-align:right; vertical-align:top; padding:4px 0; font-weight:bold">${cur}${itemLineTotal.toFixed(2)}</td>
         </tr>
       `}).join('')}
