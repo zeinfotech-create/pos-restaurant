@@ -1205,15 +1205,28 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
               : (exclusiveSubtotal * itemTaxRate / 100);
             const taxAmount = isItemInclusive ? 0 : displayTaxAmount;
             const itemLineTotal = exclusiveSubtotal + taxAmount;
+            // Same "what's actually inside this number" detail as the
+            // on-screen Quick POS cart table: an inclusive Price/unit
+            // already has tax baked in, so show its pre-tax base
+            // underneath instead of leaving the customer to work it out;
+            // and tag the GST column Incl/Excl so it's clear whether that
+            // amount is already counted in Price/unit or added on top of it.
+            const unitBaseRate = isItemInclusive && itemTaxRate > 0 ? itemPrice / (1 + itemTaxRate / 100) : null;
             return `
               <tr style="border-bottom:1px solid #ddd">
                 <td style="padding:6px">${idx + 1}</td>
                 <td style="padding:6px; font-weight:600">${escapeHtml(i.name)}</td>
                 ${hasHsn ? `<td style="padding:6px">${escapeHtml(i.hsnCode || '')}</td>` : ''}
                 <td style="text-align:center; padding:6px">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}</td>
-                <td style="text-align:right; padding:6px">${cur}${itemPrice.toFixed(2)}</td>
+                <td style="text-align:right; padding:6px">
+                  ${cur}${itemPrice.toFixed(2)}
+                  ${unitBaseRate !== null ? `<div style="font-size:9px; opacity:0.6; font-weight:400">Base: ${cur}${unitBaseRate.toFixed(2)}</div>` : ''}
+                </td>
                 <td style="text-align:right; padding:6px">${cur}${itemDiscountAmt.toFixed(2)}${itemDiscountAmt > 0 && i.itemDiscountType === 'pct' ? ` (${i.itemDiscount}%)` : ''}</td>
-                <td style="text-align:right; padding:6px">${cur}${displayTaxAmount.toFixed(2)}${itemTaxRate > 0 ? ` (${itemTaxRate}%)` : ''}</td>
+                <td style="text-align:right; padding:6px">
+                  ${cur}${displayTaxAmount.toFixed(2)}${itemTaxRate > 0 ? ` (${itemTaxRate}%)` : ''}
+                  ${itemTaxRate > 0 ? `<div style="font-size:9px; opacity:0.6; font-weight:400">${isItemInclusive ? 'Incl.' : 'Excl.'}</div>` : ''}
+                </td>
                 <td style="text-align:right; padding:6px; font-weight:600">${cur}${itemLineTotal.toFixed(2)}</td>
               </tr>
             `;
