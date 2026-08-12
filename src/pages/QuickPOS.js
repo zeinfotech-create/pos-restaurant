@@ -481,17 +481,18 @@ export async function renderQuickPOS(container) {
         border-color: var(--border);
       }
 
-      /* Deliberately theme-independent — an "LED readout" look (near-black
-         panel, neon-green digits) reads correctly in every theme, whereas
-         inheriting --bg-app would turn this washed-out/illegible on light
-         themes where --bg-app is pale instead of near-black. */
+      /* Uses --primary-dark (the theme's own dark brand shade) rather than
+         --bg-app — --bg-app goes pale on light themes, which would wash out
+         an "LED readout" look, but --primary-dark stays a deep, saturated
+         shade in every theme (light or dark), so the readout both keeps its
+         digital-display contrast AND actually changes with the theme. */
       .ep-grand-total {
         width: auto;
         min-width: 160px;
         display: flex;
         flex-direction: column;
         justify-content: center;
-        background: #0f172a;
+        background: var(--primary-dark);
         color: white;
         border-radius: 6px;
         padding: 4px 12px;
@@ -499,7 +500,7 @@ export async function renderQuickPOS(container) {
       }
       .ep-grand-total label { font-size: 10px; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-bottom: 0; }
       .ep-total-amount {
-        color: #4ade80;
+        color: white;
         font-family: 'Delius Unicase', monospace;
         font-size: 42px;
         font-weight: 900;
