@@ -1162,9 +1162,11 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
       <div style="display:flex; justify-content:space-between; gap:16px; margin-bottom:16px; font-size:13px">
         <div>
           <div style="font-weight:700; margin-bottom:4px">Bill To:</div>
-          <div style="font-weight:700">${order.customer ? escapeHtml(order.customer.name) : 'Walk-in Customer'}</div>
-          ${order.customer?.phone ? `<div>Contact No.: ${escapeHtml(order.customer.phone)}</div>` : ''}
-          ${order.deliveryVehicle ? `<div>Delivery Vehicle: <strong>${escapeHtml(order.deliveryVehicle)}</strong></div>` : ''}
+          ${settings.showCustomerOnReceipt !== false ? `
+            <div style="font-weight:700">${order.customer ? escapeHtml(order.customer.name) : 'Walk-in Customer'}</div>
+            ${order.customer?.phone ? `<div>Contact No.: ${escapeHtml(order.customer.phone)}</div>` : ''}
+          ` : ''}
+          ${settings.showDeliveryOnReceipt !== false && order.deliveryVehicle ? `<div>Delivery Vehicle: <strong>${escapeHtml(order.deliveryVehicle)}</strong></div>` : ''}
         </div>
         <div style="text-align:right">
           <div>Invoice No.: <strong>${escapeHtml(String(order.dailyNumber || order.id))}</strong></div>
@@ -1221,12 +1223,14 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
                 <td style="text-align:center; padding:6px">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}</td>
                 <td style="text-align:right; padding:6px">
                   ${cur}${itemPrice.toFixed(2)}
-                  ${unitBaseRate !== null ? `<div style="font-size:9px; opacity:0.6; font-weight:400">Base: ${cur}${unitBaseRate.toFixed(2)}</div>` : ''}
+                  ${settings.showTaxOnReceipt !== false && unitBaseRate !== null ? `<div style="font-size:9px; opacity:0.6; font-weight:400">Base: ${cur}${unitBaseRate.toFixed(2)}</div>` : ''}
                 </td>
-                <td style="text-align:right; padding:6px">${cur}${itemDiscountAmt.toFixed(2)}${itemDiscountAmt > 0 && i.itemDiscountType === 'pct' ? ` (${i.itemDiscount}%)` : ''}</td>
+                <td style="text-align:right; padding:6px">${settings.showDiscountOnReceipt !== false ? `${cur}${itemDiscountAmt.toFixed(2)}${itemDiscountAmt > 0 && i.itemDiscountType === 'pct' ? ` (${i.itemDiscount}%)` : ''}` : '—'}</td>
                 <td style="text-align:right; padding:6px">
-                  ${cur}${displayTaxAmount.toFixed(2)}${itemTaxRate > 0 ? ` (${itemTaxRate}%)` : ''}
-                  ${itemTaxRate > 0 ? `<div style="font-size:9px; opacity:0.6; font-weight:400">${isItemInclusive ? 'Incl.' : 'Excl.'}</div>` : ''}
+                  ${settings.showTaxOnReceipt !== false ? `
+                    ${cur}${displayTaxAmount.toFixed(2)}${itemTaxRate > 0 ? ` (${itemTaxRate}%)` : ''}
+                    ${itemTaxRate > 0 ? `<div style="font-size:9px; opacity:0.6; font-weight:400">${isItemInclusive ? 'Incl.' : 'Excl.'}</div>` : ''}
+                  ` : '—'}
                 </td>
                 <td style="text-align:right; padding:6px; font-weight:600">${cur}${itemLineTotal.toFixed(2)}</td>
               </tr>
@@ -1242,7 +1246,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
             })()}</td>
             <td></td>
             <td></td>
-            <td style="text-align:right; padding:6px">${cur}${taxDisplayTotal.toFixed(2)}</td>
+            <td style="text-align:right; padding:6px">${settings.showTaxOnReceipt !== false ? `${cur}${taxDisplayTotal.toFixed(2)}` : '—'}</td>
             <td style="text-align:right; padding:6px">${cur}${total.toFixed(2)}</td>
           </tr>
         </tfoot>
@@ -1255,13 +1259,13 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
         </div>
         <div style="flex:0 0 220px">
           <div style="display:flex; justify-content:space-between"><span>Sub Total</span><span>${cur}${subtotal.toFixed(2)}</span></div>
-          ${order.discount > 0 ? `<div style="display:flex; justify-content:space-between"><span>Discount</span><span>-${cur}${order.discount.toFixed(2)}</span></div>` : ''}
-          ${taxBreakdown.length > 0 ? taxBreakdown.map(t => order.isInterState ? `
+          ${settings.showDiscountOnReceipt !== false && order.discount > 0 ? `<div style="display:flex; justify-content:space-between"><span>Discount</span><span>-${cur}${order.discount.toFixed(2)}</span></div>` : ''}
+          ${settings.showTaxOnReceipt !== false ? (taxBreakdown.length > 0 ? taxBreakdown.map(t => order.isInterState ? `
             <div style="display:flex; justify-content:space-between; font-size:12px"><span>IGST @${(+t.rate).toFixed(2)}%</span><span>${cur}${t.amount.toFixed(2)}</span></div>
           ` : `
             <div style="display:flex; justify-content:space-between; font-size:12px"><span>CGST @${(t.rate / 2).toFixed(2)}%</span><span>${cur}${(t.amount / 2).toFixed(2)}</span></div>
             <div style="display:flex; justify-content:space-between; font-size:12px"><span>SGST @${(t.rate / 2).toFixed(2)}%</span><span>${cur}${(t.amount / 2).toFixed(2)}</span></div>
-          `).join('') : (tax > 0 ? `<div style="display:flex; justify-content:space-between"><span>Tax</span><span>${cur}${tax.toFixed(2)}</span></div>` : '')}
+          `).join('') : (tax > 0 ? `<div style="display:flex; justify-content:space-between"><span>Tax</span><span>${cur}${tax.toFixed(2)}</span></div>` : '')) : ''}
           ${totalReturned > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--danger)"><span>Returned</span><span>-${cur}${totalReturned.toFixed(2)}</span></div>` : ''}
           <div style="display:flex; justify-content:space-between; font-weight:800; font-size:15px; margin-top:4px; padding-top:4px; ${isTheme2 ? 'border:1px solid #000; border-radius:4px; padding:6px 8px;' : 'border-top:1px solid #000;'}"><span>Total</span><span>${cur}${netTotal.toFixed(2)}</span></div>
         </div>
@@ -1384,13 +1388,13 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
           return (isDineIn && tableName) ? `<div style="font-size:11px;font-weight:bold">${order.orderType} &middot; Table: ${tableName}</div>` : '';
         })()}
         ${order.orderSource && order.orderSource !== 'In-Store' ? `<div style="font-size:11px;font-weight:bold;color:var(--primary)">Source: ${order.orderSource}</div>` : ''}
-        ${order.customer ? `
+        ${settings.showCustomerOnReceipt !== false && order.customer ? `
           <div style="margin-top:4px;padding-top:4px;border-top:1px dashed var(--border);font-size:12px">
             <div>Customer: <strong>${escapeHtml(order.customer.name)}</strong></div>
             <div>Phone: ${escapeHtml(order.customer.phone)}</div>
           </div>
         ` : ''}
-        ${order.deliveryVehicle ? `
+        ${settings.showDeliveryOnReceipt !== false && order.deliveryVehicle ? `
           <div style="margin-top:4px;padding-top:4px;border-top:1px dashed var(--border);font-size:12px">
             <div>Delivery Vehicle: <strong>${escapeHtml(order.deliveryVehicle)}</strong></div>
           </div>
@@ -1449,9 +1453,9 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
     const subLines = [
       i.variantName ? `(${i.variantName})` : '',
       i.hsnCode ? `HSN: ${i.hsnCode}` : '',
-      itemDiscountAmt > 0 ? `Disc: -${cur}${itemDiscountAmt.toFixed(2)}${i.itemDiscountType === 'pct' ? ` (${i.itemDiscount}%)` : ''}` : '',
-      itemTaxRate > 0 ? `Tax ${itemTaxRate}%${isInclusive ? ' Incl.' : ''} (${cur}${taxAmount.toFixed(2)})` : '',
-      unitBaseRate !== null ? `Base: ${cur}${unitBaseRate.toFixed(2)}` : ''
+      settings.showDiscountOnReceipt !== false && itemDiscountAmt > 0 ? `Disc: -${cur}${itemDiscountAmt.toFixed(2)}${i.itemDiscountType === 'pct' ? ` (${i.itemDiscount}%)` : ''}` : '',
+      settings.showTaxOnReceipt !== false && itemTaxRate > 0 ? `Tax ${itemTaxRate}%${isInclusive ? ' Incl.' : ''} (${cur}${taxAmount.toFixed(2)})` : '',
+      settings.showTaxOnReceipt !== false && unitBaseRate !== null ? `Base: ${cur}${unitBaseRate.toFixed(2)}` : ''
     ].filter(Boolean).join(' | ');
 
     return `
@@ -1494,7 +1498,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         return Number.isInteger(totalQty) ? totalQty : totalQty.toFixed(3);
       })()}</span></div>
       <div class="receipt-row" style="font-weight:800; font-size:14px"><span>Total:</span><span>${cur}${subtotal.toFixed(2)}</span></div>
-      ${order.discount > 0 ? `<div class="receipt-row"><span>Discount ${order.globalDiscountType === 'pct' ? `(${order.globalDiscountRaw}%)` : ''}</span><span>-${cur}${order.discount.toFixed(2)}</span></div>` : ''}
+      ${settings.showDiscountOnReceipt !== false && order.discount > 0 ? `<div class="receipt-row"><span>Discount ${order.globalDiscountType === 'pct' ? `(${order.globalDiscountRaw}%)` : ''}</span><span>-${cur}${order.discount.toFixed(2)}</span></div>` : ''}
 
       ${(() => {
         const hasGroupedTax = (order.groupedTaxes?.length > 0 || order.grossGroupedTaxes?.length > 0);
@@ -1506,11 +1510,11 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         // preview's sample order). Compute the per-rate breakdown from the
         // items themselves as the last resort instead.
         const { breakdown: itemTaxBreakdown } = computeTaxByRate(order);
-        const taxHtml = hasGroupedTax
+        const taxHtml = settings.showTaxOnReceipt === false ? '' : (hasGroupedTax
           ? (order.grossGroupedTaxes || order.groupedTaxes).map(t => renderGstSplit(t.rate, t.amount, cur, order.isInterState)).join('')
           : (itemTaxBreakdown.length > 0
               ? itemTaxBreakdown.map(t => renderGstSplit(t.rate, t.amount, cur, order.isInterState)).join('')
-              : (order.tax > 0 ? renderGstSplit(taxRate, order.tax, cur, order.isInterState) : ''));
+              : (order.tax > 0 ? renderGstSplit(taxRate, order.tax, cur, order.isInterState) : '')));
         const roundOffHtml = (order.roundOff && Math.abs(order.roundOff) > 0.001) ? `
           <div class="receipt-row">
             <span>Round Off</span>

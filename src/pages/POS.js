@@ -1,5 +1,5 @@
 import { getProducts, getSettings, getCustomers, isRegisterOpen, getBusinessFeatures, getAppointments, getStaff, saveAppointment, deleteAppointment, updateAppointmentStatus, hasPermission, getCategories, getSubCategories, getLowStockProducts, getExpiringProducts, getCurrentRegisterId, getCurrentBranch, updateProduct, logInventoryChange, getCurrentUser } from '../db.js';
-import { store, addToCart, onCartUpdate, getCartTotals, updateQty, removeFromCart, clearCart, setDiscount, loadAppointmentIntoCart, updateCartItem } from '../store.js';
+import { store, addToCart, onCartUpdate, getCartTotals, updateQty, removeFromCart, clearCart, setDiscount, setExtraTax, loadAppointmentIntoCart, updateCartItem } from '../store.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { openCustomerForm } from '../components/CustomerForm.js';
 import { openCheckout } from '../services/CheckoutService.js';
@@ -14,6 +14,7 @@ let currentSort = 'most-sold';
 let visibleCount = 20;
 let isSummaryExpanded = false;
 let isDiscountExpanded = false;
+let isExtraTaxExpanded = false;
 let activeSuggestionIndex = -1;
 let currentSuggestions = [];
 // Guards the Enter-key add-to-cart lookup below against a fast barcode
@@ -565,7 +566,9 @@ export async function renderCart(cur) {
 
   try {
     const settings = store.settings || await getSettings();
-    const { subtotal, discount, tax, taxRate, total, groupedTaxes, grossGroupedTaxes, orderDiscount, itemDiscount, roundOff } = getCartTotals();
+    const { subtotal, discount, tax, taxRate, total, orderDiscount, itemDiscount, itemTax, grossTax, orderTax, roundOff } = getCartTotals();
+    const cartLineCount = store.cart.length;
+    const cartQtyCount = store.cart.reduce((s, i) => s + (parseFloat(i.qty) || 0), 0);
     const itemCount = store.cart.reduce((s, i) => s + i.qty, 0);
     const customers = await getCustomers(store.branch?.id);
     const features = await getBusinessFeatures();
@@ -730,25 +733,36 @@ export async function renderCart(cur) {
           <span class="summary-label">Subtotal</span>
           <span class="summary-value">${cur}${subtotal.toFixed(2)}</span>
         </div>
-        ${(orderDiscount + itemDiscount) > 0 ? `
+        <!-- Same compact breakdown as Quick POS's totals box (Items/Itm
+             Disc/Itm Tax/Extra Disc/Extra Tax), 2-per-row — Items also
+             pairs with a Qty count Quick POS doesn't show, since a cart
+             here can hold multiple units of the same line. -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:2px 10px">
           <div class="summary-row">
-            <span class="summary-label text-success">Manual Discount</span>
-            <span class="summary-value text-success">−${cur}${(orderDiscount + itemDiscount).toFixed(2)}</span>
+            <span class="summary-label">Items</span>
+            <span class="summary-value">${cartLineCount}</span>
           </div>
-        ` : ''}
-        ${grossGroupedTaxes && grossGroupedTaxes.length > 0 ?
-      grossGroupedTaxes.map(t => `
-            <div class="summary-row">
-              <span class="summary-label">Tax (${t.rate}%)</span>
-              <span class="summary-value">${cur}${t.amount.toFixed(2)}</span>
-            </div>
-          `).join('')
-      : `
           <div class="summary-row">
-            <span class="summary-label">Tax (0%)</span>
-            <span class="summary-value">${cur}0.00</span>
+            <span class="summary-label">Qty</span>
+            <span class="summary-value">${Number.isInteger(cartQtyCount) ? cartQtyCount : cartQtyCount.toFixed(3)}</span>
           </div>
-        `}
+          <div class="summary-row">
+            <span class="summary-label${itemDiscount > 0 ? ' text-success' : ''}">Item Disc</span>
+            <span class="summary-value${itemDiscount > 0 ? ' text-success' : ''}">${itemDiscount > 0 ? '−' : ''}${cur}${itemDiscount.toFixed(2)}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">Item Tax</span>
+            <span class="summary-value">${cur}${(grossTax || itemTax).toFixed(2)}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label${orderDiscount > 0 ? ' text-success' : ''}">Extra Disc</span>
+            <span class="summary-value${orderDiscount > 0 ? ' text-success' : ''}">${orderDiscount > 0 ? '−' : ''}${cur}${orderDiscount.toFixed(2)}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">Extra Tax</span>
+            <span class="summary-value">${orderTax > 0 ? '+' : ''}${cur}${orderTax.toFixed(2)}</span>
+          </div>
+        </div>
         ${Math.abs(roundOff) > 0.001 ? `
           <div class="summary-row" style="font-size:12px">
             <span class="summary-label">Round Off</span>
@@ -756,9 +770,9 @@ export async function renderCart(cur) {
           </div>
         ` : ''}
 
-        <div style="margin-top:2px">
+        <div style="margin-top:2px; display:flex; gap:6px">
           ${isDiscountExpanded ? `
-            <div class="discount-input-row" style="margin-bottom:4px;display:flex;gap:6px">
+            <div class="discount-input-row" style="margin-bottom:4px;display:flex;gap:6px;flex:1">
               <div style="display:flex;flex:1;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
                 <input class="form-input" id="discountInput" type="number" placeholder="Amt" value="${store.discountRaw || ''}" min="0" style="height:32px;font-size:12px;border:none;border-radius:0;flex:1;min-width:0" />
                 <button id="global-disc-type-flat" style="height:32px;padding:0 10px;border:none;border-left:1px solid var(--border);font-size:12px;font-weight:700;cursor:pointer;transition:background 0.15s;
@@ -771,13 +785,33 @@ export async function renderCart(cur) {
               <button class="btn btn-primary btn-sm" id="applyDiscountBtn" style="height:32px;padding:0 12px">Apply</button>
               <button class="btn btn-ghost btn-sm" id="toggleDiscountBtn" style="height:32px;width:32px;padding:0;flex-shrink:0"><i class="fa-solid fa-xmark"></i></button>
             </div>
-          ` : `
-            <button class="btn btn-ghost btn-sm" id="toggleDiscountBtn" 
+          ` : !isExtraTaxExpanded ? `
+            <button class="btn btn-ghost btn-sm" id="toggleDiscountBtn"
               ${!canDiscount ? 'disabled style="display:none"' : ''}
-              style="border:1px dashed var(--primary); color:var(--primary); width:100%; justify-content:center; font-size:12px; padding:4px">
+              style="border:1px dashed var(--primary); color:var(--primary); flex:1; justify-content:center; font-size:12px; padding:4px">
               <i class="fa-solid fa-tag"></i> Add Discount
             </button>
-          `}
+          ` : ''}
+          ${isExtraTaxExpanded ? `
+            <div class="extratax-input-row" style="margin-bottom:4px;display:flex;gap:6px;flex:1">
+              <div style="display:flex;flex:1;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+                <input class="form-input" id="extraTaxInput" type="number" placeholder="Amt" value="${store.extraTaxRaw || ''}" min="0" style="height:32px;font-size:12px;border:none;border-radius:0;flex:1;min-width:0" />
+                <button id="global-extratax-type-flat" style="height:32px;padding:0 10px;border:none;border-left:1px solid var(--border);font-size:12px;font-weight:700;cursor:pointer;transition:background 0.15s;
+                  background:${store.extraTaxType === 'flat' ? 'var(--primary)' : 'var(--bg-card)'};
+                  color:${store.extraTaxType === 'flat' ? '#fff' : 'var(--text-muted)'}">${cur}</button>
+                <button id="global-extratax-type-pct" style="height:32px;padding:0 10px;border:none;border-left:1px solid var(--border);font-size:12px;font-weight:700;cursor:pointer;transition:background 0.15s;
+                  background:${store.extraTaxType === 'pct' ? 'var(--primary)' : 'var(--bg-card)'};
+                  color:${store.extraTaxType === 'pct' ? '#fff' : 'var(--text-muted)'}">%</button>
+              </div>
+              <button class="btn btn-primary btn-sm" id="applyExtraTaxBtn" style="height:32px;padding:0 12px">Apply</button>
+              <button class="btn btn-ghost btn-sm" id="toggleExtraTaxBtn" style="height:32px;width:32px;padding:0;flex-shrink:0"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+          ` : !isDiscountExpanded ? `
+            <button class="btn btn-ghost btn-sm" id="toggleExtraTaxBtn"
+              style="border:1px dashed var(--info); color:var(--info); flex:1; justify-content:center; font-size:12px; padding:4px">
+              <i class="fa-solid fa-percent"></i> Add Tax
+            </button>
+          ` : ''}
         </div>
       </div>
 
@@ -958,6 +992,35 @@ export async function renderCart(cur) {
     e.stopPropagation();
     store.discountType = 'pct';
     renderCart(cur); // Re-render to highlight active button and recalculate if val exists
+  });
+
+  // Extra Tax (order-level manual tax/fee) — same Add/Apply/type-toggle
+  // pattern as Add Discount just above, backed by store.js's setExtraTax()
+  // (the same function QuickPOS's Alt+L shortcut already uses).
+  panel.querySelector('#toggleExtraTaxBtn')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    isExtraTaxExpanded = !isExtraTaxExpanded;
+    if (isExtraTaxExpanded) isSummaryExpanded = true;
+    await renderCart(cur);
+  });
+
+  panel.querySelector('#applyExtraTaxBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const val = panel.querySelector('#extraTaxInput').value;
+    // We already mutate store.extraTaxType via the toggle buttons below
+    setExtraTax(val, store.extraTaxType);
+    showToast(`Extra tax applied`, 'success');
+  });
+
+  panel.querySelector('#global-extratax-type-flat')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    store.extraTaxType = 'flat';
+    renderCart(cur);
+  });
+  panel.querySelector('#global-extratax-type-pct')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    store.extraTaxType = 'pct';
+    renderCart(cur);
   });
 
   const custSearch = panel.querySelector('#posCustSearch');

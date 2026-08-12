@@ -637,6 +637,26 @@ export async function renderSettings(container) {
                 <input type="checkbox" id="sPrintBarcodeOnReceipt" ${s.printBarcodeOnReceipt ? 'checked' : ''} />
                 <label class="form-label" style="margin:0" for="sPrintBarcodeOnReceipt">Print order ID barcode on receipt</label>
               </div>
+              <div class="form-group" style="border-top:1px dashed var(--border); padding-top:14px; margin-top:4px">
+                <label class="form-label" style="font-weight:700">Receipt Content — what to include</label>
+                <p class="form-help-text" style="margin-top:-4px; margin-bottom:10px">Turn off anything you don't want printed on receipts/tax invoices — the numbers themselves (totals, etc.) are never affected, only what's shown.</p>
+                <div style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin-bottom:8px">
+                  <input type="checkbox" id="sShowCustomerOnReceipt" ${s.showCustomerOnReceipt !== false ? 'checked' : ''} />
+                  <label class="form-label" style="margin:0" for="sShowCustomerOnReceipt">Customer details (name, phone)</label>
+                </div>
+                <div style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin-bottom:8px">
+                  <input type="checkbox" id="sShowDeliveryOnReceipt" ${s.showDeliveryOnReceipt !== false ? 'checked' : ''} />
+                  <label class="form-label" style="margin:0" for="sShowDeliveryOnReceipt">Delivery vehicle details</label>
+                </div>
+                <div style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin-bottom:8px">
+                  <input type="checkbox" id="sShowTaxOnReceipt" ${s.showTaxOnReceipt !== false ? 'checked' : ''} />
+                  <label class="form-label" style="margin:0" for="sShowTaxOnReceipt">Tax details (per-item rate/amount + GST breakdown)</label>
+                </div>
+                <div style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+                  <input type="checkbox" id="sShowDiscountOnReceipt" ${s.showDiscountOnReceipt !== false ? 'checked' : ''} />
+                  <label class="form-label" style="margin:0" for="sShowDiscountOnReceipt">Discount details (per-item + order-level)</label>
+                </div>
+              </div>
               <div class="form-group">
                 <label class="form-label">Receipt Header (optional)</label>
                 <input class="form-input" id="sReceiptHeader" value="${escapeHtml(s.receiptHeader || '')}" placeholder="e.g. Since 1998" />
@@ -1172,7 +1192,11 @@ export async function renderSettings(container) {
       receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1',
       showReceiptTitle: container.querySelector('#sShowReceiptTitle')?.checked !== false,
       receiptTitle: container.querySelector('#sReceiptTitle')?.value.trim() || 'TAX INVOICE',
-      showStoreName: container.querySelector('#sShowStoreName')?.checked !== false
+      showStoreName: container.querySelector('#sShowStoreName')?.checked !== false,
+      showCustomerOnReceipt: container.querySelector('#sShowCustomerOnReceipt')?.checked !== false,
+      showDeliveryOnReceipt: container.querySelector('#sShowDeliveryOnReceipt')?.checked !== false,
+      showTaxOnReceipt: container.querySelector('#sShowTaxOnReceipt')?.checked !== false,
+      showDiscountOnReceipt: container.querySelector('#sShowDiscountOnReceipt')?.checked !== false
     });
   });
 
@@ -1234,11 +1258,18 @@ export async function renderSettings(container) {
       dailyNumber: 101,
       date: new Date().toISOString(),
       items: [
-        { name: 'Sample Item A', qty: 2, price: 150, taxRate: 5 },
+        { name: 'Sample Item A', qty: 2, price: 150, taxRate: 5, itemDiscount: 5, itemDiscountType: 'flat' },
         { name: 'Sample Item B', qty: 1, price: 299, taxRate: 12 }
       ],
-      payments: [{ method: 'Cash', amount: 649.88 }], // matches the sample items' actual total (315 + 334.88) — was a stray 897 that made "Payment Status" look wrong against the real Net Amt
-      discount: 0
+      // Matches the sample items' actual total: Item A is (150×2 − 5×2 disc) ×
+      // 1.05 tax = 304.50, Item B is 299×1.12 = 334.88 → 639.38. The item-level
+      // discount, sample customer, and sample delivery vehicle below all exist
+      // so the Printing tab's Content toggles have something real to show/hide
+      // in the Live Preview, not just Tax (which the original sample already covered).
+      payments: [{ method: 'Cash', amount: 639.38 }],
+      discount: 0,
+      customer: { name: 'Sample Customer', phone: '9876543210' },
+      deliveryVehicle: 'TN01AB1234'
     };
     updateLivePreview = async () => {
       const paperSize = container.querySelector('#sPaperSize')?.value || 'thermal-80';
@@ -1269,7 +1300,11 @@ export async function renderSettings(container) {
         receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1',
         showReceiptTitle: container.querySelector('#sShowReceiptTitle')?.checked !== false,
         receiptTitle: container.querySelector('#sReceiptTitle')?.value || 'TAX INVOICE',
-        showStoreName: container.querySelector('#sShowStoreName')?.checked !== false
+        showStoreName: container.querySelector('#sShowStoreName')?.checked !== false,
+        showCustomerOnReceipt: container.querySelector('#sShowCustomerOnReceipt')?.checked !== false,
+        showDeliveryOnReceipt: container.querySelector('#sShowDeliveryOnReceipt')?.checked !== false,
+        showTaxOnReceipt: container.querySelector('#sShowTaxOnReceipt')?.checked !== false,
+        showDiscountOnReceipt: container.querySelector('#sShowDiscountOnReceipt')?.checked !== false
       };
       const isA4A5 = paperSize === 'a4' || paperSize === 'a5';
       const targetWidth = PAPER_WIDTHS[paperSize] || '80mm';
@@ -1287,7 +1322,7 @@ export async function renderSettings(container) {
         if (receiptEl) { receiptEl.style.maxWidth = targetWidth; receiptEl.style.width = targetWidth; }
       }
     };
-    container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms, input[name="sReceiptTheme"], #sShowReceiptTitle, #sReceiptTitle, #sShowStoreName, #sStoreName, #sStoreNameSubtitle, #sStoreAddress, #sStorePhone, #sStoreAltPhone, #sStoreEmail, #sStoreFax, #sGstNumber').forEach(el => {
+    container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms, input[name="sReceiptTheme"], #sShowReceiptTitle, #sReceiptTitle, #sShowStoreName, #sStoreName, #sStoreNameSubtitle, #sStoreAddress, #sStorePhone, #sStoreAltPhone, #sStoreEmail, #sStoreFax, #sGstNumber, #sShowCustomerOnReceipt, #sShowDeliveryOnReceipt, #sShowTaxOnReceipt, #sShowDiscountOnReceipt').forEach(el => {
       el.addEventListener('input', updateLivePreview);
       el.addEventListener('change', updateLivePreview);
     });
