@@ -279,7 +279,7 @@ export async function renderQuickPOS(container) {
             <button class="ep-f-btn" id="btnStaffFocus" data-key="Alt+T"><span class="ep-key-red">Alt+T</span> Staff Search</button>
             <button class="ep-f-btn" id="btnStaffClear" data-key="Alt+X"><span class="ep-key-red">Alt+X</span> Staff Clear</button>
             ` : ''}
-            <button class="ep-f-btn" id="btnPayShortcut" data-key="Shift+S"><span class="ep-key-red">Shift+S</span> PAY</button>
+            <button class="ep-f-btn" id="btnPayShortcut" data-key="Alt+Enter"><span class="ep-key-red">Alt+Enter</span> PAY</button>
             <button class="ep-f-btn" data-key="Del"><span class="ep-key-red">Del</span> Delete Item</button>
             <button class="ep-f-btn" data-key="+"><span class="ep-key-red">+</span> Qty Inc</button>
             <button class="ep-f-btn" data-key="-"><span class="ep-key-red">-</span> Qty Dec</button>
@@ -433,7 +433,7 @@ export async function renderQuickPOS(container) {
         color: #475569;
       }
       .ep-f-btn span { color: #ef4444; font-size: 10px; margin-bottom: 2px; font-weight: 900; }
-      .ep-f-btn:hover { background: #fee2e2; border-color: #ef4444; color: #b91c1c; }
+      .ep-f-btn:hover, .ep-f-btn.active { background: #fee2e2; border-color: #ef4444; color: #b91c1c; }
       .ep-f-btn:active { transform: scale(0.95); }
       
       .ep-summary-section { width: 680px; display: flex; gap: 6px; align-items: stretch; background: #fff; padding: 4px; border-radius: 8px; border: 1px solid #cbd5e1; }
@@ -595,7 +595,18 @@ export async function renderQuickPOS(container) {
       // Order Discount Row
       const discRow = container.querySelector('#orderDiscountRow');
       if (discRow) {
-        if (isGlobalDiscEditing) {
+        // setDiscount() (called from this row's own oninput below) fires
+        // renderCartEvent(), which re-invokes this whole renderCart() via
+        // the onCartUpdate() listener at the bottom of this file — so every
+        // keystroke was rebuilding discRow's innerHTML from scratch,
+        // replacing the live <input> with a brand-new unfocused one and
+        // kicking focus out mid-type. Skip the rebuild when the existing
+        // input already has focus; its value/total are kept live by the
+        // oninput handler itself, so there's nothing to rebuild for.
+        const discInputHasFocus = isGlobalDiscEditing && document.activeElement?.id === 'globalDiscInput';
+        if (isGlobalDiscEditing && discInputHasFocus) {
+          // no-op — leave the focused input alone
+        } else if (isGlobalDiscEditing) {
           discRow.innerHTML = `
             <label>Extra Disc (Alt+D):</label>
             <div style="display:flex; align-items:center; gap:4px;">
@@ -646,7 +657,13 @@ export async function renderQuickPOS(container) {
       // Order Extra Tax Row
       const extraTaxRow = container.querySelector('#orderExtraTaxRow');
       if (extraTaxRow) {
-        if (isExtraTaxEditing) {
+        // Same focus-stealing issue as discRow above (setExtraTax()'s
+        // renderCartEvent() re-triggers this whole renderCart()) — skip
+        // the rebuild while the input already has focus.
+        const extraTaxInputHasFocus = isExtraTaxEditing && document.activeElement?.id === 'extraTaxInput';
+        if (isExtraTaxEditing && extraTaxInputHasFocus) {
+          // no-op — leave the focused input alone
+        } else if (isExtraTaxEditing) {
           extraTaxRow.innerHTML = `
             <label>Extra Tax (Alt+L):</label>
             <div style="display:flex; align-items:center; gap:4px;">
@@ -694,6 +711,15 @@ export async function renderQuickPOS(container) {
           extraTaxRow.innerHTML = `<label>Extra Tax:</label> <span id="quickExtraTaxDisplay">${cur}${orderTax.toFixed(2)}</span>`;
         }
       }
+
+      // Keep the Alt+D/Alt+L shortcut buttons visibly "pressed" (same red
+      // highlight as :hover, via a persistent .active class) for as long as
+      // their inline editor is open — not just while the mouse happens to
+      // be sitting on top of the button.
+      const btnDiscEl = container.querySelector('#btnDisc');
+      if (btnDiscEl) btnDiscEl.classList.toggle('active', isGlobalDiscEditing);
+      const btnExtraTaxEl = container.querySelector('#btnExtraTax');
+      if (btnExtraTaxEl) btnExtraTaxEl.classList.toggle('active', isExtraTaxEditing);
 
       // Round Off Row
       const roundRow = container.querySelector('#roundOffRow');
@@ -969,7 +995,11 @@ export async function renderQuickPOS(container) {
           const variant = vname && product.variants ? product.variants.find(v => v.name === vname) : null;
           await handleQuickAdd(product, variant);
         }
-      } else if (searchInput.value === '' && store.cart.length > 0) {
+      } else if (e.altKey && searchInput.value === '' && store.cart.length > 0) {
+        // Plain Enter on an empty search box no longer pays on its own —
+        // requires Alt+Enter (matches the global shortcut) so an accidental
+        // stray Enter press mid-scan can't jump straight to checkout.
+        e.preventDefault();
         await openPaymentModal();
       }
     }
@@ -1124,8 +1154,8 @@ export async function renderQuickPOS(container) {
       searchInput.select();
       return;
     }
-    // Shift + S: Settle / Finish & Pay
-    if (isShift && charKey === 's') {
+    // Alt + Enter: Settle / Finish & Pay
+    if (isAlt && charKey === 'enter') {
       e.preventDefault();
       await openPaymentModal();
       return;
