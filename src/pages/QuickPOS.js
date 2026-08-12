@@ -29,6 +29,10 @@ export async function renderQuickPOS(container) {
   const branchId = store.branch?.id;
   const registerId = store.registerId;
   const staffList = settings.enableStaffEarnings !== false ? await getStaff(branchId) : [];
+  // Drives the shortcut grid's column count below — 7 columns exactly fits
+  // the 14 buttons when the 2 Staff ones are present, 6 exactly fits the
+  // 12 without them, so the last row never ends with a dangling gap either way.
+  const hasStaffShortcuts = settings.enableStaffEarnings !== false && staffList.length > 0;
 
   if (!(await isRegisterOpen(branchId, registerId))) {
     container.innerHTML = `
@@ -262,15 +266,19 @@ export async function renderQuickPOS(container) {
 
       <!-- Bottom Section: Shortcuts & Totals -->
       <div class="ep-bottom-bar">
-         <div class="ep-shortcut-grid">
+         <div class="ep-shortcut-grid" style="grid-template-columns: repeat(${hasStaffShortcuts ? 7 : 6}, 1fr)">
             <button class="ep-f-btn" id="btnReset" data-key="Alt+R"><span class="ep-key-red">Alt+R</span> Reset POS</button>
-            <button class="ep-f-btn" id="btnDisc" data-key="Alt+D"><span class="ep-key-red">Alt+D</span> Discount</button>
+            <button class="ep-f-btn" id="btnDisc" data-key="Alt+D"><span class="ep-key-red">Alt+D</span> Extra Disc</button>
             <button class="ep-f-btn" id="btnExtraTax" data-key="Alt+L"><span class="ep-key-red">Alt+L</span> Extra Tax</button>
             <button class="ep-f-btn" id="btnToggleType" data-key="Alt+A"><span class="ep-key-red">Alt+A</span> Disc % / \u20B9</button>
             <button class="ep-f-btn" id="btnScanFocus" data-key="Alt+S"><span class="ep-key-red">Alt+S</span> Scan / Search</button>
             <button class="ep-f-btn" id="btnSearch" data-key="Alt+F"><span class="ep-key-red">Alt+F</span> Cust Search</button>
             <button class="ep-f-btn" id="btnAdd" data-key="Alt+C"><span class="ep-key-red">Alt+C</span> Save/Add Cust</button>
             <button class="ep-f-btn" id="btnResetCust" data-key="Alt+E"><span class="ep-key-red">Alt+E</span> Cust Reset</button>
+            ${settings.enableStaffEarnings !== false && staffList.length > 0 ? `
+            <button class="ep-f-btn" id="btnStaffFocus" data-key="Alt+T"><span class="ep-key-red">Alt+T</span> Staff Search</button>
+            <button class="ep-f-btn" id="btnStaffClear" data-key="Alt+X"><span class="ep-key-red">Alt+X</span> Staff Clear</button>
+            ` : ''}
             <button class="ep-f-btn" id="btnPayShortcut" data-key="Shift+S"><span class="ep-key-red">Shift+S</span> PAY</button>
             <button class="ep-f-btn" data-key="Del"><span class="ep-key-red">Del</span> Delete Item</button>
             <button class="ep-f-btn" data-key="+"><span class="ep-key-red">+</span> Qty Inc</button>
@@ -283,7 +291,7 @@ export async function renderQuickPOS(container) {
                 <div class="ep-total-row" id="itemDiscountRow"><label>Itm Disc:</label> <span>${cur}0.00</span></div>
                 <div class="ep-total-row"><label>Sub:</label> <span id="quickSubtotalDisplay">${cur}0.00</span></div>
                 <div class="ep-total-row" id="itemTaxRow"><label>Itm Tax:</label> <span>${cur}0.00</span></div>
-                <div class="ep-total-row" id="orderDiscountRow"><label>Ord Disc:</label> <span id="quickDiscountDisplay">${cur}0.00</span></div>
+                <div class="ep-total-row" id="orderDiscountRow"><label>Extra Disc:</label> <span id="quickDiscountDisplay">${cur}0.00</span></div>
                 <div class="ep-total-row" id="orderExtraTaxRow"><label>Ext Tax:</label> <span id="quickExtraTaxDisplay">${cur}0.00</span></div>
                 <div class="ep-total-row" id="roundOffRow" style="display:none"><label>Round Off:</label> <span id="quickRoundOffDisplay">${cur}0.00</span></div>
             </div>
@@ -402,7 +410,10 @@ export async function renderQuickPOS(container) {
       .ep-shortcut-grid {
         flex: 1;
         display: grid;
-        grid-template-columns: repeat(6, 1fr);
+        /* Column count is set inline per-render (6 or 7, based on whether
+           the 2 Staff shortcut buttons are present) so the button count
+           always divides evenly into exactly 2 rows — no dangling gap on
+           one end, no overflow into an implicit, unevenly-sized 3rd row. */
         grid-template-rows: repeat(2, 1fr);
         gap: 4px;
       }
@@ -586,7 +597,7 @@ export async function renderQuickPOS(container) {
       if (discRow) {
         if (isGlobalDiscEditing) {
           discRow.innerHTML = `
-            <label>Order Disc (Alt+D):</label>
+            <label>Extra Disc (Alt+D):</label>
             <div style="display:flex; align-items:center; gap:4px;">
               <input id="globalDiscInput" type="number" step="0.01" value="${store.discountRaw || 0}" style="width:70px; height:24px; text-align:right; border:2px solid #3b82f6; border-radius:4px; font-weight:700; outline:none; padding: 0 4px;" />
               <button id="globalDiscTypeBtn" class="ep-btn-sm" data-type="${store.discountType}" style="padding: 2px 6px;">${store.discountType === 'flat' ? cur : '%'}</button>
@@ -628,7 +639,7 @@ export async function renderQuickPOS(container) {
             }
           };
         } else {
-          discRow.innerHTML = `<label>Order Disc:</label> <span id="quickDiscountDisplay">${cur}${orderDiscount.toFixed(2)}</span>`;
+          discRow.innerHTML = `<label>Extra Disc:</label> <span id="quickDiscountDisplay">${cur}${orderDiscount.toFixed(2)}</span>`;
         }
       }
 
@@ -1025,6 +1036,24 @@ export async function renderQuickPOS(container) {
       await syncCustomerDisplay(null);
       return;
     }
+    // Alt + T: Focus Staff Search (only when Staff Earnings is enabled and
+    // there's staff to assign — button/entry is hidden otherwise, so this
+    // is a no-op guard for a stale shortcut on a screen without the field)
+    if (isAlt && charKey === 't') {
+      e.preventDefault();
+      const staffInput = container.querySelector('#qpStaffSearch');
+      if (staffInput) { staffInput.focus(); staffInput.select(); }
+      return;
+    }
+    // Alt + X: Clear Assigned Staff
+    if (isAlt && charKey === 'x') {
+      e.preventDefault();
+      if (store.selectedStaff) {
+        setStaff(null);
+        await renderQuickPOS(container);
+      }
+      return;
+    }
     // Alt + D: Toggle Inline Discount
     if (isAlt && charKey === 'd') {
       e.preventDefault();
@@ -1035,7 +1064,7 @@ export async function renderQuickPOS(container) {
       if (isGlobalDiscEditing) {
         const inp = container.querySelector('#globalDiscInput');
         if (inp) { inp.focus(); inp.select(); }
-        showToast('Order Discount Editor Active', 'info');
+        showToast('Extra Discount Editor Active', 'info');
       } else {
         searchInput.focus();
       }
