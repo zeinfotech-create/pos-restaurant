@@ -81,6 +81,18 @@ const CreditHistory = require('./models/CreditHistory');
 const DailyStats = require('./models/DailyStats');
 const Record = require('./models/Record');
 const UpgradeKey = require('./models/UpgradeKey');
+// Category/SubCategory/ImportTracker/BackupHistory/ImportHistory below were
+// never imported before, so ModelMap fell back to the generic Record model
+// for all five — Record's schema (store/recordId/licenseKey/branchId/data)
+// is a NESTED shape, incompatible with the flat {id, licenseKey, ...fields}
+// object the generic 'update' handler actually sends (same shape every other
+// store gets). Record also has no strict:false, so every field but
+// licenseKey/branchId/updatedAt was silently dropped, and the query (keyed
+// on 'id', a field Record doesn't even declare) never matched an existing
+// doc — every sync of a category/sub-category/backup entry/import entry
+// created a fresh near-empty document instead of updating one, with the
+// real data (name, etc.) never actually persisted.
+const { Category, SubCategory, ImportTracker, BackupHistory, ImportHistory } = require('./models/GenericModels');
 
 const ModelMap = {
     'users': User,
@@ -102,11 +114,11 @@ const ModelMap = {
     'loyalty_history': LoyaltyHistory,
     'credit_history': CreditHistory,
     'daily_stats': DailyStats,
-    'import_tracker': Record,
-    'backup_history': Record,
-    'import_history': Record,
-    'categories': Record,
-    'sub_categories': Record,
+    'import_tracker': ImportTracker,
+    'backup_history': BackupHistory,
+    'import_history': ImportHistory,
+    'categories': Category,
+    'sub_categories': SubCategory,
     'admins': Admin,
     'upgrade_keys': UpgradeKey
 };

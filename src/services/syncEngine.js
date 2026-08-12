@@ -1180,7 +1180,9 @@ class SyncEngine {
             { label: 'Sub-Categories', store: 'sub_categories', key: KEYS.SUB_CATEGORIES },
             { label: 'Purchases', store: 'purchases', key: KEYS.PURCHASES },
             { label: 'Appointments', store: 'appointments', key: KEYS.APPOINTMENTS },
-            { label: 'Staff Incentives', store: 'staff_incentives', key: KEYS.STAFF_INCENTIVES }
+            { label: 'Staff Incentives', store: 'staff_incentives', key: KEYS.STAFF_INCENTIVES },
+            { label: 'Backup History', store: 'backup_history', key: KEYS.BACKUP_HISTORY },
+            { label: 'Import History', store: 'import_history', key: KEYS.IMPORT_HISTORY }
         ];
 
         // Load tombstones once — skip pushing records that were deleted locally

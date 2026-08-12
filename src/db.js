@@ -3084,7 +3084,13 @@ export async function updateData(store, data, isSilent = false) {
     // incoming update as automatically newer than the untimestamped local
     // copy, so an incoming record always clobbered local edits regardless
     // of which one was actually made more recently.
-    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives'];
+    // 'backup_history'/'import_history' added here too — they were already
+    // listed in the syncStores list below (marking them isSynced:false), but
+    // that entry did nothing since records for a store outside this gate
+    // never get an isSynced field set at all. Both are worth syncing: a
+    // multi-branch owner reviewing "who imported what, when" or "was a
+    // backup taken" shouldn't have to check that specific device.
+    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history'];
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable
