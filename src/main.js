@@ -112,7 +112,7 @@ async function renderSidebar() {
       ` : ''}
       <button class="nav-item ${getCurrentPage().startsWith('customers') ? 'active' : ''}" data-page="customers"><i class="fa-solid fa-users"></i> <span>Customers</span></button>
       <button class="nav-item ${getCurrentPage().startsWith('suppliers') ? 'active' : ''}" data-page="suppliers"><i class="fa-solid fa-handshake"></i> <span>Suppliers</span></button>
-      ${perms.staff ? `<button class="nav-item ${getCurrentPage().startsWith('staff') ? 'active' : ''}" data-page="staff"><i class="fa-solid fa-user-tie"></i> <span>Staff Management</span></button>` : ''}
+      ${perms.staff && settings.enableStaffEarnings !== false ? `<button class="nav-item ${getCurrentPage().startsWith('staff') ? 'active' : ''}" data-page="staff"><i class="fa-solid fa-user-tie"></i> <span>Staff Management</span></button>` : ''}
 
       <span class="nav-section-label"><span>Management</span></span>
       ${perms.orders ? `<button class="nav-item ${getCurrentPage().startsWith('orders') ? 'active' : ''}" data-page="orders"><i class="fa-solid fa-receipt"></i> <span>Orders</span></button>` : ''}

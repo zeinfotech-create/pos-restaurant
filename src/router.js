@@ -131,6 +131,16 @@ export async function navigate(page) {
         }
     }
 
+    // Staff Earnings/Commission disabled in Settings — the nav item is
+    // hidden (see main.js), so the only way to land here is a stale
+    // link/back-button. Redirect away instead of rendering a commission
+    // page for a feature the store has turned off.
+    if (mainPage === 'staff' && settings.enableStaffEarnings === false) {
+        console.log('[Router] Staff Earnings disabled — redirecting away from staff page.');
+        navigate('dashboard');
+        return;
+    }
+
     // Intercept Settings navigation if PIN lock is enabled
     if (mainPage === 'settings') {
         const settings = await getSettings('global_settings');
