@@ -1172,7 +1172,15 @@ class SyncEngine {
             { label: 'Settings', store: 'settings', key: KEYS.SETTINGS },
             { label: 'Users', store: 'users', key: KEYS.USERS },
             { label: 'Branches', store: 'branches', key: KEYS.BRANCHES },
-            { label: 'Registers', store: 'registers', key: KEYS.REGISTERS }
+            { label: 'Registers', store: 'registers', key: KEYS.REGISTERS },
+            // Matching db.js's updateData() syncStores extension — these were
+            // marked isSynced:false at save time but never actually retried.
+            { label: 'Staff', store: 'staff', key: KEYS.STAFF },
+            { label: 'Categories', store: 'categories', key: KEYS.CATEGORIES },
+            { label: 'Sub-Categories', store: 'sub_categories', key: KEYS.SUB_CATEGORIES },
+            { label: 'Purchases', store: 'purchases', key: KEYS.PURCHASES },
+            { label: 'Appointments', store: 'appointments', key: KEYS.APPOINTMENTS },
+            { label: 'Staff Incentives', store: 'staff_incentives', key: KEYS.STAFF_INCENTIVES }
         ];
 
         // Load tombstones once — skip pushing records that were deleted locally

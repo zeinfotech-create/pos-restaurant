@@ -3100,7 +3100,14 @@ export async function updateData(store, data, isSilent = false) {
         // main branch could silently never reach Mongo, leaving both invisible
         // to any OTHER device/session that reads them back from the hub
         // instead of this exact IndexedDB.
-        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers'];
+        // Extended to every remaining sortableStores entry — 'products',
+        // 'customers', 'suppliers', 'staff', 'categories', 'sub_categories',
+        // 'purchases', 'appointments', 'staff_incentives' all had this exact
+        // same premature isSynced:true bug (some were even already listed in
+        // syncAllLocalData()'s own retry list, which did nothing since that
+        // retry filters on isSynced !== true — a record already wrongly
+        // marked true there is invisible to it too).
+        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives'];
         if (syncStores.includes(store.toLowerCase())) {
           data.isSynced = false;
         } else {
