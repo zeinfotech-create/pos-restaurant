@@ -52,6 +52,7 @@ dns.setServers(['8.8.8.8', '8.8.4.4']);
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const WebSocket = require('ws');
 const mongoose = require('mongoose');
 const axios = require('axios');
@@ -196,6 +197,25 @@ function verifyKeyContactMatch(keyDoc, providedPhone, providedEmail) {
 
     if (phoneMatches || emailMatches) return { ok: true };
     return { ok: false, message: 'Please enter the phone number or email this key was issued to.' };
+}
+
+// Mirrors src/db.js's verifyPassword() exactly (same `sha256:<saltHex>:<hashHex>`
+// format, same SHA-256(saltHex + plain) construction) so a password hashed on
+// the client can actually be verified here. Both login checks below used to
+// do `user.passwordHash === password` — a raw string compare that can only
+// ever match a passwordHash that was never hashed in the first place. Every
+// properly-hashed account (which, since today, is now the normal case — see
+// Onboarding.js and db.js's saveUser()) silently failed login through this
+// hub path, even with the correct password, while still falling back to
+// treating any not-yet-hashed legacy value as plaintext.
+function verifyPasswordHash(plain, stored) {
+    if (!stored || plain == null) return false;
+    if (typeof stored !== 'string' || !stored.startsWith('sha256:')) {
+        return stored === plain; // legacy plaintext record
+    }
+    const [, saltHex, hashHex] = stored.split(':');
+    const computedHex = crypto.createHash('sha256').update(saltHex + plain).digest('hex');
+    return computedHex === hashHex;
 }
 
 // ============================================================
@@ -427,9 +447,9 @@ const server = http.createServer(async (req, res) => {
                     return res.end(JSON.stringify({ success: false, message: 'User not found' }));
                 }
                 
-                // MIRROR: pos_verify_credentials logic (pin, password, or passwordHash)
-                const isValid = user.pin === password || user.password === password || user.passwordHash === password;
-                
+                // MIRROR: pos_verify_credentials logic (pin, or hashed/legacy password)
+                const isValid = user.pin === password || verifyPasswordHash(password, user.passwordHash);
+
                 if (!isValid) {
                     res.writeHead(401, { 'Content-Type': 'application/json' });
                     return res.end(JSON.stringify({ success: false, message: 'Invalid password' }));
@@ -441,21 +461,37 @@ const server = http.createServer(async (req, res) => {
                     return res.end(JSON.stringify({ success: false, message: 'ACCOUNT SUSPENDED' }));
                 }
 
-                const branches = (await DBManager.find(Branch, 'branches', { licenseKey: user.licenseKey })).map(b => {
+                let branches = (await DBManager.find(Branch, 'branches', { licenseKey: user.licenseKey })).map(b => {
                     const obj = b;
                     return { ...obj, id: obj.branchId || obj._id?.toString() };
                 });
-                const registers = (await DBManager.find(Register, 'registers', { licenseKey: user.licenseKey })).map(r => {
+                let registers = (await DBManager.find(Register, 'registers', { licenseKey: user.licenseKey })).map(r => {
                     const obj = r;
                     return { ...obj, id: obj.registerId || obj._id?.toString() };
                 });
-                
+
+                // MIRROR: pos_verify_credentials's own branch-scoping (below) — Staff/
+                // Manager/Custom only ever get the branches explicitly assigned to
+                // them, never every branch on the license. This endpoint used to skip
+                // this filter entirely, so a login through it (the HTTP fallback path)
+                // handed a staff account every branch regardless of assignment.
+                if (user.role !== 'Admin' && user.role !== 'Master' && user.role !== 'Super Admin' && user.branchIds && user.branchIds.length > 0) {
+                    branches = branches.filter(b => user.branchIds.includes(b.id));
+                    registers = registers.filter(r => user.branchIds.includes(r.branchId));
+                }
+
                 const settings = await DBManager.find(Setting, 'settings', { licenseKey: user.licenseKey });
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
                     success: true,
-                    user: { id: user._id, username: user.username, email: user.email, role: user.role, licenseKey: user.licenseKey, branchId: user.branchId, name: user.name },
+                    // Full record (branchIds, permissions, sessionFilterEnabled, etc.) —
+                    // this used to whitelist only a handful of fields and silently drop
+                    // branchIds, which made Switch Branch (client checks
+                    // store.user.branchIds.length > 1) invisible for any staff account
+                    // whose login happened to go through this HTTP path instead of the
+                    // WebSocket one, even though they were assigned multiple branches.
+                    user: { ...user, id: user._id },
                     licenseKey: user.licenseKey,
                     networkId: user.licenseKey,
                     branches, registers, settings, licenseStatus: status
@@ -1456,7 +1492,7 @@ wss.on('connection', (ws, req) => {
                         break;
                     }
 
-                    const isValid = user.pin === password || user.password === password || user.passwordHash === password;
+                    const isValid = user.pin === password || verifyPasswordHash(password, user.passwordHash);
 
                     if (isValid) {
                         // Reset failed attempts on success

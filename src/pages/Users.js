@@ -370,10 +370,10 @@ async function openUserForm(user = null) {
 
       <div class="form-grid">
         <div class="form-group">
-          <label class="form-label required">Email / Username</label>
+          <label class="form-label required">Phone Number</label>
           <div class="search-input-wrap">
-            <i class="fa-solid fa-envelope"></i>
-            <input class="form-input" type="email" id="uUsername" value="${escapeHtml(user?.username || user?.email || '')}" placeholder="staff@business.com" style="padding-left:36px" />
+            <i class="fa-solid fa-phone"></i>
+            <input class="form-input" type="tel" id="uUsername" value="${escapeHtml(user?.username || user?.email || '')}" placeholder="e.g. 9876543210" style="padding-left:36px" />
           </div>
         </div>
 
@@ -498,7 +498,7 @@ async function openUserForm(user = null) {
       </div>
 
       <div class="form-group mt-20">
-        <label class="form-label" style="font-weight:800; color:var(--text-muted)"><i class="fa-solid fa-code-branch mr-4"></i> AUTHORIZED BRANCHES</label>
+        <label class="form-label required" style="font-weight:800; color:var(--text-muted)"><i class="fa-solid fa-code-branch mr-4"></i> AUTHORIZED BRANCHES</label>
         <div style="background:var(--bg-app); padding: 16px; border-radius: 12px; border: 1px solid var(--border); max-height: 180px; overflow-y: auto" id="branchSelector">
           <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:12px">
             ${branches.map(b => '<div style="display:flex; align-items:center; gap:10px; padding:6px; background:var(--bg-elevated); border-radius:8px; border:1px solid var(--border)">' +
@@ -661,20 +661,29 @@ async function openUserForm(user = null) {
       return;
     }
 
+    // An empty selection here isn't "no branches" — Users.js's own branchString
+    // logic (and the Branch filter) both treat a missing/empty branchIds as
+    // "All" branches, silently handing a staff account access to every branch
+    // instead of the intended few. Require at least one explicit pick.
+    if (user?.role !== 'Master' && user?.role !== 'Super Admin' && selectedBranches.length === 0) {
+      showToast('Please assign at least one branch', 'warning');
+      return;
+    }
+
     // Uniqueness check for new users or if email changed
     if (!isEdit || username !== user.username) {
       if (window.syncEngine && window.syncEngine.isConnected) {
-        showToast('Checking email availability...', 'info');
+        showToast('Checking availability...', 'info');
         try {
           // Check both username and email fields in DB via Hub
           const res = await window.syncEngine.checkAvailability(username, username);
           if (!res.usernameAvailable || !res.emailAvailable) {
-            showToast('This email is already registered', 'error');
+            showToast('This phone number is already registered', 'error');
             return;
           }
         } catch (err) {
           console.error('Availability check failed:', err);
-          showToast('Could not verify email uniqueness. Try again.', 'error');
+          showToast('Could not verify phone number uniqueness. Try again.', 'error');
           return;
         }
       }

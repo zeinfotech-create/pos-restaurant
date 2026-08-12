@@ -223,7 +223,15 @@ async function openUserProfileModal() {
   const currentRegister = store.registerId ? (await getBranchRegisters(store.branch?.id)).find(r => r.id === store.registerId)?.name || 'Unknown' : 'No Register';
   const settings = await getSettings('global_settings');
   const lockEnabled = !!settings.autoLockMinutes && settings.autoLockMinutes > 0;
-  const canSwitchBranch = (store.user?.role === 'Admin' || store.user?.role === 'Super Admin' || store.user?.role === 'Master') && (await getBranches()).length > 1;
+  // Admin/Super Admin/Master implicitly have every branch; Staff/Manager/Custom
+  // only get the ones explicitly checked for them in Users.js's "Authorized
+  // Branches" picker (whose own help text promises "Staff can only switch
+  // between assigned branches" — this button was hardcoded Admin-only and
+  // never actually delivered that for anyone else, however many branches
+  // they were assigned).
+  const isFullAccessUser = store.user?.role === 'Admin' || store.user?.role === 'Super Admin' || store.user?.role === 'Master';
+  const myBranchCount = isFullAccessUser ? (await getBranches()).length : (store.user?.branchIds?.length || 0);
+  const canSwitchBranch = myBranchCount > 1;
   openModal({
     title: '<i class="fa-solid fa-user-circle"></i> User Profile',
     body: `
@@ -1309,7 +1317,13 @@ function applyTheme(themeName, saveToDb = true) {
 // Branch Switcher
 // ============================================================
 async function openBranchSwitcher() {
-  const branches = await getBranches();
+  const allBranches = await getBranches();
+  // Staff/Manager/Custom must only ever see/switch into branches explicitly
+  // assigned to them — showing every company branch here would let them
+  // switch into locations they were never granted access to. Admin/Super
+  // Admin/Master keep seeing everything, same as before.
+  const isFullAccessUser = store.user?.role === 'Admin' || store.user?.role === 'Super Admin' || store.user?.role === 'Master';
+  const branches = isFullAccessUser ? allBranches : allBranches.filter(b => (store.user?.branchIds || []).includes(b.id));
   const currentBranchId = store.branch?.id;
   const currentRegisterId = store.registerId;
   const currentShift = currentBranchId ? await getCurrentShift(currentBranchId, currentRegisterId) : null;

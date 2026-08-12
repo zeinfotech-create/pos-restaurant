@@ -3069,7 +3069,16 @@ export async function updateData(store, data, isSilent = false) {
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable
-        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs'];
+        // 'users' belongs here too — syncAllLocalData() already retries any
+        // store whose record has isSynced !== true (see its syncKeys list,
+        // which already includes 'users'), but stamping isSynced:true here
+        // unconditionally, before broadcast() has even attempted the hub
+        // push, meant a dropped/queued broadcast (hub not yet registered,
+        // reconnect in progress, etc.) was never retried — the record looked
+        // "done" the instant it was saved locally, regardless of whether the
+        // hub ever actually got it. This is exactly how a freshly-added staff
+        // user's passwordHash/branchIds could silently never reach Mongo.
+        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users'];
         if (syncStores.includes(store.toLowerCase())) {
           data.isSynced = false;
         } else {

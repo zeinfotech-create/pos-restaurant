@@ -1,4 +1,4 @@
-import { completeInstallation } from '../db.js';
+import { completeInstallation, hashPassword } from '../db.js';
 import { showToast } from '../components/Toast.js';
 
 let currentStep = 1;
@@ -266,7 +266,14 @@ async function finishStandaloneSetup() {
           body: JSON.stringify({
             userId: 'u1',
             username: phone,
-            password: formData.adminPassword,
+            // Hashed here (not raw) — the hub stores whatever arrives in this
+            // field directly as passwordHash with no hashing of its own (see
+            // server/index.js's /api/standalone-register), so sending plaintext
+            // meant every standalone install's admin password sat in Mongo in
+            // the clear, unlike every other password in this app (Users.js's
+            // saveUser(), completeInstallation()'s own IndexedDB write) which
+            // already hash before it ever leaves this device.
+            password: await hashPassword(formData.adminPassword),
             role: 'Super Admin',
             branchId: 'b1',
             registerId: register.id,
