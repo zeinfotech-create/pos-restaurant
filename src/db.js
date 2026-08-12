@@ -2828,6 +2828,7 @@ export async function completeInstallation({ businessName, businessAddress, busi
     pin: adminPin || '1234',
     role: 'Super Admin',
     branchId: branchId, // Linked to the branch ObjectID
+    branchIds: [branchId], // Users.js reads this (plural) for the Branch column/filter — without it the onboarding-created admin shows as "All" and is invisible to any specific-branch filter, unlike staff added later via the Add User form which always sets both fields.
     maxDevices: 5, // Default device limit
     createdAt: new Date().toISOString()
   };
