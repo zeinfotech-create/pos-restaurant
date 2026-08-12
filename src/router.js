@@ -115,6 +115,22 @@ export async function navigate(page) {
         }
     }
 
+    // Branch has no register configured — the "Register" concept doesn't
+    // apply here (see main.js's matching sidebar-hide and db.js's
+    // isRegisterOpen() bypass, both keyed off the same "zero registers"
+    // check). The nav item is hidden for this branch, so the only way to
+    // land here is a stale link/back-button — redirect away instead of
+    // rendering a page with nothing real to manage.
+    if (mainPage === 'register') {
+        const { getBranchRegisters, getCurrentBranch } = await import('./db.js');
+        const currentBranch = await getCurrentBranch();
+        if (currentBranch?.id && (await getBranchRegisters(currentBranch.id)).length === 0) {
+            console.log('[Router] Branch has no registers — redirecting away from Register page.');
+            navigate('dashboard');
+            return;
+        }
+    }
+
     // Intercept Settings navigation if PIN lock is enabled
     if (mainPage === 'settings') {
         const settings = await getSettings('global_settings');

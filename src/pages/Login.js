@@ -107,9 +107,17 @@ export function renderLogin(container) {
           try {
             const limits = window.syncEngine?.getLimits() || { maxBranches: 1 };
             const allowedB = Array.isArray(cloudBranches) ? cloudBranches : [];
+            // Master/Super Admin is the system owner account — the same
+            // exemption already applied to the staff-seat quota (Users.js)
+            // and the "must pick at least one branch" requirement — must
+            // never be capped by the plan's branch quota either. Without
+            // this, the owner's own account could get locked out of
+            // branches they created themselves the moment the branch count
+            // passed whatever the current plan allows.
+            const isFullAccessUser = authenticatedUser?.role === 'Master' || authenticatedUser?.role === 'Super Admin';
             return allowedB.map((b, idx) => {
               const bId = b.id || b.branchId || b._id;
-              const restricted = idx >= limits.maxBranches;
+              const restricted = !isFullAccessUser && idx >= limits.maxBranches;
               const isLastUsed = lastUsedBranchId && bId === lastUsedBranchId;
               return `
                         <button class="btn btn-ghost branch-option-btn" data-id="${bId}" ${restricted ? 'data-restricted="true" disabled' : ''}
@@ -141,14 +149,19 @@ export function renderLogin(container) {
         try {
           const limits = window.syncEngine?.getLimits() || { maxRegistersPerBranch: 1 };
           const bId = selectedBranch?.id || selectedBranch?.branchId || selectedBranch?._id;
-          const branchRegs = (cloudRegisters || []).filter(r => (r.branchId || r.id) === bId).slice(0, limits.maxRegistersPerBranch);
-          
+          // Same Master/Super Admin exemption as the branch step above — the
+          // owner's own account must see every register they created, not
+          // just however many the current plan's per-branch quota allows.
+          const isFullAccessUser = authenticatedUser?.role === 'Master' || authenticatedUser?.role === 'Super Admin';
+          const allBranchRegs = (cloudRegisters || []).filter(r => (r.branchId || r.id) === bId);
+          const branchRegs = isFullAccessUser ? allBranchRegs : allBranchRegs.slice(0, limits.maxRegistersPerBranch);
+
           return `
           <div class="anim-slide-up">
                     <div style="display:flex; flex-direction:column; gap:12px">
                       ${branchRegs.map((r, idx) => {
                 const rId = r.id || r.registerId || r._id;
-                const restricted = idx >= limits.maxRegistersPerBranch;
+                const restricted = !isFullAccessUser && idx >= limits.maxRegistersPerBranch;
                 const isOpen = !!registerShiftStatus[rId];
                 return `
                         <button class="btn btn-ghost register-option-btn" data-id="${rId}" ${restricted ? 'data-restricted="true" disabled' : ''}

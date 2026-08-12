@@ -52,7 +52,19 @@ export async function renderRegister(container) {
   const registerName = branchRegisters.find(r => r.id === registerId)?.name || 'Global Terminal';
 
   const cur = (settings && settings.currency) ? settings.currency : '\u20B9';
-  const shift = await getCurrentShift(branch.id, registerId);
+  let shift = await getCurrentShift(branch.id, registerId);
+
+  // Branch has no register configured at all \u2014 the same deliberate
+  // "single-terminal, no formal register" setup isRegisterOpen() (db.js)
+  // already lets POS/Quick POS sell through without any shift gate. This
+  // page enforced its own separate "Closed" screen requiring a manual Open
+  // click, which fought that: sales worked, but showed up nowhere here until
+  // someone opened a shift by hand. Auto-open one silently so shift-based
+  // tracking (sales/cash totals) just works, with the same zero-friction
+  // POS already has.
+  if (!shift && branchRegisters.length === 0) {
+    shift = await openRegister(branch.id, user?.name || user?.username || 'Admin', 0, registerId);
+  }
   const allShifts = await getShifts();
   const branchShifts = allShifts
     .filter(s => s.branchId === branch.id && (registerId ? s.registerId === registerId : true))

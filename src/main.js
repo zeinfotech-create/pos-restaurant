@@ -55,6 +55,13 @@ async function renderSidebar() {
     const dateStr = now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 
     // Pre-calculate permissions (hasPermission is async, so direct calls in template literals are always truthy)
+    // Branch has no register configured at all — POS/Quick POS already sell
+    // through directly with no shift gate for this exact setup (see
+    // isRegisterOpen() in db.js), so the "Register" concept has nothing to
+    // manage here; hide the nav item entirely rather than sending the owner
+    // to a page whose whole reason for existing (tracking a register that
+    // doesn't exist) isn't real for this branch.
+    const branchHasRegisters = store.branch?.id ? (await getBranchRegisters(store.branch.id)).length > 0 : true;
     const perms = {
       pos: await hasPermission('pos:access'),
       products: await hasPermission('products:view'),
@@ -64,7 +71,7 @@ async function renderSidebar() {
       orders: await hasPermission('orders:view'),
       reports: await hasPermission('reports:view'),
       settings: await hasPermission('settings:manage'),
-      register: await hasPermission('register')
+      register: (await hasPermission('register')) && branchHasRegisters
     };
 
     // Get live register status for sidebar indicator
