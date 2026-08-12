@@ -296,6 +296,7 @@ export async function renderQuickPOS(container) {
                 <div class="ep-total-row" id="roundOffRow" style="display:none"><label>Round Off:</label> <span id="quickRoundOffDisplay">${cur}0.00</span></div>
             </div>
             <div class="ep-grand-total">
+               <div id="quickBeforeDiscDisplay" style="font-size:11px; font-weight:700; text-decoration:line-through; opacity:0.6; display:none"></div>
                <div class="ep-total-amount" id="quickTotalDisplay">${cur}0.00</div>
             </div>
              <button class="ep-finish-btn" id="quickPayBtn">
@@ -604,14 +605,32 @@ export async function renderQuickPOS(container) {
 
       const subtotalDisplay = container.querySelector('#quickSubtotalDisplay');
       const totalDisplay = container.querySelector('#quickTotalDisplay');
+      const beforeDiscDisplay = container.querySelector('#quickBeforeDiscDisplay');
       const itemDiscDisplay = container.querySelector('#itemDiscountRow span:last-child');
       const itemTaxDisplay = container.querySelector('#itemTaxRow span:last-child');
 
+      // Updates the big total AND, when there's an active order-level Extra
+      // Disc, the small struck-through "before discount" figure above it —
+      // the same before/after treatment the item rows show for item-level
+      // discounts. `t` is the (post-discount) grand total; `disc` is
+      // getCartTotals()'s `orderDiscount` for that same total.
+      const updateGrandTotal = (t, disc) => {
+        if (totalDisplay) totalDisplay.textContent = `${cur}${t.toFixed(2)}`;
+        if (beforeDiscDisplay) {
+          if (disc > 0) {
+            beforeDiscDisplay.textContent = `${cur}${(t + disc).toFixed(2)}`;
+            beforeDiscDisplay.style.display = '';
+          } else {
+            beforeDiscDisplay.style.display = 'none';
+          }
+        }
+      };
+
       if (subtotalDisplay) subtotalDisplay.textContent = `${cur}${subtotal.toFixed(2)}`;
-      if (totalDisplay) totalDisplay.textContent = `${cur}${total.toFixed(2)}`;
+      updateGrandTotal(total, orderDiscount);
       if (itemDiscDisplay) itemDiscDisplay.textContent = `${cur}${itemDiscount.toFixed(2)}`;
       if (itemTaxDisplay) itemTaxDisplay.textContent = `${cur}${(grossTax || itemTax).toFixed(2)}`;
-      
+
       // Order Discount Row
       const discRow = container.querySelector('#orderDiscountRow');
       if (discRow) {
@@ -641,14 +660,14 @@ export async function renderQuickPOS(container) {
             btn.dataset.type = newType;
             btn.textContent = newType === 'flat' ? cur : '%';
             await setDiscount(parseFloat(inp.value) || 0, newType);
-            const { total: t } = getCartTotals();
-            if (totalDisplay) totalDisplay.textContent = `${cur}${t.toFixed(2)}`;
+            const { total: t, orderDiscount: d } = getCartTotals();
+            updateGrandTotal(t, d);
           };
-          
+
           inp.oninput = async () => {
             await setDiscount(parseFloat(inp.value) || 0, btn.dataset.type);
-            const { total: t } = getCartTotals();
-            if (totalDisplay) totalDisplay.textContent = `${cur}${t.toFixed(2)}`;
+            const { total: t, orderDiscount: d } = getCartTotals();
+            updateGrandTotal(t, d);
           };
           
           inp.onkeydown = async (e) => {
@@ -699,14 +718,14 @@ export async function renderQuickPOS(container) {
               btn.dataset.type = newType;
               btn.textContent = newType === 'flat' ? cur : '%';
               await setExtraTax(parseFloat(inp.value) || 0, newType);
-              const { total: t } = getCartTotals();
-              if (totalDisplay) totalDisplay.textContent = `${cur}${t.toFixed(2)}`;
+              const { total: t, orderDiscount: d } = getCartTotals();
+              updateGrandTotal(t, d);
             };
-            
+
             inp.oninput = async () => {
               await setExtraTax(parseFloat(inp.value) || 0, btn.dataset.type);
-              const { total: t } = getCartTotals();
-              if (totalDisplay) totalDisplay.textContent = `${cur}${t.toFixed(2)}`;
+              const { total: t, orderDiscount: d } = getCartTotals();
+              updateGrandTotal(t, d);
             };
             
             inp.onkeydown = async (e) => {
@@ -779,6 +798,19 @@ export async function renderQuickPOS(container) {
       const lineTotal  = item.taxType === 'inclusive' ? taxable : taxable + taxAmt;
       const isSelected = idx === selectedCartIndex;
 
+      // "Before discount" line total — same tax treatment as lineTotal
+      // above, just computed on the full extPrice (no itemDisc subtracted)
+      // so it reconstructs what this line would have cost with no discount.
+      // Only shown (struck through, next to the real total) when there
+      // actually is an item-level discount on this line.
+      let beforeDiscTotal = null;
+      if (itemDisc > 0) {
+        const beforeTaxAmt = item.taxType === 'inclusive'
+          ? extPrice - extPrice / (1 + taxRate / 100)
+          : extPrice * taxRate / 100;
+        beforeDiscTotal = item.taxType === 'inclusive' ? extPrice : extPrice + beforeTaxAmt;
+      }
+
       // Inline editable cell renderer
       const qtyCell = isSelected && selectedColIndex === 0
         ? `<td style="text-align:center"><input id="colInput" type="number" min="0.001" step="0.001" value="${Number.isInteger(item.qty) ? item.qty : item.qty.toFixed(3)}" style="width:68px;text-align:center;font-weight:900;border:2px solid var(--info);background:var(--bg-card);color:var(--text-main);border-radius:4px;padding:2px 4px;outline:none"></td>`
@@ -810,7 +842,7 @@ export async function renderQuickPOS(container) {
         ${priceCell}
         <td style="text-align:center; opacity:0.8">${taxAmt > 0 ? taxAmt.toFixed(2) : ''}</td>
         ${discCell}
-        <td style="text-align:right; font-weight:900">${lineTotal.toFixed(2)}</td>
+        <td style="text-align:right; font-weight:900">${beforeDiscTotal !== null ? `<span style="text-decoration:line-through; opacity:0.5; font-weight:400; font-size:11px; margin-right:4px">${cur}${beforeDiscTotal.toFixed(2)}</span>` : ''}${lineTotal.toFixed(2)}</td>
       </tr>`;
     }).join('');
 
