@@ -251,7 +251,7 @@ export async function renderQuickPOS(container) {
                         <th style="width:70px; text-align:center">Unit</th>
                         <th style="width:50px; text-align:center">Qty</th>
                         <th style="width:90px; text-align:right">Rate</th>
-                        <th style="width:60px; text-align:center">Tx</th>
+                        <th style="width:78px; text-align:center" title="Tax amount, rate %, and whether it's Included in the Rate shown (Incl) or added on top (Excl)">Tx</th>
                         <th style="width:80px; text-align:right">Dis</th>
                         <th style="width:100px; text-align:right">Amount</th>
                      </tr>
@@ -798,18 +798,19 @@ export async function renderQuickPOS(container) {
       const lineTotal  = item.taxType === 'inclusive' ? taxable : taxable + taxAmt;
       const isSelected = idx === selectedCartIndex;
 
-      // "Before discount" line total — same tax treatment as lineTotal
-      // above, just computed on the full extPrice (no itemDisc subtracted)
-      // so it reconstructs what this line would have cost with no discount.
-      // Only shown (struck through, next to the real total) when there
-      // actually is an item-level discount on this line.
-      let beforeDiscTotal = null;
-      if (itemDisc > 0) {
-        const beforeTaxAmt = item.taxType === 'inclusive'
-          ? extPrice - extPrice / (1 + taxRate / 100)
-          : extPrice * taxRate / 100;
-        beforeDiscTotal = item.taxType === 'inclusive' ? extPrice : extPrice + beforeTaxAmt;
-      }
+      // "Before discount" line total = lineTotal + itemDisc, so struck
+      // minus discount always reconstructs to the real total exactly (what
+      // you see is "you saved ₹itemDisc", plain and simple).
+      //
+      // Deliberately NOT "re-tax the full undiscounted extPrice from
+      // scratch" (extPrice + extPrice*rate/100) — for an exclusive-tax item
+      // that recomputes tax on a *larger* base than lineTotal's own taxable
+      // amount, so it's off from lineTotal+itemDisc by tax-on-the-discount-
+      // portion (e.g. a ₹3 discount at 5% tax made that version land ₹0.15
+      // too high — ₹189.00 instead of ₹188.85 for a ₹185.85 final total).
+      // This version is exact for both inclusive and exclusive items, by
+      // construction, since it's just derived from lineTotal itself.
+      const beforeDiscTotal = itemDisc > 0 ? lineTotal + itemDisc : null;
 
       // Inline editable cell renderer
       const qtyCell = isSelected && selectedColIndex === 0
@@ -840,7 +841,12 @@ export async function renderQuickPOS(container) {
         <td style="text-align:center; opacity:0.8">${item.unit || '-'}</td>
         ${qtyCell}
         ${priceCell}
-        <td style="text-align:center; opacity:0.8">${taxAmt > 0 ? taxAmt.toFixed(2) : ''}</td>
+        <td style="text-align:center" title="${taxRate > 0 ? `${taxRate}% GST, ${item.taxType === 'inclusive' ? 'Inclusive — already included in the Rate shown' : 'Exclusive — added on top of the Rate shown'}` : 'No tax on this item'}">
+          ${taxRate > 0 ? `
+            <div style="font-weight:700">${cur}${taxAmt.toFixed(2)}</div>
+            <div style="font-size:10px; font-weight:700; opacity:0.65; white-space:nowrap">${taxRate}% ${item.taxType === 'inclusive' ? 'Incl' : 'Excl'}</div>
+          ` : '<span style="opacity:0.5">—</span>'}
+        </td>
         ${discCell}
         <td style="text-align:right; font-weight:900">${beforeDiscTotal !== null ? `<span style="text-decoration:line-through; opacity:0.5; font-weight:400; font-size:11px; margin-right:4px">${cur}${beforeDiscTotal.toFixed(2)}</span>` : ''}${lineTotal.toFixed(2)}</td>
       </tr>`;
