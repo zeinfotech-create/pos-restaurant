@@ -14,6 +14,15 @@ let selectedColIndex = -1; // 0=Qty, 1=UnitPrice, 2=Discount
 let activeTab = 'search'; // 'search', 'launch', 'payment'
 let isGlobalDiscEditing = false;
 let isExtraTaxEditing = false;
+// Inline "Payment Options" strip state (top of screen) — lets PAY complete
+// the sale immediately for the common case (single payment method, full
+// amount, no vehicle) without leaving this screen, while still reaching
+// multi-payment split and delivery vehicle entry without the old separate
+// full-screen Quick Checkout navigation. null = never customized this
+// cart, so PAY uses a single default-method/full-amount payment.
+let inlinePaymentPanelOpen = false;
+let inlinePayments = null;
+let inlineDeliveryVehicle = '';
 
 export async function renderQuickPOS(container) {
   if (window._qpCleanup) { window._qpCleanup(); window._qpCleanup = null; }
@@ -101,6 +110,20 @@ export async function renderQuickPOS(container) {
     return;
   }
 
+  const { total: cartTotal } = getCartTotals();
+  // Store Credit stays out of the inline strip's method list on the same
+  // enableCredit gate CheckoutService's own payment pills use — the inline
+  // strip doesn't have a customer-selection step of its own to guard it.
+  const paymentMethodsList = (settings.paymentMethods || []).filter(m => settings.enableCredit !== false || m !== 'Store Credit');
+  const defaultPaymentMethod = paymentMethodsList[0] || 'Cash';
+  // null (never customized this cart) renders as a single default-method,
+  // full-amount row without actually writing to inlinePayments yet — it
+  // only gets materialized once the cashier opens the strip or edits
+  // something, so PAY's "use the simple default" check stays accurate.
+  const displayPayments = inlinePayments || [{ method: defaultPaymentMethod, amount: cartTotal }];
+  const paymentsSum = displayPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  const isPaymentsBalanced = Math.abs(paymentsSum - cartTotal) < 0.01;
+
   container.innerHTML = `
     <div class="enterprise-pos-container">
 
@@ -116,6 +139,61 @@ export async function renderQuickPOS(container) {
             <span class="ep-highlight-text">${store.user?.name || 'ADMIN'}</span>
          </div>
       </div>
+
+      <!-- Inline Payment Options strip — PAY completes immediately using
+           this (single default method/full amount, unless customized here)
+           instead of navigating to a separate Quick Checkout screen. Split
+           payment and delivery vehicle stay reachable without leaving this
+           screen, just collapsed by default so they don't add a step to
+           the common single-payment case. -->
+      ${store.cart.length > 0 ? `
+      <div class="ep-pay-strip">
+         <div class="ep-pay-strip-summary" id="qpPayStripToggle">
+            <div style="display:flex; align-items:center; gap:10px; font-size:12px; font-weight:700; color:var(--text-secondary); min-width:0">
+               <i class="fa-solid fa-credit-card" style="color:var(--primary)"></i>
+               <span style="white-space:nowrap">${displayPayments.length > 1 ? `Split — ${displayPayments.length} methods` : displayPayments[0].method}</span>
+               ${!inlinePaymentPanelOpen && displayPayments.length > 1 ? `<span style="color:${isPaymentsBalanced ? 'var(--success)' : 'var(--danger)'}">${cur}${paymentsSum.toFixed(2)} / ${cur}${cartTotal.toFixed(2)}</span>` : ''}
+               ${!inlinePaymentPanelOpen && inlineDeliveryVehicle ? `<span style="color:var(--text-muted); overflow:hidden; text-overflow:ellipsis"><i class="fa-solid fa-truck-fast"></i> ${escapeHtml(inlineDeliveryVehicle)}</span>` : ''}
+            </div>
+            <button type="button" id="qpPayStripToggleBtn" style="background:none; border:none; color:var(--primary); font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px; flex-shrink:0; padding:2px 4px">
+               ${inlinePaymentPanelOpen ? 'Hide' : 'Split / Add Vehicle'} <i class="fa-solid fa-chevron-${inlinePaymentPanelOpen ? 'up' : 'down'}" style="font-size:9px"></i>
+            </button>
+         </div>
+         ${inlinePaymentPanelOpen ? `
+         <div id="qpPayStripBody" style="display:flex; flex-direction:column; gap:8px; padding:10px 16px 12px; border-top:1px dashed var(--border)">
+            <div id="qpPayRows" style="display:flex; flex-direction:column; gap:6px">
+               ${displayPayments.map((p, idx) => `
+                 <div class="qp-pay-row" style="display:flex; align-items:center; gap:8px">
+                   <select class="qp-pay-method" data-idx="${idx}" style="flex:1; height:30px; border:1px solid var(--border); border-radius:4px; font-size:12px; background:var(--bg-card); color:var(--text-main)">
+                     ${paymentMethodsList.map(m => `<option value="${escapeHtml(m)}" ${p.method === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+                   </select>
+                   <input type="number" class="qp-pay-amount" data-idx="${idx}" value="${(parseFloat(p.amount) || 0).toFixed(2)}" style="width:100px; height:30px; text-align:right; border:1px solid var(--border); border-radius:4px; font-size:12px; padding:0 6px; background:var(--bg-card); color:var(--text-main)" />
+                   ${displayPayments.length > 1 ? `<button type="button" class="qp-pay-remove" data-idx="${idx}" style="width:26px; height:26px; border:none; background:transparent; color:var(--danger); cursor:pointer; flex-shrink:0"><i class="fa-solid fa-xmark"></i></button>` : `<div style="width:26px; flex-shrink:0"></div>`}
+                 </div>
+               `).join('')}
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center">
+               <button type="button" id="qpAddPayRow" style="background:none; border:1px dashed var(--border); border-radius:4px; padding:4px 10px; font-size:11px; font-weight:700; color:var(--primary); cursor:pointer">
+                 <i class="fa-solid fa-plus"></i> Add Split
+               </button>
+               <span id="qpPayBalanceNote" style="font-size:11px; font-weight:700; color:${isPaymentsBalanced ? 'var(--success)' : 'var(--danger)'}">
+                 ${cur}${paymentsSum.toFixed(2)} / ${cur}${cartTotal.toFixed(2)}
+               </span>
+            </div>
+            <div>
+               <label style="font-size:10px; font-weight:800; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:4px">Delivery Vehicle (optional)</label>
+               <div style="position:relative">
+                 <i class="fa-solid fa-truck-fast" style="position:absolute; left:8px; top:50%; transform:translateY(-50%); color:var(--text-muted); font-size:11px"></i>
+                 <input type="text" id="qpDeliveryVehicle" value="${escapeHtml(inlineDeliveryVehicle)}" placeholder="e.g. TN01AB1234" style="width:100%; height:30px; border:1px solid var(--border); border-radius:4px; font-size:12px; padding:0 8px 0 26px; background:var(--bg-card); color:var(--text-main)" />
+               </div>
+            </div>
+            <button type="button" id="qpFullCheckoutLink" style="align-self:flex-start; background:none; border:none; color:var(--text-muted); font-size:11px; font-weight:600; text-decoration:underline; cursor:pointer; padding:0">
+              Need Credit / Unpaid sale or Loyalty points redemption? Open full Checkout →
+            </button>
+         </div>
+         ` : ''}
+      </div>
+      ` : ''}
 
       <!-- Main Content Grid -->
       <div class="ep-main-grid">
@@ -363,6 +441,17 @@ export async function renderQuickPOS(container) {
       .ep-input-wrap input:focus { border-color: var(--info); }
       .ep-cashier-info { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--text-secondary); }
       .ep-cashier-info span { color: var(--text-main); }
+
+      /* Inline Payment Options strip */
+      .ep-pay-strip { background: var(--bg-card); border-bottom: 1px solid var(--border); }
+      .ep-pay-strip-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 6px 16px;
+        cursor: pointer;
+      }
 
       /* Main Grid */
       .ep-main-grid { flex: 1; display: flex; gap: 8px; overflow: hidden; margin-bottom: 8px; }
@@ -1087,7 +1176,7 @@ export async function renderQuickPOS(container) {
         // requires Alt+Enter (matches the global shortcut) so an accidental
         // stray Enter press mid-scan can't jump straight to checkout.
         e.preventDefault();
-        await openPaymentModal();
+        await completeQuickSale();
       }
     }
     if (e.key === 'ArrowDown' && !suggestionsEl.classList.contains('hidden')) {
@@ -1244,7 +1333,7 @@ export async function renderQuickPOS(container) {
     // Alt + Enter: Settle / Finish & Pay
     if (isAlt && charKey === 'enter') {
       e.preventDefault();
-      await openPaymentModal();
+      await completeQuickSale();
       return;
     }
     // Alt + R: Reset POS (Clear Cart/Customer)
@@ -1366,6 +1455,12 @@ export async function renderQuickPOS(container) {
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
+  // Full-screen Quick Checkout — kept as a reachable fallback (a link
+  // inside the inline strip below) for the cases the inline strip
+  // deliberately doesn't try to cover: Credit/Unpaid sales and Loyalty
+  // point redemption. Everyday paid sales — including split payment and
+  // delivery vehicle — go through completeQuickSale() below instead,
+  // without ever leaving this screen.
   const openPaymentModal = () => {
     if (store.cart.length === 0) { showToast('Cart is empty', 'warning'); return; }
     openQuickCheckout(() => {
@@ -1374,8 +1469,58 @@ export async function renderQuickPOS(container) {
         store.selectedCustomer = null;
         selectedCartIndex = -1;
         selectedColIndex = -1;
+        inlinePayments = null;
+        inlinePaymentPanelOpen = false;
+        inlineDeliveryVehicle = '';
         renderQuickPOS(container);
     });
+  };
+
+  // One-click PAY, right here on the Quick POS screen — no navigation to a
+  // separate checkout screen. Uses the inline strip's payments if the
+  // cashier customized it (split methods / delivery vehicle), otherwise a
+  // single default-method payment for the full total. Reuses the exact
+  // same confirmOrder() CheckoutService.js/QuickCheckoutService.js already
+  // use, so saving, stock deduction, staff incentive, loyalty points, and
+  // auto-print all behave identically to the old modal-based flow.
+  const completeQuickSale = async () => {
+    if (store.cart.length === 0) { showToast('Cart is empty', 'warning'); return; }
+
+    const liveSettings = await getSettings();
+    const liveCur = liveSettings.currency;
+    const { total: liveTotal } = getCartTotals();
+
+    const payments = inlinePayments
+      ? inlinePayments.filter(p => p.method).map(p => ({ method: p.method, amount: parseFloat(p.amount) || 0 }))
+      : [{ method: ((liveSettings.paymentMethods || [])[0]) || 'Cash', amount: liveTotal }];
+
+    const paidSum = parseFloat(payments.reduce((s, p) => s + p.amount, 0).toFixed(2));
+    if (Math.abs(paidSum - liveTotal) > 0.01) {
+      showToast(`Payment (${liveCur}${paidSum.toFixed(2)}) doesn't match order total (${liveCur}${liveTotal.toFixed(2)}) — adjust the split below.`, 'warning');
+      inlinePaymentPanelOpen = true;
+      await renderQuickPOS(container);
+      return;
+    }
+
+    const { confirmOrder } = await import('../services/CheckoutService.js');
+    const succeeded = await confirmOrder(payments, getCartTotals(), liveSettings, liveCur, {
+      isCredit: false,
+      creditInfo: '',
+      redeemedPoints: 0,
+      creditUsed: 0,
+      deliveryVehicle: inlineDeliveryVehicle
+    });
+    if (!succeeded) return;
+
+    // confirmOrder() already cleared store.cart/selectedCustomer and
+    // showed the success toast/auto-print — just reset this screen's own
+    // local strip state and re-render.
+    inlinePayments = null;
+    inlinePaymentPanelOpen = false;
+    inlineDeliveryVehicle = '';
+    selectedCartIndex = -1;
+    selectedColIndex = -1;
+    await renderQuickPOS(container);
   };
 
   // Helper to sync customer display. When synced, re-render the whole POS to show/hide sections cleanly.
@@ -1680,7 +1825,91 @@ export async function renderQuickPOS(container) {
       qcSearchPhone.value = '';
   };
 
-  container.querySelector('#quickPayBtn').onclick = async () => await openPaymentModal();
+  container.querySelector('#quickPayBtn').onclick = async () => await completeQuickSale();
+
+  // Inline Payment Options strip — collapse/expand, split-row editing,
+  // delivery vehicle, and the fallback link to the full Quick Checkout
+  // screen (Credit/Unpaid + Loyalty redemption, which this strip
+  // intentionally doesn't try to reproduce inline).
+  const qpPayStripToggle = container.querySelector('#qpPayStripToggle');
+  const qpPayStripToggleBtn = container.querySelector('#qpPayStripToggleBtn');
+  if (qpPayStripToggle && qpPayStripToggleBtn) {
+    const toggleStrip = () => {
+      inlinePaymentPanelOpen = !inlinePaymentPanelOpen;
+      // Materialize the default single-payment row into real state the
+      // first time the strip is opened, so subsequent edits (method/
+      // amount changes) have something to mutate — completeQuickSale()
+      // still treats a never-touched cart (inlinePayments === null) as
+      // "use the plain default", this only changes once the cashier
+      // actually looks at/opens the strip.
+      if (inlinePaymentPanelOpen && inlinePayments === null) {
+        inlinePayments = [{ method: defaultPaymentMethod, amount: cartTotal }];
+      }
+      renderQuickPOS(container);
+    };
+    qpPayStripToggle.onclick = toggleStrip;
+  }
+
+  container.querySelectorAll('.qp-pay-method').forEach(sel => {
+    sel.onchange = (e) => {
+      const idx = parseInt(e.target.dataset.idx, 10);
+      if (inlinePayments && inlinePayments[idx]) inlinePayments[idx].method = e.target.value;
+    };
+  });
+
+  const updateQpBalanceNote = () => {
+    const note = container.querySelector('#qpPayBalanceNote');
+    if (!note || !inlinePayments) return;
+    const sum = inlinePayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+    const { total: liveTotal } = getCartTotals();
+    const balanced = Math.abs(sum - liveTotal) < 0.01;
+    note.textContent = `${cur}${sum.toFixed(2)} / ${cur}${liveTotal.toFixed(2)}`;
+    note.style.color = balanced ? 'var(--success)' : 'var(--danger)';
+  };
+  container.querySelectorAll('.qp-pay-amount').forEach(inp => {
+    // Live balance feedback without a full re-render on every keystroke —
+    // re-rendering here would reset focus/cursor position mid-type, the
+    // same class of bug already fixed for the Extra Disc/Extra Tax editors
+    // above.
+    inp.oninput = (e) => {
+      const idx = parseInt(e.target.dataset.idx, 10);
+      if (inlinePayments && inlinePayments[idx]) inlinePayments[idx].amount = parseFloat(e.target.value) || 0;
+      updateQpBalanceNote();
+    };
+  });
+
+  container.querySelectorAll('.qp-pay-remove').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.dataset.idx, 10);
+      if (inlinePayments && inlinePayments.length > 1) {
+        inlinePayments.splice(idx, 1);
+        renderQuickPOS(container);
+      }
+    };
+  });
+
+  const qpAddPayRow = container.querySelector('#qpAddPayRow');
+  if (qpAddPayRow) {
+    qpAddPayRow.onclick = () => {
+      if (!inlinePayments) inlinePayments = [{ method: defaultPaymentMethod, amount: cartTotal }];
+      const usedMethods = inlinePayments.map(p => p.method);
+      const nextMethod = paymentMethodsList.find(m => !usedMethods.includes(m)) || paymentMethodsList[0] || 'Cash';
+      inlinePayments.push({ method: nextMethod, amount: 0 });
+      renderQuickPOS(container);
+    };
+  }
+
+  const qpDeliveryVehicle = container.querySelector('#qpDeliveryVehicle');
+  if (qpDeliveryVehicle) {
+    // Plain state capture, no re-render per keystroke (same reasoning as
+    // the amount inputs above) — the value is only actually read at PAY time.
+    qpDeliveryVehicle.oninput = (e) => { inlineDeliveryVehicle = e.target.value; };
+  }
+
+  const qpFullCheckoutLink = container.querySelector('#qpFullCheckoutLink');
+  if (qpFullCheckoutLink) {
+    qpFullCheckoutLink.onclick = () => openPaymentModal();
+  }
 
   // Tab switching (Visual only for now)
   container.querySelectorAll('.ep-tab').forEach(tab => {
