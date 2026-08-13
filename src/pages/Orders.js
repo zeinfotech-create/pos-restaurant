@@ -477,7 +477,14 @@ async function openReturnModal(order, cur) {
     // fall back to whatever the first configured method actually is —
     // defaulting to a hardcoded 'Cash' that isn't even in the list would
     // leave the dropdown showing no option as selected.
-    let refundMethod = refundMethods.includes('Cash') ? 'Cash' : refundMethods[0];
+    const defaultRefundMethod = refundMethods.includes('Cash') ? 'Cash' : refundMethods[0];
+    // Split refund — one row per method, same pattern as Settle Payment
+    // and Quick POS's own split payment editor. Row 0's amount auto-
+    // tracks the Total Refund Amount as quantities change (see the
+    // return-qty-input handler below); any additional rows are a
+    // cashier-entered fixed sub-amount and are left alone, same rule as
+    // everywhere else this pattern is used.
+    let refundRows = [{ method: defaultRefundMethod, amount: 0 }];
 
     function renderRows() {
       return returnedItems.map((item, idx) => `
@@ -552,11 +559,23 @@ async function openReturnModal(order, cur) {
       };
 
       const totalReturn = returnedItems.reduce((sum, item) => sum + (item.returnQty * getRefundPerItem(item)), 0);
+      // Row 0 always tracks the current Total Refund Amount at render time
+      // (the qty-input handler below keeps it synced afterward too,
+      // without needing a full re-render) — any extra split rows keep
+      // whatever the cashier already typed into them.
+      if (refundRows.length === 1) {
+        refundRows[0].amount = totalReturn;
+      } else {
+        const othersSum = refundRows.slice(1).reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+        refundRows[0].amount = Math.max(0, parseFloat((totalReturn - othersSum).toFixed(2)));
+      }
+      const refundRowsSum = refundRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+      const refundBalanced = Math.abs(refundRowsSum - totalReturn) < 0.01;
       const body = `
         <div style="padding:10px">
           <div class="mb-16 text-muted" style="font-size:13px">Select quantities to return. You cannot return more than the available quantity.</div>
           <div id="returnItemsContainer">${renderRows()}</div>
-          
+
           <div style="background:var(--bg-elevated); padding:12px; border-radius:8px; margin-top:16px; border:1px dashed var(--border)">
             <div style="font-size:11px; font-weight:bold; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px">Original Payment Details</div>
             ${(order.payments || [{ method: order.paymentMethod || 'Cash', amount: order.total }]).map(p => `
@@ -567,17 +586,28 @@ async function openReturnModal(order, cur) {
             `).join('')}
           </div>
 
-          <div class="grid-2 mt-16">
-            <div class="form-group">
-              <label class="form-label">Refund Method</label>
-              <select class="form-select" id="refundMethodSelect">
-                ${refundMethods.map(m => `<option value="${escapeHtml(m)}" ${refundMethod === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
-              </select>
+          <div class="form-group mt-16">
+            <label class="form-label">Refund Method${refundRows.length > 1 ? 's' : ''}</label>
+            <div id="refundRowsContainer" style="display:flex; flex-direction:column; gap:8px">
+              ${refundRows.map((r, idx) => `
+                <div style="display:flex; align-items:center; gap:8px">
+                  <select class="refund-row-method form-select" data-idx="${idx}" style="flex:1">
+                    ${refundMethods.map(m => `<option value="${escapeHtml(m)}" ${r.method === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+                  </select>
+                  <input type="number" class="refund-row-amount form-input" data-idx="${idx}" value="${(parseFloat(r.amount) || 0).toFixed(2)}" style="width:120px; text-align:right" />
+                  ${refundRows.length > 1 ? `<button type="button" class="refund-row-remove btn btn-ghost" data-idx="${idx}" style="color:var(--danger); padding:6px 10px"><i class="fa-solid fa-xmark"></i></button>` : `<div style="width:38px"></div>`}
+                </div>
+              `).join('')}
             </div>
-            <div class="form-group">
-              <label class="form-label">Reason for Return</label>
-              <input type="text" class="form-input" id="returnReason" placeholder="e.g. Damaged" />
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px">
+              <button type="button" id="refundAddSplit" class="btn btn-ghost btn-sm" style="border:1px dashed var(--border)"><i class="fa-solid fa-plus mr-4"></i> Add Split</button>
+              <span id="refundBalanceNote" style="font-size:12px; font-weight:700; color:${refundBalanced ? 'var(--success)' : 'var(--danger)'}">${cur}${refundRowsSum.toFixed(2)} / ${cur}${totalReturn.toFixed(2)}</span>
             </div>
+          </div>
+
+          <div class="form-group mt-16">
+            <label class="form-label">Reason for Return</label>
+            <input type="text" class="form-input" id="returnReason" placeholder="e.g. Damaged" />
           </div>
 
           <div style="margin-top:28px; background:var(--bg-elevated); border-radius:16px; border:1px solid var(--border); padding:16px 20px; display:flex; justify-content:space-between; align-items:center; box-shadow:var(--shadow-sm)">
@@ -620,12 +650,67 @@ async function openReturnModal(order, cur) {
             const totalReturn = returnedItems.reduce((sum, item) => sum + (item.returnQty * getRefundPerItem(item)), 0);
             const totalEl = document.getElementById('totalRefundAmountVal');
             if (totalEl) totalEl.innerText = `${cur}${parseFloat(totalReturn.toFixed(2)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+            // Keep refund row 0 tracking the (possibly just-changed) Total
+            // Refund Amount live too — same "row 0 absorbs, other rows stay
+            // fixed" rule as everywhere else, applied here without a full
+            // modal re-render so the qty input doesn't lose focus mid-type.
+            if (refundRows.length === 1) {
+              refundRows[0].amount = totalReturn;
+            } else {
+              const othersSum = refundRows.slice(1).reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+              refundRows[0].amount = Math.max(0, parseFloat((totalReturn - othersSum).toFixed(2)));
+            }
+            const firstRefundAmountInput = document.querySelector('.refund-row-amount[data-idx="0"]');
+            if (firstRefundAmountInput && document.activeElement !== firstRefundAmountInput) {
+              firstRefundAmountInput.value = refundRows[0].amount.toFixed(2);
+            }
+            const refundSum = refundRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+            const refundBalanced = Math.abs(refundSum - totalReturn) < 0.01;
+            const balanceNote = document.getElementById('refundBalanceNote');
+            if (balanceNote) {
+              balanceNote.textContent = `${cur}${refundSum.toFixed(2)} / ${cur}${totalReturn.toFixed(2)}`;
+              balanceNote.style.color = refundBalanced ? 'var(--success)' : 'var(--danger)';
+            }
           };
         });
 
-        document.getElementById('refundMethodSelect').onchange = (e) => {
-          refundMethod = e.target.value;
-        };
+        document.querySelectorAll('.refund-row-method').forEach(sel => {
+          sel.onchange = (e) => {
+            refundRows[parseInt(e.target.dataset.idx, 10)].method = e.target.value;
+          };
+        });
+        document.querySelectorAll('.refund-row-amount').forEach(inp => {
+          inp.oninput = (e) => {
+            const idx = parseInt(e.target.dataset.idx, 10);
+            refundRows[idx].amount = parseFloat(e.target.value) || 0;
+            const totalReturn = returnedItems.reduce((sum, item) => sum + (item.returnQty * getRefundPerItem(item)), 0);
+            const refundSum = refundRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+            const refundBalanced = Math.abs(refundSum - totalReturn) < 0.01;
+            const balanceNote = document.getElementById('refundBalanceNote');
+            if (balanceNote) {
+              balanceNote.textContent = `${cur}${refundSum.toFixed(2)} / ${cur}${totalReturn.toFixed(2)}`;
+              balanceNote.style.color = refundBalanced ? 'var(--success)' : 'var(--danger)';
+            }
+          };
+        });
+        document.querySelectorAll('.refund-row-remove').forEach(btn => {
+          btn.onclick = () => {
+            if (refundRows.length > 1) { refundRows.splice(parseInt(btn.dataset.idx, 10), 1); updateModal(); }
+          };
+        });
+        const refundAddSplit = document.getElementById('refundAddSplit');
+        if (refundAddSplit) {
+          refundAddSplit.onclick = () => {
+            const used = refundRows.map(r => r.method);
+            const nextMethod = refundMethods.find(m => !used.includes(m)) || refundMethods[0] || 'Cash';
+            const totalReturn = returnedItems.reduce((sum, item) => sum + (item.returnQty * getRefundPerItem(item)), 0);
+            const already = refundRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+            const remaining = Math.max(0, parseFloat((totalReturn - already).toFixed(2)));
+            refundRows.push({ method: nextMethod, amount: remaining });
+            updateModal();
+          };
+        }
 
         const confirmReturnBtn = document.getElementById('confirmReturnBtn');
         confirmReturnBtn.onclick = async () => {
@@ -659,6 +744,21 @@ async function openReturnModal(order, cur) {
           const totalReturn = parseFloat(returnedItems.filter(i => i.returnQty > 0).reduce((sum, item) => sum + (item.returnQty * getRefundPerItem(item)), 0).toFixed(2));
           const reason = document.getElementById('returnReason').value || 'Not specified';
 
+          const validRefundRows = refundRows
+            .filter(r => r.method && parseFloat(r.amount) > 0.001)
+            .map(r => ({ method: r.method, amount: parseFloat((parseFloat(r.amount) || 0).toFixed(2)) }));
+          const refundSum = parseFloat(validRefundRows.reduce((s, r) => s + r.amount, 0).toFixed(2));
+          if (Math.abs(refundSum - totalReturn) > 0.01) {
+            showToast(`Refund split (${cur}${refundSum.toFixed(2)}) doesn't match the Total Refund Amount (${cur}${totalReturn.toFixed(2)}) — adjust the amounts.`, 'warning');
+            return;
+          }
+          // refundMethod stays a single string for older report/receipt
+          // code that only ever expected one — 'Split' whenever there's
+          // more than one row, same convention order.paymentMethod already
+          // uses. payments (the new structured array) is what actually
+          // drives the per-method shift.collections adjustment now.
+          const refundMethod = validRefundRows.length === 1 ? validRefundRows[0].method : 'Split';
+
           confirmReturnBtn.disabled = true;
           let res;
           try {
@@ -671,7 +771,8 @@ async function openReturnModal(order, cur) {
               branchId: order.branchId,
               customer: order.customer,
               registerId: await db.getCurrentRegisterId(),
-              refundMethod: refundMethod
+              refundMethod: refundMethod,
+              payments: validRefundRows
             });
           } catch (err) {
             // db.saveReturn() rejects if the requested qty now exceeds what's
@@ -693,7 +794,7 @@ async function openReturnModal(order, cur) {
                 <h3>Return Successful</h3>
                 <p>The return for <b>${order.id}</b> has been recorded.</p>
                 <div style="background:var(--bg-elevated); padding:12px; border-radius:8px; margin-top:16px; font-weight:bold; color:var(--danger)">
-                  Total Refund: ${cur}${totalReturn.toFixed(2)} (${refundMethod})
+                  Total Refund: ${cur}${totalReturn.toFixed(2)} (${validRefundRows.length > 1 ? validRefundRows.map(r => `${escapeHtml(r.method)} ${cur}${r.amount.toFixed(2)}`).join(' + ') : refundMethod})
                 </div>
               </div>
             `,

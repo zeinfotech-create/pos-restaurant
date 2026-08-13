@@ -1853,11 +1853,18 @@ export function renderRefundReceipt(ret, settings, cur) {
       </div>
 
       <div style="margin-top:8px; font-size:11px; padding:8px; background:rgba(239,68,68,0.05); border-radius:4px">
+        ${ret.payments && ret.payments.length > 1 ? ret.payments.map(p => `
+          <div style="display:flex; justify-content:space-between; margin-bottom:2px">
+            <span>${escapeHtml(p.method)}</span>
+            <span class="font-bold">${cur}${p.amount.toFixed(2)}</span>
+          </div>
+        `).join('') : `
         <div style="display:flex; justify-content:space-between; margin-bottom:4px">
           <span>Refund Method:</span>
           <span class="font-bold">${escapeHtml(ret.refundMethod || 'Cash')}</span>
         </div>
-        <div style="font-size:10px; opacity:0.8">Reason: ${escapeHtml(ret.reason || 'Not specified')}</div>
+        `}
+        <div style="font-size:10px; opacity:0.8; margin-top:4px">Reason: ${escapeHtml(ret.reason || 'Not specified')}</div>
       </div>
 
       <div class="receipt-divider"></div>

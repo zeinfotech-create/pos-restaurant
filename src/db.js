@@ -1304,7 +1304,15 @@ export async function saveReturn(ret) {
     // Need to handle shift update as async if needed
     // updateShiftSales is likely in db.js too, let's keep it sync for now or refactor
     const currentBranch = await getCurrentBranch();
-    await updateShiftSales(ret.branchId || currentBranch?.id || 'b1', -ret.total, ret.refundMethod || 'Cash', ret.registerId, true);
+    // Split refund (ret.payments, one row per method) — updateShiftSales()
+    // already accepts an array of {method, amount} the same way it does
+    // for a sale's own payments, so each method's collections total gets
+    // reduced by its own actual refunded share instead of the whole
+    // refund landing on a single ret.refundMethod bucket.
+    const refundPaymentData = (ret.payments && ret.payments.length > 0)
+      ? ret.payments.map(p => ({ method: p.method, amount: -Math.abs(p.amount) }))
+      : (ret.refundMethod || 'Cash');
+    await updateShiftSales(ret.branchId || currentBranch?.id || 'b1', -ret.total, refundPaymentData, ret.registerId, true);
   }
 
   // Adjust product stock

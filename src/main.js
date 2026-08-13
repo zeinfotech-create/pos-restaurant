@@ -1563,9 +1563,64 @@ window.addEventListener('sync-settings-updated', (e) => {
   }
 });
 
+// Tracks, per shift, the highest 8h milestone already shown — keyed by
+// shift.id so closing this register and opening a new one (or a different
+// register entirely) starts fresh instead of inheriting a stale count, and
+// so this doesn't re-show the same milestone every 5 minutes once it's
+// already been surfaced once.
+let registerReminderShown = {};
+
+async function checkRegisterOpenReminder() {
+  try {
+    // A modal already open (login, checkout, another reminder, etc.) — skip
+    // this tick rather than stack a second modal on top of it. The next
+    // 5-minute tick will catch it once things are clear.
+    if (document.querySelector('.modal')) return;
+    if (!(await getCurrentUser())) return; // not logged in yet
+
+    const branch = await getCurrentBranch();
+    const branchId = branch?.id;
+    if (!branchId) return;
+    const registerId = await getCurrentRegisterId();
+    const shift = await getCurrentShift(branchId, registerId);
+    if (!shift || !shift.openedAt) return;
+
+    const hoursOpen = (Date.now() - new Date(shift.openedAt).getTime()) / (1000 * 60 * 60);
+    const milestone = Math.floor(hoursOpen / 8); // 1 at 8h, 2 at 16h, 3 at 24h...
+    if (milestone < 1) return;
+    if (registerReminderShown[shift.id] === milestone) return; // already shown for this exact milestone
+    registerReminderShown[shift.id] = milestone;
+
+    const wholeHours = Math.floor(hoursOpen);
+    const mins = Math.round((hoursOpen - wholeHours) * 60);
+    openModal({
+      title: '⏰ Register Still Open',
+      body: `
+        <div style="padding:8px 4px">
+          <p>This register has been open for <b>${wholeHours}h ${mins}m</b> straight (since ${new Date(shift.openedAt).toLocaleString('en-IN')}).</p>
+          <p style="margin-top:8px; color:var(--text-muted); font-size:13px">If the shift is genuinely still going, just continue. Otherwise, close it out now so cash counts and shift reports stay accurate.</p>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="registerReminderContinueBtn">Continue Working</button>
+        <button class="btn btn-danger" id="registerReminderCloseBtn"><i class="fa-solid fa-lock"></i> Close Register</button>
+      `
+    });
+    setTimeout(() => {
+      document.getElementById('registerReminderContinueBtn')?.addEventListener('click', () => closeModal());
+      document.getElementById('registerReminderCloseBtn')?.addEventListener('click', () => {
+        closeModal();
+        navigate('register');
+      });
+    }, 0);
+  } catch (err) {
+    console.error('[App] checkRegisterOpenReminder failed:', err);
+  }
+}
+
 async function initApp() {
   console.log('[App] Starting initialization...');
-  
+
   // 1. Initialize DB and Store (Core requirement for IndexedDB)
   await initStore();
 
@@ -1602,6 +1657,15 @@ async function initApp() {
 
   // Pulse refresh for topbar
   setInterval(() => renderTopbar(), 10000);
+
+  // Register-still-open reminder — every 8h the current register has been
+  // continuously open, nudge whoever's at the terminal to either keep
+  // going or actually close it out. Lives here (the always-mounted app
+  // shell), not on the Register page itself, since a cashier can easily
+  // spend a whole 8h+ shift entirely on POS/Quick POS and never visit
+  // Register & Shifts at all.
+  setInterval(checkRegisterOpenReminder, 5 * 60 * 1000);
+  checkRegisterOpenReminder();
 
   // Initialize Core Services
   try {
