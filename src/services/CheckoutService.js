@@ -1208,13 +1208,17 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
               : (exclusiveSubtotal * itemTaxRate / 100);
             const taxAmount = isItemInclusive ? 0 : displayTaxAmount;
             const itemLineTotal = exclusiveSubtotal + taxAmount;
-            // Same "what's actually inside this number" detail as the
-            // on-screen Quick POS cart table: an inclusive Price/unit
-            // already has tax baked in, so show its pre-tax base
-            // underneath instead of leaving the customer to work it out;
-            // and tag the GST column Incl/Excl so it's clear whether that
-            // amount is already counted in Price/unit or added on top of it.
-            const unitBaseRate = isItemInclusive && itemTaxRate > 0 ? itemPrice / (1 + itemTaxRate / 100) : null;
+            // Price/unit shows the real, full selling price as the primary
+            // figure — that's what Disc/Amount are both computed against,
+            // so Price − Discount = Amount stays a simple, always-correct
+            // check. Base (the pre-tax equivalent, informational only) is
+            // shown as a smaller line underneath for inclusive items, not
+            // swapped in as the primary figure. Derived from the POST-
+            // discount taxable amount (same as the on-screen Quick POS
+            // cart table's Base), not the raw undiscounted Price/unit, so
+            // the same item shows the same Base figure everywhere in the
+            // app instead of two different numbers depending on screen.
+            const unitBaseRate = isItemInclusive && itemTaxRate > 0 ? (exclusiveSubtotal / (1 + itemTaxRate / 100)) / itemQty : null;
             return `
               <tr style="border-bottom:1px solid #ddd">
                 <td style="padding:6px">${idx + 1}</td>
@@ -1222,8 +1226,8 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
                 ${hasHsn ? `<td style="padding:6px">${escapeHtml(i.hsnCode || '')}</td>` : ''}
                 <td style="text-align:center; padding:6px">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}</td>
                 <td style="text-align:right; padding:6px">
-                  ${cur}${itemPrice.toFixed(2)}
-                  ${settings.showTaxOnReceipt !== false && unitBaseRate !== null ? `<div style="font-size:9px; opacity:0.6; font-weight:400">Base: ${cur}${unitBaseRate.toFixed(2)}</div>` : ''}
+                  <div>${cur}${itemPrice.toFixed(2)}</div>
+                  ${unitBaseRate !== null ? `<div style="font-size:9px; opacity:0.6; font-weight:400">${cur}${unitBaseRate.toFixed(2)}</div>` : ''}
                 </td>
                 <td style="text-align:right; padding:6px">${settings.showDiscountOnReceipt !== false ? `${cur}${itemDiscountAmt.toFixed(2)}${itemDiscountAmt > 0 && i.itemDiscountType === 'pct' ? ` (${i.itemDiscount}%)` : ''}` : '—'}</td>
                 <td style="text-align:right; padding:6px">
@@ -1437,25 +1441,20 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
       : (exclusiveSubtotal * itemTaxRate / 100);
     const itemLineTotal = isInclusive ? exclusiveSubtotal : exclusiveSubtotal + taxAmount;
 
-    // RATE shows the actual selling price (itemPrice) — NOT the tax-
-    // exclusive base — because Disc and Amount are both computed against
-    // itemPrice too (itemDiscountAmt comes from baseLineTotal = itemPrice
-    // × qty). Showing the pre-tax base here instead made Rate − Disc +
-    // Tax stop reconstructing Amount for inclusive items (e.g. a printed
-    // "₹61.90 − ₹5.00 + ₹2.86" reads as ₹59.76, not the ₹60.00 actually
-    // charged) — every number on the line has to share the same basis for
-    // simple left-to-right arithmetic to check out. The base price is
-    // still shown, just as an informational sub-line instead of swapped
-    // into the primary Rate figure — same convention as the on-screen
-    // Quick POS cart table and the A4/A5 invoice.
-    const unitBaseRate = isInclusive && itemTaxRate > 0 ? itemPrice / (1 + itemTaxRate / 100) : null;
+    // RATE shows the actual selling price (itemPrice) as the primary
+    // figure — Disc/Amount are both computed against it, so Rate − Disc =
+    // Amount stays a simple, always-correct check. Base (pre-tax
+    // equivalent, informational only) shows as a smaller line underneath
+    // for inclusive items, same POST-discount-derived value as the A4/A5
+    // invoice and the on-screen Quick POS cart table, so it's consistent
+    // everywhere rather than swapped in as the primary Rate figure.
+    const unitBaseRate = isInclusive && itemTaxRate > 0 ? (exclusiveSubtotal / (1 + itemTaxRate / 100)) / itemQty : null;
 
     const subLines = [
       i.variantName ? `(${i.variantName})` : '',
       i.hsnCode ? `HSN: ${i.hsnCode}` : '',
       settings.showDiscountOnReceipt !== false && itemDiscountAmt > 0 ? `Disc: -${cur}${itemDiscountAmt.toFixed(2)}${i.itemDiscountType === 'pct' ? ` (${i.itemDiscount}%)` : ''}` : '',
-      settings.showTaxOnReceipt !== false && itemTaxRate > 0 ? `Tax ${itemTaxRate}%${isInclusive ? ' Incl.' : ''} (${cur}${taxAmount.toFixed(2)})` : '',
-      settings.showTaxOnReceipt !== false && unitBaseRate !== null ? `Base: ${cur}${unitBaseRate.toFixed(2)}` : ''
+      settings.showTaxOnReceipt !== false && itemTaxRate > 0 ? `Tax ${itemTaxRate}%${isInclusive ? ' Incl.' : ''} (${cur}${taxAmount.toFixed(2)})` : ''
     ].filter(Boolean).join(' | ');
 
     return `
@@ -1465,7 +1464,10 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
             ${subLines ? `<div style="font-size:9px; opacity:0.65">${subLines}</div>` : ''}
           </td>
           <td style="text-align:center; vertical-align:top; padding:4px 0">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}</td>
-          <td style="text-align:right; vertical-align:top; padding:4px 0">${cur}${itemPrice.toFixed(2)}</td>
+          <td style="text-align:right; vertical-align:top; padding:4px 0">
+            <div>${cur}${itemPrice.toFixed(2)}</div>
+            ${unitBaseRate !== null ? `<div style="font-size:9px; opacity:0.6; font-weight:400">${cur}${unitBaseRate.toFixed(2)}</div>` : ''}
+          </td>
           <td style="text-align:right; vertical-align:top; padding:4px 0; font-weight:bold">${cur}${itemLineTotal.toFixed(2)}</td>
         </tr>
       `}).join('')}

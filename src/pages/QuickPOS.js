@@ -251,8 +251,8 @@ export async function renderQuickPOS(container) {
                         <th style="width:70px; text-align:center">Unit</th>
                         <th style="width:50px; text-align:center">Qty</th>
                         <th style="width:90px; text-align:right">Rate</th>
-                        <th style="width:78px; text-align:center" title="Tax amount, rate %, and whether it's Included in the Rate shown (Incl) or added on top (Excl)">Tx</th>
                         <th style="width:80px; text-align:right">Dis</th>
+                        <th style="width:78px; text-align:center" title="Tax amount, rate %, and whether it's Included in the Rate shown (Incl) or added on top (Excl)">Tx</th>
                         <th style="width:100px; text-align:right">Amount</th>
                      </tr>
                   </thead>
@@ -819,21 +819,26 @@ export async function renderQuickPOS(container) {
 
       // For an inclusive-tax Rate, break out exactly what's "inside" it —
       // the pre-tax base price — instead of leaving the customer to work
-      // out ₹65.00's base themselves. This is computed straight off the
-      // Rate itself (item.price), independent of any per-line discount, so
-      // it doesn't get mixed up with the Tx column's ₹2.86 (which is the
-      // tax actually charged, on the *discounted* taxable amount — a
-      // different, smaller figure on purpose, see that column's tooltip).
+      // out ₹65.00's base themselves. Derived from `taxable` (the
+      // POST-discount amount, same one Tx's ₹ figure and Amount both come
+      // from) rather than the raw item.price — so Base and Tx share the
+      // same basis and actually add back up to Amount (Base + Tax =
+      // Amount, per unit). Deriving it from item.price directly instead
+      // (the undiscounted rate) used to give a Base that couldn't be
+      // combined with Tx/Disc/Amount by hand at all: e.g. ₹19.05 (base of
+      // the full ₹20) + ₹0.90 (tax on the discounted ₹19) came out to
+      // ₹19.95, not the actual ₹19.00 — two figures from two different
+      // calculation stages that were never meant to be added together.
       const preTaxRate = (item.taxType === 'inclusive' && taxRate > 0)
-        ? item.price / (1 + taxRate / 100)
+        ? (taxable / (1 + taxRate / 100)) / qty
         : null;
 
       const priceCell = isSelected && selectedColIndex === 1
         ? `<td style="text-align:right"><input id="colInput" type="number" min="0" step="0.01" value="${item.price.toFixed(2)}" style="width:80px;text-align:right;border:2px solid var(--info);background:var(--bg-card);color:var(--text-main);border-radius:4px;padding:2px 4px;outline:none"></td>`
-        : `<td style="text-align:right" title="${item.taxType === 'inclusive' ? `This Rate already includes ${taxRate}% tax — base price (before tax) is ${cur}${preTaxRate !== null ? preTaxRate.toFixed(2) : '0.00'}` : 'This Rate is before tax — tax is added on top (see Tx column)'}">
+        : `<td style="text-align:right" title="${item.taxType === 'inclusive' ? `This Rate already includes ${taxRate}% tax. After any discount, Base (${cur}${preTaxRate !== null ? preTaxRate.toFixed(2) : '0.00'}) + Tax = Amount.` : 'This Rate is before tax — tax is added on top (see Tx column)'}">
              <div>${item.price.toFixed(2)}</div>
              ${taxRate > 0 ? `<div style="font-size:10px; font-weight:700; opacity:0.65; white-space:nowrap">${item.taxType === 'inclusive' ? 'Tax Incl' : 'Tax Excl'}</div>` : ''}
-             ${preTaxRate !== null ? `<div style="font-size:9px; opacity:0.55; white-space:nowrap">Base: ${cur}${preTaxRate.toFixed(2)}</div>` : ''}
+             ${preTaxRate !== null ? `<div style="font-size:9px; opacity:0.55; white-space:nowrap">${cur}${preTaxRate.toFixed(2)}</div>` : ''}
            </td>`;
 
       const discCell = isSelected && selectedColIndex === 2
@@ -843,7 +848,7 @@ export async function renderQuickPOS(container) {
                <button id="colDiscTypeBtn" class="ep-btn-sm" data-type="${item.itemDiscountType || 'flat'}" style="padding: 2px 4px; font-size:10px;">${(item.itemDiscountType || 'flat') === 'flat' ? cur : '%'}</button>
              </div>
            </td>`
-        : `<td style="text-align:right">${itemDisc > 0 ? (item.itemDiscountType === 'pct' ? item.itemDiscount + '%' : itemDisc.toFixed(2)) : ''}</td>`;
+        : `<td style="text-align:right">${itemDisc > 0 ? (item.itemDiscountType === 'pct' ? `${item.itemDiscount}% <span style="opacity:0.6; font-weight:400">(${cur}${itemDisc.toFixed(2)})</span>` : itemDisc.toFixed(2)) : ''}</td>`;
 
       const descHtml = item.variantName
         ? `${escapeHtml(item.name)} <span style="font-size:11px;opacity:0.6;font-weight:normal">(${escapeHtml(item.variantName)})</span>`
@@ -856,13 +861,13 @@ export async function renderQuickPOS(container) {
         <td style="text-align:center; opacity:0.8">${item.unit || '-'}</td>
         ${qtyCell}
         ${priceCell}
+        ${discCell}
         <td style="text-align:center" title="${taxRate > 0 ? `${taxRate}% GST, ${item.taxType === 'inclusive' ? 'Inclusive — already included in the Rate shown' : 'Exclusive — added on top of the Rate shown'}` : 'No tax on this item'}">
           ${taxRate > 0 ? `
             <div style="font-weight:700">${cur}${taxAmt.toFixed(2)}</div>
             <div style="font-size:10px; font-weight:700; opacity:0.65; white-space:nowrap">${taxRate}% ${item.taxType === 'inclusive' ? 'Incl' : 'Excl'}</div>
           ` : '<span style="opacity:0.5">—</span>'}
         </td>
-        ${discCell}
         <td style="text-align:right; font-weight:900" title="${item.taxType === 'inclusive'
             ? `Rate ${cur}${item.price.toFixed(2)} − Discount ${cur}${itemDisc.toFixed(2)} = ${cur}${lineTotal.toFixed(2)} (tax was already inside the Rate — nothing more to add)`
             : `Rate ${cur}${item.price.toFixed(2)} − Discount ${cur}${itemDisc.toFixed(2)} + Tax ${cur}${taxAmt.toFixed(2)} = ${cur}${lineTotal.toFixed(2)}`}">${beforeDiscTotal !== null ? `<span style="text-decoration:line-through; opacity:0.5; font-weight:400; font-size:11px; margin-right:4px">${cur}${beforeDiscTotal.toFixed(2)}</span>` : ''}${lineTotal.toFixed(2)}</td>

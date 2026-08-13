@@ -660,6 +660,19 @@ export async function renderCart(cur) {
                 × ${item.qty}
                 ${item.effectiveDiscount > 0 ? `<span style="font-size:10px;color:var(--success);margin-left:4px" title="Discount applied">- ${cur}${item.effectiveDiscount.toFixed(2)}</span>` : ''}
               </div>
+              ${(() => {
+                // Base (pre-tax equivalent) for inclusive-tax items — same
+                // post-discount-derived value as Quick POS's cart table and
+                // the receipts, informational only (Rate × Qty − Discount
+                // is still what Amount is actually computed from).
+                if (item.taxType !== 'inclusive' || !(parseFloat(item.taxRate) > 0)) return '';
+                const perUnitDiscount = item.itemDiscountType === 'pct'
+                  ? (item.price * (Number(item.itemDiscount) || 0) / 100)
+                  : (Number(item.itemDiscount) || 0);
+                const taxableUnit = Math.max(0, item.price - perUnitDiscount);
+                const baseUnit = taxableUnit / (1 + parseFloat(item.taxRate) / 100);
+                return `<div style="font-size:10px; opacity:0.55">${cur}${baseUnit.toFixed(2)} base</div>`;
+              })()}
             </div>
             <div class="qty-controls">
               <button class="qty-btn qty-minus-btn cart-minus-btn" data-id="${item.cartId}" data-delta="-1" style="width:22px; height:22px; font-size:12px">−</button>
