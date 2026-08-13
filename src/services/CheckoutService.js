@@ -81,7 +81,7 @@ export async function openCheckout() {
   }
 
   function renderCheckoutUI() {
-    const { subtotal, grossTax, orderDiscount, itemDiscount, roundOff, total } = getCartTotals();
+    const { subtotal, grossTax, orderDiscount, itemDiscount, orderTax, roundOff, total } = getCartTotals();
     const paid = payments.reduce((s, p) => s + p.amount, 0);
     const due = total - paid - (redeemedPoints || 0);
     const selectedMethods = payments.map(p => p.method);
@@ -228,16 +228,28 @@ export async function openCheckout() {
                                    <span>Subtotal</span>
                                    <span style="font-weight:600">${cur}${subtotal.toFixed(2)}</span>
                                </div>
-                               ${(orderDiscount + itemDiscount) > 0 ? `
+                               ${itemDiscount > 0 ? `
                                <div style="display:flex; justify-content:space-between; color:var(--text-secondary)">
-                                   <span>Manual Discount</span>
-                                   <span style="font-weight:600; color:#10b981">−${cur}${(orderDiscount + itemDiscount).toFixed(2)}</span>
+                                   <span>Item Discount</span>
+                                   <span style="font-weight:600; color:#10b981">−${cur}${itemDiscount.toFixed(2)}</span>
                                </div>
                                ` : ''}
                                ${grossTax > 0 ? `
                                <div style="display:flex; justify-content:space-between; color:var(--text-secondary)">
-                                   <span>Taxes & Fees</span>
+                                   <span>Item Tax</span>
                                    <span style="font-weight:600">${cur}${grossTax.toFixed(2)}</span>
+                               </div>
+                               ` : ''}
+                               ${orderDiscount > 0 ? `
+                               <div style="display:flex; justify-content:space-between; color:var(--text-secondary)">
+                                   <span>Extra Discount</span>
+                                   <span style="font-weight:600; color:#10b981">−${cur}${orderDiscount.toFixed(2)}</span>
+                               </div>
+                               ` : ''}
+                               ${orderTax > 0 ? `
+                               <div style="display:flex; justify-content:space-between; color:var(--text-secondary)">
+                                   <span>Extra Tax</span>
+                                   <span style="font-weight:600">+${cur}${orderTax.toFixed(2)}</span>
                                </div>
                                ` : ''}
                                ${Math.abs(roundOff) > 0.001 ? `

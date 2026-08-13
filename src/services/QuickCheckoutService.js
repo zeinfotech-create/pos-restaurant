@@ -57,7 +57,7 @@ export function resolveMethodConfig(methodName) {
 export async function openQuickCheckout(onSuccess = null) {
     const settings = await getSettings();
     const cur = settings.currency;
-    const { total, subtotal, grossTax, orderDiscount, itemDiscount, roundOff } = getCartTotals();
+    const { total, subtotal, grossTax, orderDiscount, itemDiscount, orderTax, roundOff } = getCartTotals();
     const customer = store.selectedCustomer;
 
     if (store.cart.length === 0) {
@@ -281,16 +281,28 @@ export async function openQuickCheckout(onSuccess = null) {
                                     <span>Subtotal</span>
                                     <span style="font-weight:600">${cur}${subtotal.toFixed(2)}</span>
                                 </div>
-                                ${(orderDiscount + itemDiscount) > 0 ? `
+                                ${itemDiscount > 0 ? `
                                 <div style="display:flex; justify-content:space-between;">
-                                    <span style="color:#10b981">Manual Discount</span>
-                                    <span style="font-weight:600; color:#10b981">−${cur}${(orderDiscount + itemDiscount).toFixed(2)}</span>
+                                    <span style="color:#10b981">Item Discount</span>
+                                    <span style="font-weight:600; color:#10b981">−${cur}${itemDiscount.toFixed(2)}</span>
                                 </div>
                                 ` : ''}
                                 ${grossTax > 0 ? `
                                 <div style="display:flex; justify-content:space-between; color:var(--text-secondary)">
-                                    <span>Taxes &amp; Fees</span>
+                                    <span>Item Tax</span>
                                     <span style="font-weight:600">${cur}${grossTax.toFixed(2)}</span>
+                                </div>
+                                ` : ''}
+                                ${orderDiscount > 0 ? `
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span style="color:#10b981">Extra Discount</span>
+                                    <span style="font-weight:600; color:#10b981">−${cur}${orderDiscount.toFixed(2)}</span>
+                                </div>
+                                ` : ''}
+                                ${orderTax > 0 ? `
+                                <div style="display:flex; justify-content:space-between; color:var(--text-secondary)">
+                                    <span>Extra Tax</span>
+                                    <span style="font-weight:600">+${cur}${orderTax.toFixed(2)}</span>
                                 </div>
                                 ` : ''}
                                 ${Math.abs(roundOff) > 0.001 ? `
