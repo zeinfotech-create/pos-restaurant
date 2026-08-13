@@ -38,6 +38,16 @@ const TARGET_FIELDS = [
   { key: 'minStock', label: 'Min Stock Alert', type: 'number' },
   { key: 'hsnCode', label: 'HSN Code' },
   { key: 'taxRate', label: 'Tax Rate (%)', type: 'number' },
+  // 'inclusive'/'exclusive' — same values Products.js's own Tax Type
+  // dropdown uses. Free-text values get normalized (Inclusive/Incl/Excl/
+  // etc. all work) in buildPreview() below, not just an exact match.
+  { key: 'taxType', label: 'Tax Type (Inclusive/Exclusive)' },
+  // These two mirror Products.js's own "Default Discount" fields (the
+  // discount a product's line pre-fills with when added to a cart) — were
+  // previously only settable one product at a time via Add/Edit Product,
+  // with no way to set them on a bulk import.
+  { key: 'itemDiscount', label: 'Discount Value', type: 'number' },
+  { key: 'itemDiscountType', label: 'Discount Type (Flat/Percent)' },
   { key: 'emoji', label: 'Emoji / Icon' },
   { key: 'expiryDate', label: 'Expiry Date' },
   { key: 'manufacturingDate', label: 'Manufacturing Date' },
@@ -59,6 +69,9 @@ const FIELD_SYNONYMS = {
   minStock: ['min stock', 'minimum stock', 'reorder level', 'low stock alert'],
   hsnCode: ['hsn', 'hsn code'],
   taxRate: ['tax', 'tax rate', 'gst', 'gst percent'],
+  taxType: ['tax type', 'gst type', 'inclusive exclusive', 'tax inclusive exclusive'],
+  itemDiscount: ['discount', 'discount value', 'discount amount', 'default discount'],
+  itemDiscountType: ['discount type', 'discount unit'],
   emoji: ['emoji', 'icon'],
   expiryDate: ['expiry', 'expiry date', 'exp date'],
   manufacturingDate: ['mfg date', 'manufacturing date', 'mfd'],
@@ -597,9 +610,9 @@ function wireStep(onComplete) {
       // SKU/barcode/MRP), so every variant row repeats the SAME values for
       // those columns; only the first row's copy of them is actually kept.
       const rows = [
-        ['Sample Product', '', 'SKU-001', '8901234567890', 'Grocery', 'Snacks', '99.00', '70.00', '110.00', '25', '5', '21069099', '5', '📦', '', ''],
-        ['Sample T-Shirt', 'Red - Medium', 'TSHIRT-001', '', 'Apparel', '', '299.00', '150.00', '399.00', '10', '2', '', '', '👕', '', ''],
-        ['Sample T-Shirt', 'Blue - Large', 'TSHIRT-001', '', 'Apparel', '', '349.00', '160.00', '399.00', '8', '2', '', '', '👕', '', ''],
+        ['Sample Product', '', 'SKU-001', '8901234567890', 'Grocery', 'Snacks', '99.00', '70.00', '110.00', '25', '5', '21069099', '5', 'Inclusive', '5', 'Flat', '📦', '', ''],
+        ['Sample T-Shirt', 'Red - Medium', 'TSHIRT-001', '', 'Apparel', '', '299.00', '150.00', '399.00', '10', '2', '', '', '', '', '', '👕', '', ''],
+        ['Sample T-Shirt', 'Blue - Large', 'TSHIRT-001', '', 'Apparel', '', '349.00', '160.00', '399.00', '8', '2', '', '', '', '', '', '👕', '', ''],
       ];
       const csv = [headers.map(csvEscape).join(','), ...rows.map(r => r.map(csvEscape).join(','))].join('\n');
       downloadTextFile(csv, 'product_import_template.csv');
@@ -724,6 +737,22 @@ async function buildPreview() {
         val = val === '' || val === undefined ? undefined : Number(val);
       } else {
         val = (val || '').toString().trim();
+      }
+      // Free-text enum normalization — a spreadsheet filled in by hand is
+      // more likely to say "Inclusive"/"Incl"/"INCL." than the exact
+      // lowercase 'inclusive' Products.js's own dropdown writes, same idea
+      // for Flat/Percent/%. Leave anything unrecognized as-is (blank stays
+      // blank, so the product-creation default — 'inclusive'/'flat', same
+      // as a blank field on the manual Add Product form — still applies).
+      if (f.key === 'taxType' && val) {
+        const v = val.toLowerCase();
+        if (v.startsWith('excl')) val = 'exclusive';
+        else if (v.startsWith('incl')) val = 'inclusive';
+      }
+      if (f.key === 'itemDiscountType' && val) {
+        const v = val.toLowerCase();
+        if (v.startsWith('pct') || v.startsWith('perc') || v.includes('%')) val = 'pct';
+        else if (v.startsWith('flat') || v.startsWith('amount') || v.startsWith('fixed')) val = 'flat';
       }
       data[f.key] = val;
     });
