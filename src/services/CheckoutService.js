@@ -141,7 +141,6 @@ export async function openCheckout() {
         .checkout-fullscreen-wrapper { height: 100vh; background: var(--bg-app); display: flex; flex-direction: column; width: 100vw; }
         .checkout-fullscreen-container { padding: 40px; max-width: 1200px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 32px; color: var(--text-primary); flex: 1; overflow-y: auto; padding-bottom: 80px;}
         .checkout-top-strip { display: flex; justify-content: space-between; align-items: center; padding: 20px 40px; border-bottom: 1px solid var(--border); background: var(--bg-app); position: sticky; top: 0; z-index: 100;}
-        .checkout-brand { font-size: 24px; font-weight: 900; letter-spacing: -0.5px; display: flex; align-items: center; gap: 12px; }
         .checkout-main-grid { display: grid; grid-template-columns: 1.2fr 480px; gap: 40px; align-items: start; }
         .qc-section-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); margin-bottom: 16px; }
         @media (max-width: 1000px) {
@@ -153,14 +152,11 @@ export async function openCheckout() {
 
       <div class="checkout-fullscreen-wrapper">
         <div class="checkout-top-strip">
-            <div class="checkout-brand"><i class="fa-solid fa-gem" style="color:var(--accent)"></i> PREMIUM CHECKOUT</div>
-            <div style="display:flex; align-items:center; gap:20px;">
-                <div style="text-align:right">
-                    <div style="font-weight:800; font-size:16px;">${escapeHtml(store.selectedCustomer?.name || 'Walk-in Customer')}</div>
-                    <div style="font-size:12px; color:var(--text-muted); font-weight:600">${escapeHtml(store.selectedCustomer?.phone || 'Guest')}</div>
-                </div>
-                <button class="btn btn-ghost" onclick="closeModal()" style="font-size:24px"><i class="fa-solid fa-xmark"></i></button>
+            <div>
+                <div style="font-weight:800; font-size:16px;">${escapeHtml(store.selectedCustomer?.name || 'Walk-in Customer')}</div>
+                <div style="font-size:12px; color:var(--text-muted); font-weight:600">${escapeHtml(store.selectedCustomer?.phone || 'Guest')}</div>
             </div>
+            <button class="btn btn-ghost" onclick="closeModal()" style="font-size:24px"><i class="fa-solid fa-xmark"></i></button>
         </div>
 
         <div class="checkout-fullscreen-container">
@@ -231,7 +227,7 @@ export async function openCheckout() {
                                ${itemDiscount > 0 ? `
                                <div style="display:flex; justify-content:space-between; color:var(--text-secondary)">
                                    <span>Item Discount</span>
-                                   <span style="font-weight:600; color:#10b981">−${cur}${itemDiscount.toFixed(2)}</span>
+                                   <span style="font-weight:600; color:var(--success)">−${cur}${itemDiscount.toFixed(2)}</span>
                                </div>
                                ` : ''}
                                ${grossTax > 0 ? `
@@ -243,7 +239,7 @@ export async function openCheckout() {
                                ${orderDiscount > 0 ? `
                                <div style="display:flex; justify-content:space-between; color:var(--text-secondary)">
                                    <span>Extra Discount</span>
-                                   <span style="font-weight:600; color:#10b981">−${cur}${orderDiscount.toFixed(2)}</span>
+                                   <span style="font-weight:600; color:var(--success)">−${cur}${orderDiscount.toFixed(2)}</span>
                                </div>
                                ` : ''}
                                ${orderTax > 0 ? `

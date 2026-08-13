@@ -445,6 +445,17 @@ async function viewOrderDetail(order, cur) {
 async function openReturnModal(order, cur) {
   const db = await import('../db.js');
   const products = await db.getProducts();
+  const settings = await getSettings();
+  // Same source Checkout's own payment-method pills read from (Settings >
+  // Payment Methods) — was hardcoded to a fixed Cash/UPI/Card/Wallet list
+  // here, so a shop that customized/renamed/removed methods there still
+  // saw the old fixed set on refunds. Store Credit is included here even
+  // if disabled elsewhere in the app for new sales — refunding what was
+  // legitimately collected as credit shouldn't depend on the feature
+  // still being turned on.
+  const refundMethods = (settings.paymentMethods && settings.paymentMethods.length > 0)
+    ? settings.paymentMethods
+    : ['Cash', 'UPI', 'Card', 'Wallet'];
   const allReturns = (await db.getReturns()).filter(r => r.orderId === order.id);
     const returnedQtyMap = {};
     allReturns.forEach(r => {
@@ -461,7 +472,12 @@ async function openReturnModal(order, cur) {
       return { ...item, returnQty: 0, availableQty, alreadyReturned, isReturnable };
     });
 
-    let refundMethod = 'Cash';
+    // Default to Cash when it's one of the configured methods (matches
+    // the old fixed behavior for shops that still have it), otherwise
+    // fall back to whatever the first configured method actually is —
+    // defaulting to a hardcoded 'Cash' that isn't even in the list would
+    // leave the dropdown showing no option as selected.
+    let refundMethod = refundMethods.includes('Cash') ? 'Cash' : refundMethods[0];
 
     function renderRows() {
       return returnedItems.map((item, idx) => `
@@ -555,10 +571,7 @@ async function openReturnModal(order, cur) {
             <div class="form-group">
               <label class="form-label">Refund Method</label>
               <select class="form-select" id="refundMethodSelect">
-                <option value="Cash" ${refundMethod === 'Cash' ? 'selected' : ''}>Cash</option>
-                <option value="UPI" ${refundMethod === 'UPI' ? 'selected' : ''}>UPI</option>
-                <option value="Card" ${refundMethod === 'Card' ? 'selected' : ''}>Card</option>
-                <option value="Wallet" ${refundMethod === 'Wallet' ? 'selected' : ''}>Wallet</option>
+                ${refundMethods.map(m => `<option value="${escapeHtml(m)}" ${refundMethod === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
               </select>
             </div>
             <div class="form-group">
@@ -567,11 +580,14 @@ async function openReturnModal(order, cur) {
             </div>
           </div>
 
-          <div class="mt-20 p-16" style="background:rgba(239,68,68,0.05); border-radius:12px; border:1px solid rgba(239,68,68,0.1)">
-            <div style="display:flex; justify-content:space-between; align-items:center">
-              <span class="font-bold">Total Refund Amount</span>
-              <span class="font-bold text-danger" style="font-size:20px">${cur}${totalReturn.toFixed(2)}</span>
+          <div style="margin-top:28px; background:var(--bg-elevated); border-radius:16px; border:1px solid var(--border); padding:16px 20px; display:flex; justify-content:space-between; align-items:center; box-shadow:var(--shadow-sm)">
+            <div style="display:flex; align-items:center; gap:12px">
+              <div style="width:36px; height:36px; border-radius:10px; background:rgba(239,68,68,0.1); color:var(--danger); display:flex; align-items:center; justify-content:center; flex-shrink:0">
+                <i class="fa-solid fa-rotate-left"></i>
+              </div>
+              <span style="font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted)">Total Refund<br>Amount</span>
             </div>
+            <span id="totalRefundAmountVal" class="font-bold text-danger" style="font-size:26px; letter-spacing:-0.5px">${cur}${totalReturn.toFixed(2)}</span>
           </div>
         </div>
       `;
@@ -591,10 +607,18 @@ async function openReturnModal(order, cur) {
             const idx = e.target.dataset.idx;
             const val = parseFloat(e.target.value) || 0;
             const max = parseFloat(e.target.max);
-            returnedItems[idx].returnQty = parseFloat(Math.min(val, max).toFixed(3));
+            const clamped = parseFloat(Math.min(val, max).toFixed(3));
+            returnedItems[idx].returnQty = clamped;
+            // The clamp was already applied to the underlying returnQty
+            // (Total Refund Amount below was always correct), but the
+            // input itself kept showing whatever was actually typed (e.g.
+            // "3" against an Available of 1) — reset it to the clamped
+            // value so what's displayed matches what's actually being
+            // refunded, instead of silently diverging from it.
+            if (val > max) e.target.value = clamped;
 
             const totalReturn = returnedItems.reduce((sum, item) => sum + (item.returnQty * getRefundPerItem(item)), 0);
-            const totalEl = document.querySelector('.text-danger[style*="font-size:20px"]');
+            const totalEl = document.getElementById('totalRefundAmountVal');
             if (totalEl) totalEl.innerText = `${cur}${parseFloat(totalReturn.toFixed(2)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
           };
         });
