@@ -720,10 +720,22 @@ async function openReturnModal(order, cur) {
 async function payOrder(order, cur) {
   const settings = await getSettings();
   const balance = order.total - (order.redeemedPoints || 0) - (order.creditUsed || 0) - (order.payments || []).reduce((s, p) => s + p.amount, 0);
-  
-  let selectedMethod = 'Cash';
+  const methodsList = settings.paymentMethods && settings.paymentMethods.length > 0 ? settings.paymentMethods : ['Cash', 'Card', 'UPI'];
+
+  // Split-settle: one payment row per method, same pattern as Quick POS's
+  // inline Payment Options strip — was a single method pill (whole
+  // balance, one method only), so paying off a debt across e.g. part-Cash
+  // part-UPI needed two separate "Settle Payment" round trips. Each row
+  // gets applied as its own settleOrderPayment() call, in order, on
+  // confirm — that function already supports being called more than once
+  // per order (it just keeps pushing onto order.payments and only marks
+  // the order fully paid once the cumulative total is reached), so no
+  // db.js changes were needed for this.
+  let rows = [{ method: methodsList[0] || 'Cash', amount: balance }];
 
   function renderContent() {
+    const sum = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+    const balanced = Math.abs(sum - balance) < 0.01;
     return `
       <div style="padding:16px">
         <div class="mb-16" style="background:var(--bg-elevated); padding:16px; border-radius:12px; border:1px solid var(--border)">
@@ -732,14 +744,21 @@ async function payOrder(order, cur) {
         </div>
 
         <div class="form-group">
-          <label class="form-label">Payment Method</label>
-          <div style="display:flex; flex-wrap:wrap; gap:8px;">
-            ${(settings.paymentMethods || ['Cash', 'Card', 'UPI']).map(m => `
-              <button class="method-pill ${selectedMethod === m ? 'active' : ''}" data-method="${m}" 
-                style="padding:10px 20px; border-radius:24px; font-weight:700; font-size:14px; border:2px solid ${selectedMethod === m ? 'var(--accent)' : 'var(--border)'}; background:${selectedMethod === m ? 'var(--accent)' : 'transparent'}; color:${selectedMethod === m ? '#fff' : 'var(--text-muted)'}; cursor:pointer; transition:0.2s">
-                ${m}
-              </button>
+          <label class="form-label">Payment Method${rows.length > 1 ? 's' : ''}</label>
+          <div id="settlePayRows" style="display:flex; flex-direction:column; gap:8px">
+            ${rows.map((r, idx) => `
+              <div style="display:flex; align-items:center; gap:8px">
+                <select class="settle-pay-method form-select" data-idx="${idx}" style="flex:1">
+                  ${methodsList.map(m => `<option value="${escapeHtml(m)}" ${r.method === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+                </select>
+                <input type="number" class="settle-pay-amount form-input" data-idx="${idx}" value="${(parseFloat(r.amount) || 0).toFixed(2)}" style="width:120px; text-align:right" />
+                ${rows.length > 1 ? `<button type="button" class="settle-pay-remove btn btn-ghost" data-idx="${idx}" style="color:var(--danger); padding:6px 10px"><i class="fa-solid fa-xmark"></i></button>` : `<div style="width:38px"></div>`}
+              </div>
             `).join('')}
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px">
+            <button type="button" id="settleAddSplit" class="btn btn-ghost btn-sm" style="border:1px dashed var(--border)"><i class="fa-solid fa-plus mr-4"></i> Add Split</button>
+            <span id="settleBalanceNote" style="font-size:12px; font-weight:700; color:${balanced ? 'var(--success)' : 'var(--danger)'}">${cur}${sum.toFixed(2)} / ${cur}${balance.toFixed(2)}</span>
           </div>
         </div>
 
@@ -761,14 +780,44 @@ async function payOrder(order, cur) {
 
   setTimeout(() => {
     const attach = () => {
-        document.querySelectorAll('.method-pill').forEach(btn => {
-            btn.onclick = () => {
-                selectedMethod = btn.dataset.method;
-                const modalBody = document.querySelector('.modal-body');
-                if (modalBody) modalBody.innerHTML = renderContent();
-                setTimeout(attach, 0);
-            };
+        const refresh = () => {
+          const modalBody = document.querySelector('.modal-body');
+          if (modalBody) modalBody.innerHTML = renderContent();
+          setTimeout(attach, 0);
+        };
+        document.querySelectorAll('.settle-pay-method').forEach(sel => {
+          sel.onchange = (e) => {
+            rows[parseInt(e.target.dataset.idx, 10)].method = e.target.value;
+          };
         });
+        document.querySelectorAll('.settle-pay-amount').forEach(inp => {
+          inp.oninput = (e) => {
+            rows[parseInt(e.target.dataset.idx, 10)].amount = parseFloat(e.target.value) || 0;
+            const sum = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+            const balanced = Math.abs(sum - balance) < 0.01;
+            const note = document.getElementById('settleBalanceNote');
+            if (note) {
+              note.textContent = `${cur}${sum.toFixed(2)} / ${cur}${balance.toFixed(2)}`;
+              note.style.color = balanced ? 'var(--success)' : 'var(--danger)';
+            }
+          };
+        });
+        document.querySelectorAll('.settle-pay-remove').forEach(btn => {
+          btn.onclick = () => {
+            if (rows.length > 1) { rows.splice(parseInt(btn.dataset.idx, 10), 1); refresh(); }
+          };
+        });
+        const addBtn = document.getElementById('settleAddSplit');
+        if (addBtn) {
+          addBtn.onclick = () => {
+            const used = rows.map(r => r.method);
+            const nextMethod = methodsList.find(m => !used.includes(m)) || methodsList[0] || 'Cash';
+            const already = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+            const remaining = Math.max(0, parseFloat((balance - already).toFixed(2)));
+            rows.push({ method: nextMethod, amount: remaining });
+            refresh();
+          };
+        }
         const cBtn = document.getElementById('confirmSettleBtn');
         if (cBtn) cBtn.onclick = process;
         const cancelBtn = document.getElementById('cancelPayBtn');
@@ -776,12 +825,25 @@ async function payOrder(order, cur) {
     };
 
     const process = async () => {
+      const validRows = rows.filter(r => r.method && parseFloat(r.amount) > 0.001);
+      const sum = parseFloat(validRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0).toFixed(2));
+      if (Math.abs(sum - balance) > 0.01) {
+        showToast(`Split (${cur}${sum.toFixed(2)}) doesn't match the outstanding balance (${cur}${balance.toFixed(2)}) — adjust the amounts.`, 'warning');
+        return;
+      }
+
       const btn = document.getElementById('confirmSettleBtn');
       btn.disabled = true;
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
 
       try {
-        await settleOrderPayment(order.id, selectedMethod, balance);
+        // Applied one at a time, in order — settleOrderPayment() itself
+        // handles being called repeatedly for the same order correctly
+        // (each call just appends its own payment row and re-checks
+        // whether the cumulative total now covers the balance).
+        for (const row of validRows) {
+          await settleOrderPayment(order.id, row.method, parseFloat(row.amount.toFixed(2)));
+        }
         closeModal();
         showToast('Payment settled successfully!', 'success');
         await renderOrderList(cur);

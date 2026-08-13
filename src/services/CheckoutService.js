@@ -787,7 +787,12 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
     const order = await saveOrder({
       items: orderItems,
       payments,
-      paymentMethod: payments.length === 1 ? payments[0].method : 'Split',
+      // An Unpaid/Credit sale (isCredit true, no payment rows at all) was
+      // falling into the `=== 1 ? ... : 'Split'` else-branch and getting
+      // stamped 'Split' — wrong on its own, and the exact thing that
+      // showed up on the printed receipt as "Payment Status: Split"
+      // instead of clearly saying Unpaid.
+      paymentMethod: creditData.isCredit ? 'Unpaid' : (payments.length === 1 ? payments[0].method : 'Split'),
       subtotal: totals.subtotal,
       discount: totals.discount,
       tax: totals.grossTax || totals.tax,
