@@ -23,6 +23,13 @@ let isExtraTaxEditing = false;
 let inlinePaymentPanelOpen = false;
 let inlinePayments = null;
 let inlineDeliveryVehicle = '';
+// Guards completeQuickSale() against firing twice for one PAY action — a
+// second overlapping call (e.g. mouse click plus Alt+Enter's keydown both
+// landing while the first confirmOrder() await is still in flight) used to
+// run confirmOrder() twice: two saved orders, double stock deduction,
+// two "Payment successful" toasts. QuickCheckoutService.js's own
+// handleConfirm() already had this same guard; this one didn't.
+let isQuickSaleConfirming = false;
 
 export async function renderQuickPOS(container) {
   if (window._qpCleanup) { window._qpCleanup(); window._qpCleanup = null; }
@@ -38,10 +45,14 @@ export async function renderQuickPOS(container) {
   const branchId = store.branch?.id;
   const registerId = store.registerId;
   const staffList = settings.enableStaffEarnings !== false ? await getStaff(branchId) : [];
-  // Drives the shortcut grid's column count below — 7 columns exactly fits
-  // the 14 buttons when the 2 Staff ones are present, 6 exactly fits the
-  // 12 without them, so the last row never ends with a dangling gap either way.
   const hasStaffShortcuts = settings.enableStaffEarnings !== false && staffList.length > 0;
+  // Drives the shortcut grid's column count below — 14 buttons without
+  // Staff shortcuts, 16 with them. Picks the column count that keeps it to
+  // exactly 2 rows (ceil(total/2)) so it stays correct as buttons get
+  // added/removed here in the future without needing to hand-recompute a
+  // divisor each time.
+  const shortcutButtonCount = 14 + (hasStaffShortcuts ? 2 : 0);
+  const shortcutGridCols = Math.ceil(shortcutButtonCount / 2);
 
   if (!(await isRegisterOpen(branchId, registerId))) {
     container.innerHTML = `
@@ -145,9 +156,18 @@ export async function renderQuickPOS(container) {
            instead of navigating to a separate Quick Checkout screen. Split
            payment and delivery vehicle stay reachable without leaving this
            screen, just collapsed by default so they don't add a step to
-           the common single-payment case. -->
-      ${store.cart.length > 0 ? `
-      <div class="ep-pay-strip">
+           the common single-payment case.
+
+           Always rendered (not conditionally included/excluded from the
+           template) — just show/hidden via display style — so the partial
+           renderCart() update below (fired on every addToCart(), which
+           must NOT do a full re-render or the barcode search box loses
+           focus mid-scan) can toggle its visibility with a plain style
+           change instead of needing to build this whole block's HTML from
+           scratch. A conditional-existence version only ever appeared
+           after something else forced a full renderQuickPOS() — i.e. not
+           right when the very first item of a sale was scanned. -->
+      <div class="ep-pay-strip" id="qpPayStrip" style="${store.cart.length > 0 ? '' : 'display:none'}">
          <div class="ep-pay-strip-summary" id="qpPayStripToggle">
             <div style="display:flex; align-items:center; gap:10px; font-size:12px; font-weight:700; color:var(--text-secondary); min-width:0">
                <i class="fa-solid fa-credit-card" style="color:var(--primary)"></i>
@@ -193,7 +213,6 @@ export async function renderQuickPOS(container) {
          </div>
          ` : ''}
       </div>
-      ` : ''}
 
       <!-- Main Content Grid -->
       <div class="ep-main-grid">
@@ -344,7 +363,7 @@ export async function renderQuickPOS(container) {
 
       <!-- Bottom Section: Shortcuts & Totals -->
       <div class="ep-bottom-bar">
-         <div class="ep-shortcut-grid" style="grid-template-columns: repeat(${hasStaffShortcuts ? 7 : 6}, 1fr)">
+         <div class="ep-shortcut-grid" style="grid-template-columns: repeat(${shortcutGridCols}, 1fr)">
             <button class="ep-f-btn" id="btnReset" data-key="Alt+R"><span class="ep-key-red">Alt+R</span> Reset POS</button>
             <button class="ep-f-btn" id="btnDisc" data-key="Alt+D"><span class="ep-key-red">Alt+D</span> Extra Disc</button>
             <button class="ep-f-btn" id="btnExtraTax" data-key="Alt+L"><span class="ep-key-red">Alt+L</span> Extra Tax</button>
@@ -357,6 +376,8 @@ export async function renderQuickPOS(container) {
             <button class="ep-f-btn" id="btnStaffFocus" data-key="Alt+T"><span class="ep-key-red">Alt+T</span> Staff Search</button>
             <button class="ep-f-btn" id="btnStaffClear" data-key="Alt+X"><span class="ep-key-red">Alt+X</span> Staff Clear</button>
             ` : ''}
+            <button class="ep-f-btn" id="btnPayOptions" data-key="Alt+P"><span class="ep-key-red">Alt+P</span> Payment Options</button>
+            <button class="ep-f-btn" id="btnDeliveryVehicle" data-key="Alt+V"><span class="ep-key-red">Alt+V</span> Delivery Vehicle</button>
             <button class="ep-f-btn" id="btnPayShortcut" data-key="Alt+Enter"><span class="ep-key-red">Alt+Enter</span> PAY</button>
             <button class="ep-f-btn" data-key="Del"><span class="ep-key-red">Del</span> Delete Item</button>
             <button class="ep-f-btn" data-key="+"><span class="ep-key-red">+</span> Qty Inc</button>
@@ -677,13 +698,27 @@ export async function renderQuickPOS(container) {
   const keepFocus = () => {
     const active = document.activeElement;
     const isModal = !!document.querySelector('.modal');
-    if (!isModal && active?.tagName !== 'INPUT' && active?.tagName !== 'TEXTAREA') {
+    // Also leaves SELECT/BUTTON alone — the Payment Options strip's method
+    // dropdowns and Add Split/remove/toggle buttons are exactly those tags,
+    // and without this they'd get yanked back to the scan box mid-use
+    // every time this interval ticks (up to every 2s).
+    const focusableTags = ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'];
+    if (!isModal && !focusableTags.includes(active?.tagName)) {
       searchInput.focus();
     }
   };
   const focusInterval = setInterval(keepFocus, 2000);
   const renderCart = async () => {
     const { subtotal, itemDiscount, itemTax, grossTax, orderDiscount, orderTax, total, roundOff } = getCartTotals();
+
+    // Show/hide the inline Payment Options strip as items are scanned —
+    // it was previously only added to the page by a full renderQuickPOS(),
+    // so it stayed invisible right after the very first item of a sale
+    // was added (this partial update is what actually runs on every
+    // addToCart()) until something else happened to trigger a full
+    // re-render. A plain display toggle here, no HTML rebuild needed.
+    const qpPayStrip = container.querySelector('#qpPayStrip');
+    if (qpPayStrip) qpPayStrip.style.display = store.cart.length > 0 ? '' : 'none';
     const s = await getSettings();
     const cur = s.currencySymbol || '\u20B9';
 
@@ -1260,6 +1295,51 @@ export async function renderQuickPOS(container) {
       }
       return;
     }
+    // Alt + P: Open/close the inline Payment Options strip (split payment
+    // + delivery vehicle) — keyboard-only path to the same strip the mouse
+    // reaches via its "Split / Add Vehicle" button, same materialize-on-
+    // open behavior. Moves focus into the first payment row's method
+    // dropdown so Tab from here reaches every field without a mouse.
+    if (isAlt && charKey === 'p') {
+      e.preventDefault();
+      if (store.cart.length === 0) { showToast('Cart is empty', 'warning'); return; }
+      inlinePaymentPanelOpen = !inlinePaymentPanelOpen;
+      if (inlinePaymentPanelOpen && inlinePayments === null) {
+        const { total: liveTotal } = getCartTotals();
+        const liveSettings = await getSettings();
+        const methods = (liveSettings.paymentMethods || []).filter(m => liveSettings.enableCredit !== false || m !== 'Store Credit');
+        inlinePayments = [{ method: methods[0] || 'Cash', amount: liveTotal }];
+      }
+      await renderQuickPOS(container);
+      if (inlinePaymentPanelOpen) {
+        const firstMethodSelect = container.querySelector('.qp-pay-method');
+        if (firstMethodSelect) firstMethodSelect.focus();
+      } else {
+        searchInput.focus();
+      }
+      return;
+    }
+    // Alt + V: Jump straight to the Delivery Vehicle field — opens the
+    // Payment Options strip first if it's closed (same materialize-on-open
+    // as Alt+P), then focuses/selects the vehicle input directly instead
+    // of landing on the first payment row like Alt+P does.
+    if (isAlt && charKey === 'v') {
+      e.preventDefault();
+      if (store.cart.length === 0) { showToast('Cart is empty', 'warning'); return; }
+      if (!inlinePaymentPanelOpen) {
+        inlinePaymentPanelOpen = true;
+        if (inlinePayments === null) {
+          const { total: liveTotal } = getCartTotals();
+          const liveSettings = await getSettings();
+          const methods = (liveSettings.paymentMethods || []).filter(m => liveSettings.enableCredit !== false || m !== 'Store Credit');
+          inlinePayments = [{ method: methods[0] || 'Cash', amount: liveTotal }];
+        }
+        await renderQuickPOS(container);
+      }
+      const vehicleInput = container.querySelector('#qpDeliveryVehicle');
+      if (vehicleInput) { vehicleInput.focus(); vehicleInput.select(); }
+      return;
+    }
     // Alt + D: Toggle Inline Discount
     if (isAlt && charKey === 'd') {
       e.preventDefault();
@@ -1485,7 +1565,10 @@ export async function renderQuickPOS(container) {
   // auto-print all behave identically to the old modal-based flow.
   const completeQuickSale = async () => {
     if (store.cart.length === 0) { showToast('Cart is empty', 'warning'); return; }
+    if (isQuickSaleConfirming) return;
+    isQuickSaleConfirming = true;
 
+    try {
     const liveSettings = await getSettings();
     const liveCur = liveSettings.currency;
     const { total: liveTotal } = getCartTotals();
@@ -1521,6 +1604,9 @@ export async function renderQuickPOS(container) {
     selectedCartIndex = -1;
     selectedColIndex = -1;
     await renderQuickPOS(container);
+    } finally {
+      isQuickSaleConfirming = false;
+    }
   };
 
   // Helper to sync customer display. When synced, re-render the whole POS to show/hide sections cleanly.
@@ -1930,5 +2016,14 @@ export async function renderQuickPOS(container) {
   });
   onCartUpdate(async () => await renderCart());
   await renderCart();
-  setTimeout(() => searchInput.focus(), 100);
+  // Only falls back to the scan box if nothing else has focus — this used
+  // to unconditionally steal focus back to searchInput 100ms after every
+  // render, which raced Alt+P/Alt+V's own explicit focus of the payment
+  // strip: their focus() call landed first, then this timer fired and
+  // silently undid it, so opening the (previously closed) strip needed a
+  // second Alt+V press before focus actually stuck on the vehicle field.
+  setTimeout(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) searchInput.focus();
+  }, 100);
 }
