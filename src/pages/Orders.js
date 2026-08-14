@@ -355,7 +355,12 @@ function renderStatusBadge(status) {
   return `<span class="badge badge-${config.class}">${config.label}</span>`;
 }
 
-async function viewOrderDetail(order, cur) {
+// Exported so other pages (POS.js, QuickPOS.js's "Recent Sales" list) can
+// reuse this exact detail/print/return/settle view instead of re-implementing
+// a second copy of it — openReturnModal()/payOrder() below are still resolved
+// from THIS module's own scope when called from here, so callers elsewhere
+// get full functionality for free, not just a read-only preview.
+export async function viewOrderDetail(order, cur) {
   const settings = await getSettings();
   const allReturns = (await getReturns()).filter(r => r.orderId === order.id);
   const hasReturns = allReturns.length > 0;

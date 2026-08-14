@@ -2644,6 +2644,18 @@ table {
   transform: translateY(-2px);
 }
 
+/* "Recent Sales" quick-view (components/RecentSales.js) — shared by POS.js
+   and QuickPOS.js */
+.recent-sale-row {
+  transition: all 0.15s ease;
+}
+
+.recent-sale-row:hover {
+  border-color: var(--primary) !important;
+  background: rgba(79, 70, 229, 0.05);
+  transform: translateX(2px);
+}
+
 /* ============================================ POS CART METADATA */
 
 .cart-order-meta {

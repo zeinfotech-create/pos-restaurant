@@ -136,6 +136,9 @@ export async function renderPOS(container) {
               </button>
               <div id="searchSuggestions" class="search-suggestions custom-scrollbar"></div>
             </div>
+            <button class="btn btn-ghost" id="recentSalesBtn" title="Recent Sales" style="border:1px solid var(--border); color:var(--text-main); padding: 0 12px">
+              <i class="fa-solid fa-clock-rotate-left text-primary"></i> <span class="hide-mobile ml-4">Recent Sales</span>
+            </button>
             ${features.hasAppointments ? `
               <button class="btn btn-ghost" id="appointmentsBtn" style="border:1px solid var(--border); color:var(--text-main); padding: 0 12px">
                 <i class="fa-solid fa-calendar-check text-accent"></i> <span class="hide-mobile ml-4">Appointments</span>
@@ -304,6 +307,10 @@ export async function renderPOS(container) {
   });
   document.getElementById('customItemBtn')?.addEventListener('click', () => {
     openCustomItemModal(cur);
+  });
+  document.getElementById('recentSalesBtn')?.addEventListener('click', async () => {
+    const { openRecentSalesModal } = await import('../components/RecentSales.js');
+    await openRecentSalesModal(cur);
   });
 
   await renderCategories();

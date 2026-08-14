@@ -52,12 +52,12 @@ export async function renderQuickPOS(container) {
   const registerId = store.registerId;
   const staffList = settings.enableStaffEarnings !== false ? await getStaff(branchId) : [];
   const hasStaffShortcuts = settings.enableStaffEarnings !== false && staffList.length > 0;
-  // Drives the shortcut grid's column count below — 14 buttons without
-  // Staff shortcuts, 16 with them. Picks the column count that keeps it to
+  // Drives the shortcut grid's column count below — 15 buttons without
+  // Staff shortcuts, 17 with them. Picks the column count that keeps it to
   // exactly 2 rows (ceil(total/2)) so it stays correct as buttons get
   // added/removed here in the future without needing to hand-recompute a
   // divisor each time.
-  const shortcutButtonCount = 14 + (hasStaffShortcuts ? 2 : 0);
+  const shortcutButtonCount = 15 + (hasStaffShortcuts ? 2 : 0);
   const shortcutGridCols = Math.ceil(shortcutButtonCount / 2);
 
   if (!(await isRegisterOpen(branchId, registerId))) {
@@ -404,6 +404,7 @@ export async function renderQuickPOS(container) {
             <button class="ep-f-btn" id="btnStaffFocus" data-key="Alt+T"><span class="ep-key-red">Alt+T</span> Staff Search</button>
             <button class="ep-f-btn" id="btnStaffClear" data-key="Alt+X"><span class="ep-key-red">Alt+X</span> Staff Clear</button>
             ` : ''}
+            <button class="ep-f-btn" id="btnRecentSales" data-key="Alt+H"><span class="ep-key-red">Alt+H</span> Recent Sales</button>
             <button class="ep-f-btn" id="btnPayOptions" data-key="Alt+P"><span class="ep-key-red">Alt+P</span> Payment Options</button>
             <button class="ep-f-btn" id="btnDeliveryVehicle" data-key="Alt+V"><span class="ep-key-red">Alt+V</span> Delivery Vehicle</button>
             <button class="ep-f-btn" id="btnPayShortcut" data-key="Alt+Enter"><span class="ep-key-red">Alt+Enter</span> PAY</button>
@@ -558,10 +559,10 @@ export async function renderQuickPOS(container) {
       .ep-shortcut-grid {
         flex: 1;
         display: grid;
-        /* Column count is set inline per-render (6 or 7, based on whether
-           the 2 Staff shortcut buttons are present) so the button count
-           always divides evenly into exactly 2 rows — no dangling gap on
-           one end, no overflow into an implicit, unevenly-sized 3rd row. */
+        /* Column count is set inline per-render (8 or 9, based on whether
+           the 2 Staff shortcut buttons are present) via
+           Math.ceil(shortcutButtonCount / 2) so it always fits in exactly
+           2 rows — no overflow into an implicit, unevenly-sized 3rd row. */
         grid-template-rows: repeat(2, 1fr);
         gap: 4px;
       }
@@ -1362,6 +1363,14 @@ export async function renderQuickPOS(container) {
       }
       return;
     }
+    // Alt + H: Recent Sales (last 10) — same list/detail view as its
+    // shortcut-grid button and POS.js's equivalent.
+    if (isAlt && charKey === 'h') {
+      e.preventDefault();
+      const { openRecentSalesModal } = await import('../components/RecentSales.js');
+      await openRecentSalesModal(cur);
+      return;
+    }
     // Alt + P: Open/close the inline Payment Options strip (split payment
     // + delivery vehicle) — keyboard-only path to the same strip the mouse
     // reaches via its "Split / Add Vehicle" button, same materialize-on-
@@ -1833,6 +1842,14 @@ export async function renderQuickPOS(container) {
 
   const btnReset = container.querySelector('#btnReset');
   if (btnReset) btnReset.onclick = resetQuickPOS;
+
+  const btnRecentSales = container.querySelector('#btnRecentSales');
+  if (btnRecentSales) {
+    btnRecentSales.onclick = async () => {
+      const { openRecentSalesModal } = await import('../components/RecentSales.js');
+      await openRecentSalesModal(cur);
+    };
+  }
 
   if (qcSearchBtn && qcSearchPhone && qcSuggestions) {
       const doSearchCust = async () => {
