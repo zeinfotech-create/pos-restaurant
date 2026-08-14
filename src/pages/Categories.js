@@ -280,7 +280,13 @@ async function setupCategoryListeners() {
   });
 
   // Add sub-category
-  document.getElementById('addSubCatBtn')?.addEventListener('click', () => {
+  document.getElementById('addSubCatBtn')?.addEventListener('click', async () => {
+    // setupCategoryListeners() is a separate function/closure from
+    // renderCategoriesContent() (where `selectedCat` lived) — that variable
+    // never existed here at all, so this button threw "selectedCat is not
+    // defined" the instant it was clicked. Re-derived fresh here instead.
+    const categories = await getCategories();
+    const selectedCat = categories.find(c => c.id === selectedCategoryId);
     openModal({
       title: '<i class="fa-solid fa-tag mr-8"></i> New Sub-category',
       body: `
