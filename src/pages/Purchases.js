@@ -321,6 +321,7 @@ export async function renderPurchases(container, subPage) {
 export async function openPurchaseForm(container) {
   const suppliers = await getSuppliers();
   const products = await getProducts();
+  const cur0 = store.settings?.currency || '₹';
 
   if (suppliers.length === 0) { showToast('Please add a supplier first', 'warning'); return; }
   if (products.length === 0) { showToast('Please add products first', 'warning'); return; }
@@ -340,6 +341,12 @@ export async function openPurchaseForm(container) {
 
   let selectedItems = [];
   let billAttachment = '';
+  const purPayMethods = store.settings.paymentMethods?.length ? store.settings.paymentMethods : ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Cheque'];
+  let purNoTax = false;
+  // Starts at 0 (not the full total) — unlike settling an EXISTING
+  // outstanding balance elsewhere, a brand-new purchase defaults to fully
+  // on credit until the cashier actively enters what's being paid now.
+  let purPayRows = [{ method: purPayMethods[0] || 'Cash', amount: 0 }];
 
   function renderItems() {
     const list = document.getElementById('purchaseItemsList');
@@ -361,6 +368,7 @@ export async function openPurchaseForm(container) {
         const idx = input.dataset.idx;
         const key = input.dataset.key;
         selectedItems[idx][key] = parseFloat(input.value) || 0;
+        refreshPurchaseSummary();
       };
     });
 
@@ -368,6 +376,79 @@ export async function openPurchaseForm(container) {
       btn.onclick = () => {
         selectedItems.splice(btn.dataset.idx, 1);
         renderItems();
+        refreshPurchaseSummary();
+      };
+    });
+  }
+
+  // Single source of truth for Subtotal/Tax/Total/Paid/Outstanding — read
+  // fresh every time from the live DOM/state instead of being passed
+  // around, so every caller (item edits, tax toggle, payment split rows)
+  // always sees the current numbers.
+  function getPurchaseTotals() {
+    const subtotal = selectedItems.reduce((s, i) => s + ((i.qty || 0) * (i.cost || 0)), 0);
+    const taxRateSelect = document.getElementById('purTaxRate');
+    const taxRate = purNoTax ? 0 : (parseFloat(taxRateSelect?.value) || 0);
+    const taxAmount = subtotal * (taxRate / 100);
+    const total = subtotal + taxAmount;
+    const paid = purPayRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+    const outstanding = Math.max(0, parseFloat((total - paid).toFixed(2)));
+    return { subtotal, taxRate, taxAmount, total, paid, outstanding };
+  }
+
+  function refreshPurchaseSummary() {
+    const { subtotal, taxAmount, total, paid, outstanding } = getPurchaseTotals();
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = `${cur0}${val.toFixed(2)}`; };
+    set('purSummarySubtotal', subtotal);
+    set('purSummaryTax', taxAmount);
+    set('purSummaryTotal', total);
+    set('purSummaryPaid', paid);
+    set('purSummaryOutstanding', outstanding);
+
+    const note = document.getElementById('purPayBalanceNote');
+    if (note) {
+      if (paid <= 0.001) {
+        note.textContent = 'Fully on credit';
+        note.style.color = 'var(--text-muted)';
+      } else if (outstanding < 0.01) {
+        note.textContent = `${cur0}${paid.toFixed(2)} — Fully Paid`;
+        note.style.color = 'var(--success)';
+      } else {
+        note.textContent = `${cur0}${paid.toFixed(2)} paid, ${cur0}${outstanding.toFixed(2)} on credit`;
+        note.style.color = 'var(--warning)';
+      }
+    }
+  }
+
+  function renderPayRows() {
+    const area = document.getElementById('purPayRowsArea');
+    if (!area) return;
+    area.innerHTML = purPayRows.map((r, idx) => `
+      <div style="display:flex; align-items:center; gap:8px">
+        <select class="pur-pay-method" data-idx="${idx}" style="flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-elevated); color:var(--text-main);">
+          ${purPayMethods.map(m => `<option value="${escapeHtml(m)}" ${r.method === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+        </select>
+        <input type="number" class="form-input pur-pay-amount" data-idx="${idx}" value="${(parseFloat(r.amount) || 0).toFixed(2)}" min="0" style="width:110px; text-align:right" />
+        ${purPayRows.length > 1 ? `<button type="button" class="pur-pay-remove btn btn-ghost" data-idx="${idx}" style="color:var(--danger); padding:6px 10px"><i class="fa-solid fa-xmark"></i></button>` : `<div style="width:38px"></div>`}
+      </div>
+    `).join('');
+
+    area.querySelectorAll('.pur-pay-method').forEach(sel => {
+      sel.onchange = (e) => { purPayRows[parseInt(e.target.dataset.idx, 10)].method = e.target.value; };
+    });
+    area.querySelectorAll('.pur-pay-amount').forEach(inp => {
+      inp.oninput = (e) => {
+        purPayRows[parseInt(e.target.dataset.idx, 10)].amount = parseFloat(e.target.value) || 0;
+        refreshPurchaseSummary();
+      };
+    });
+    area.querySelectorAll('.pur-pay-remove').forEach(btn => {
+      btn.onclick = () => {
+        if (purPayRows.length > 1) {
+          purPayRows.splice(parseInt(btn.dataset.idx, 10), 1);
+          renderPayRows();
+          refreshPurchaseSummary();
+        }
       };
     });
   }
@@ -442,34 +523,59 @@ export async function openPurchaseForm(container) {
       </div>
       <div id="purchaseItemsList" style="max-height:280px; overflow-y:auto; padding:4px"></div>
 
-      <div class="form-grid mt-24 pt-20" style="border-top:1px solid var(--border)">
-        <div class="form-group">
-          <label class="form-label">Purchase Tax Rate (%)</label>
-          <select class="form-select" id="purTaxRate" ${!store.settings.availableTaxes?.length ? 'disabled' : ''}>
-            ${store.settings.availableTaxes?.length
-              ? store.settings.availableTaxes.map(t => `<option value="${t}" ${t == 0 ? 'selected' : ''}>${t}%</option>`).join('')
-              : `<option value="0">No tax rates configured — add one in Settings</option>`}
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Amount Paid to Supplier Now</label>
-          <div class="search-input-wrap">
-            <i class="fa-solid fa-money-bill-wave"></i>
-            <input class="form-input" type="number" id="purAmountPaid" value="0" placeholder="0.00" min="0" style="padding-left:36px" />
+      <div class="mt-24 pt-20" style="border-top:1px solid var(--border)">
+        <div class="form-grid">
+          <div class="form-group mb-0">
+            <label class="form-label">Purchase Tax Rate (%)</label>
+            <div id="purTaxRateRow">
+              <select class="form-select" id="purTaxRate" ${!store.settings.availableTaxes?.length ? 'disabled' : ''}>
+                ${store.settings.availableTaxes?.length
+                  ? store.settings.availableTaxes.map(t => `<option value="${t}" ${t == 0 ? 'selected' : ''}>${t}%</option>`).join('')
+                  : `<option value="0">No tax rates configured — add one in Settings</option>`}
+              </select>
+            </div>
+            <label style="display:flex; align-items:center; gap:6px; margin-top:8px; cursor:pointer; font-size:12px; font-weight:600; color:var(--text-muted);">
+              <input type="checkbox" id="purNoTaxToggle" style="width:14px; height:14px; cursor:pointer;" />
+              No Tax / Exempt <span style="font-weight:400; opacity:0.8;">(e.g. fresh produce)</span>
+            </label>
           </div>
-          <p class="form-help-text">Leave as 0 if this is fully on credit — the unpaid balance shows up in the Outstanding report.</p>
+
+          <div class="form-group mb-0">
+            <label class="form-label">Amount Paid to Supplier Now</label>
+            <div id="purPayRowsArea" style="display:flex; flex-direction:column; gap:8px;"></div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+              <button type="button" class="btn btn-ghost btn-sm" id="purAddSplitBtn" style="border:1px dashed var(--border);"><i class="fa-solid fa-plus mr-4"></i> Add Split</button>
+              <span id="purPayBalanceNote" style="font-size:12px; font-weight:700;"></span>
+            </div>
+            <p class="form-help-text">Leave all rows at 0 if this is fully on credit — the unpaid balance shows up in the Outstanding report.</p>
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Paid Via</label>
-          <select class="form-select" id="purPaymentMethod">
-            ${(store.settings.paymentMethods?.length ? store.settings.paymentMethods : ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Cheque']).map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group" style="display:flex; align-items:center; justify-content:flex-end">
-           <div style="text-align:right">
-              <div style="font-size:11px; color:var(--text-muted)">Current Items</div>
-              <div id="purItemCount" style="font-size:18px; font-weight:800; color:var(--primary)">0 items</div>
-           </div>
+
+        <div class="mt-16" style="background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); padding:16px 20px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;">
+          <div>
+            <div style="font-size:10px; text-transform:uppercase; font-weight:700; color:var(--text-muted)">Items</div>
+            <div id="purItemCount" style="font-size:16px; font-weight:800; color:var(--text-main)">0 items</div>
+          </div>
+          <div>
+            <div style="font-size:10px; text-transform:uppercase; font-weight:700; color:var(--text-muted)">Subtotal</div>
+            <div id="purSummarySubtotal" style="font-size:16px; font-weight:800; color:var(--text-main)">${cur0}0.00</div>
+          </div>
+          <div>
+            <div style="font-size:10px; text-transform:uppercase; font-weight:700; color:var(--text-muted)">Tax</div>
+            <div id="purSummaryTax" style="font-size:16px; font-weight:800; color:var(--text-main)">${cur0}0.00</div>
+          </div>
+          <div>
+            <div style="font-size:10px; text-transform:uppercase; font-weight:700; color:var(--text-muted)">Total</div>
+            <div id="purSummaryTotal" style="font-size:18px; font-weight:900; color:var(--primary)">${cur0}0.00</div>
+          </div>
+          <div>
+            <div style="font-size:10px; text-transform:uppercase; font-weight:700; color:var(--text-muted)">Paid Now</div>
+            <div id="purSummaryPaid" style="font-size:16px; font-weight:800; color:var(--success)">${cur0}0.00</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:10px; text-transform:uppercase; font-weight:700; color:var(--text-muted)">Outstanding</div>
+            <div id="purSummaryOutstanding" style="font-size:18px; font-weight:900; color:var(--danger)">${cur0}0.00</div>
+          </div>
         </div>
       </div>
     `,
@@ -482,6 +588,42 @@ export async function openPurchaseForm(container) {
   });
 
   renderItems();
+  renderPayRows();
+  refreshPurchaseSummary();
+
+  const purTaxRateSelect = document.getElementById('purTaxRate');
+  const purTaxRateRow = document.getElementById('purTaxRateRow');
+  const purNoTaxToggle = document.getElementById('purNoTaxToggle');
+  if (purTaxRateSelect) purTaxRateSelect.onchange = () => refreshPurchaseSummary();
+  if (purNoTaxToggle) {
+    purNoTaxToggle.onchange = () => {
+      purNoTax = purNoTaxToggle.checked;
+      // Same reasoning as Products.js's own No Tax toggle — every
+      // <select class="form-select"> gets hijacked into a custom dropdown
+      // by premiumSelect.js (a separate sibling element, not the native
+      // <select> itself), which doesn't respect the native `disabled`
+      // attribute. Hiding the whole row it lives in sidesteps that
+      // entirely instead of trying to visually "disable" it.
+      if (purTaxRateRow) purTaxRateRow.style.display = purNoTax ? 'none' : '';
+      refreshPurchaseSummary();
+    };
+  }
+
+  const purAddSplitBtn = document.getElementById('purAddSplitBtn');
+  if (purAddSplitBtn) {
+    purAddSplitBtn.onclick = () => {
+      const used = purPayRows.map(r => r.method);
+      const nextMethod = purPayMethods.find(m => !used.includes(m)) || purPayMethods[0] || 'Cash';
+      // Same "edit row 1 down first, then Add Split picks up the true
+      // remainder" behavior as the settle-payment split UIs elsewhere.
+      const { total } = getPurchaseTotals();
+      const already = purPayRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+      const remaining = Math.max(0, parseFloat((total - already).toFixed(2)));
+      purPayRows.push({ method: nextMethod, amount: remaining });
+      renderPayRows();
+      refreshPurchaseSummary();
+    };
+  }
 
   // "Last purchased" hint — a quick glance at what this product cost and
   // when it was last bought, so a new price doesn't get typed in blind next
@@ -570,6 +712,7 @@ export async function openPurchaseForm(container) {
       selectedItems.push({ id: p.id, name: p.name, qty: 1, cost: defaultCost });
     }
     renderItems();
+    refreshPurchaseSummary();
   };
 
   // Auto-fill Place of Supply from the selected supplier's own state — same
@@ -625,15 +768,23 @@ export async function openPurchaseForm(container) {
 
     if (!sup) { showToast('Supplier not found', 'error'); return; }
 
-    const taxRate = parseFloat(document.getElementById('purTaxRate').value) || 0;
+    const taxRate = purNoTax ? 0 : (parseFloat(document.getElementById('purTaxRate').value) || 0);
 
     const subtotal = itemsToProcess.reduce((s, i) => s + (i.qty * i.cost), 0);
     const taxAmount = subtotal * (taxRate / 100);
     const total = subtotal + taxAmount;
 
-    let amountPaid = parseFloat(document.getElementById('purAmountPaid').value) || 0;
+    // Split across methods, same convention Orders.js uses for a sale's own
+    // `paymentMethod` field: the single value when there's exactly one
+    // funded row, 'Split' once more than one is, defaulting to the first
+    // configured method when nothing was paid (fully on credit) — that
+    // default is never actually shown anywhere since amountPaid is 0.
+    const validPayRows = purPayRows.filter(r => r.method && parseFloat(r.amount) > 0.001);
+    const amountPaid = parseFloat(validPayRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0).toFixed(2));
     if (amountPaid < 0) { showToast('Amount Paid cannot be negative', 'error'); return; }
-    if (amountPaid > total) { showToast(`Amount Paid can't exceed the purchase total (${store.settings.currency || '₹'}${total.toFixed(2)})`, 'error'); return; }
+    if (amountPaid > total + 0.01) { showToast(`Amount Paid can't exceed the purchase total (${cur0}${total.toFixed(2)})`, 'error'); return; }
+    const paymentMethod = validPayRows.length === 0 ? (purPayMethods[0] || 'Cash') : (validPayRows.length === 1 ? validPayRows[0].method : 'Split');
+    const paymentHistory = validPayRows.map(r => ({ method: r.method, amount: parseFloat(r.amount.toFixed(2)), date: new Date().toISOString() }));
 
     // Same duplicate-guard class already applied to Categories.js/Suppliers.js/
     // Staff.js/CustomerForm.js — without it, re-recording the same supplier
@@ -669,7 +820,8 @@ export async function openPurchaseForm(container) {
         taxAmount,
         total,
         amountPaid,
-        paymentMethod: document.getElementById('purPaymentMethod').value,
+        paymentMethod,
+        paymentHistory,
         recordedBy: currentUser?.name || '',
         billAttachment,
         status: 'Completed'
