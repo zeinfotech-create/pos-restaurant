@@ -1,4 +1,4 @@
-import { getProducts, getCategories, getSettings, getProductStockAcrossBranches, getStockStatus } from '../db.js';
+import { getProducts, getCategories, getSettings, getProductStockAcrossBranches, getStockStatus, updateProduct, hasPermission } from '../db.js';
 import { store } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
@@ -259,6 +259,39 @@ export async function renderCatalog(container) {
   });
 
   renderGrid(cur);
+}
+
+// The Floor/Row/Rack filter dropdowns' <option> lists are only ever built
+// once, inside renderCatalog()'s initial container.innerHTML — renderGrid()
+// (called after editing a product's Storage Location) only redraws the
+// product cards, so a brand-new floor/row/rack value saved there wouldn't
+// show up in these dropdowns until a full page reload re-ran renderCatalog.
+// This patches just the <option> lists in place instead — the <select>
+// elements themselves (and their already-bound 'change' listeners) are left
+// untouched, only their children are replaced.
+async function refreshLocationFilters() {
+  const allProducts = await getProducts(store.branch?.id) || [];
+  const floors = [...new Set(allProducts.map(p => p.location?.floor).filter(Boolean))].sort();
+  const rows = [...new Set(allProducts.map(p => p.location?.row).filter(Boolean))].sort();
+  const racks = [...new Set(allProducts.map(p => p.location?.rack).filter(Boolean))].sort();
+
+  const floorSelect = document.getElementById('catalogFloorSelect');
+  if (floorSelect) {
+    if (catalogFloor !== 'All' && !floors.includes(catalogFloor)) catalogFloor = 'All';
+    floorSelect.innerHTML = `<option value="All">All Floors</option>${floors.map(f => `<option value="${escapeHtml(f)}" ${catalogFloor === f ? 'selected' : ''}>Floor ${escapeHtml(f)}</option>`).join('')}`;
+  }
+
+  const rowSelect = document.getElementById('catalogRowSelect');
+  if (rowSelect) {
+    if (catalogRow !== 'All' && !rows.includes(catalogRow)) catalogRow = 'All';
+    rowSelect.innerHTML = `<option value="All">All Rows</option>${rows.map(r => `<option value="${escapeHtml(r)}" ${catalogRow === r ? 'selected' : ''}>Row ${escapeHtml(r)}</option>`).join('')}`;
+  }
+
+  const rackSelect = document.getElementById('catalogRackSelect');
+  if (rackSelect) {
+    if (catalogRack !== 'All' && !racks.includes(catalogRack)) catalogRack = 'All';
+    rackSelect.innerHTML = `<option value="All">All Racks</option>${racks.map(r => `<option value="${escapeHtml(r)}" ${catalogRack === r ? 'selected' : ''}>Rack ${escapeHtml(r)}</option>`).join('')}`;
+  }
 }
 
 async function renderGrid(cur) {
@@ -542,7 +575,29 @@ async function openProductDetailsModal(p, cur) {
   }
 
   const loc = p.location || {};
-  const locHtml = (loc.floor || loc.row || loc.rack) ? `
+  // Staff without products:manage still get the read-only badge (same as
+  // before) — only someone who could already edit this in Products.js gets
+  // the inline editor here, so this doesn't open a new, less-guarded path
+  // to changing product data.
+  const canEditLocation = await hasPermission('products:manage');
+  const locHtml = canEditLocation ? `
+    <div style="margin-top:16px; border:1px solid var(--border); padding:12px 14px; border-radius:10px; background:var(--bg-main);">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+        <div style="width:28px; height:28px; border-radius:7px; background:rgba(59, 130, 246, 0.1); color:var(--primary); display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0;">
+          <i class="fa-solid fa-location-dot"></i>
+        </div>
+        <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase; font-weight:800; letter-spacing:0.5px;">Storage Location</div>
+      </div>
+      <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;">
+        <input type="text" class="form-input" id="pdLocFloor" placeholder="Floor" value="${escapeHtml(loc.floor || '')}" style="font-size:12px; padding:8px 10px;" />
+        <input type="text" class="form-input" id="pdLocRow" placeholder="Row" value="${escapeHtml(loc.row || '')}" style="font-size:12px; padding:8px 10px;" />
+        <input type="text" class="form-input" id="pdLocRack" placeholder="Rack" value="${escapeHtml(loc.rack || '')}" style="font-size:12px; padding:8px 10px;" />
+      </div>
+      <button class="btn btn-primary btn-sm" id="pdSaveLocationBtn" style="margin-top:10px; width:100%; font-size:12px;">
+        <i class="fa-solid fa-floppy-disk"></i> Update Location
+      </button>
+    </div>
+  ` : ((loc.floor || loc.row || loc.rack) ? `
     <div style="display:flex; align-items:center; gap:12px; margin-top:16px; background:transparent; border:1px solid var(--primary); padding:10px 14px; border-radius:10px;">
       <div style="width:32px; height:32px; border-radius:8px; background:rgba(59, 130, 246, 0.1); color:var(--primary); display:flex; align-items:center; justify-content:center; font-size:14px;">
         <i class="fa-solid fa-location-dot"></i>
@@ -554,7 +609,7 @@ async function openProductDetailsModal(p, cur) {
         </div>
       </div>
     </div>
-  ` : '';
+  ` : '');
 
   let variantsHtml = '';
   if (p.variants && p.variants.length > 0) {
@@ -630,4 +685,40 @@ async function openProductDetailsModal(p, cur) {
     `,
     footer: `<button class="btn btn-ghost" onclick="closeModal()">Close</button>`
   });
+
+  const saveLocBtn = document.getElementById('pdSaveLocationBtn');
+  if (saveLocBtn) {
+    saveLocBtn.onclick = async () => {
+      const floor = document.getElementById('pdLocFloor').value.trim();
+      const row = document.getElementById('pdLocRow').value.trim();
+      const rack = document.getElementById('pdLocRack').value.trim();
+      const original = saveLocBtn.innerHTML;
+      saveLocBtn.disabled = true;
+      saveLocBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+      try {
+        await updateProduct({ ...p, location: { floor, row, rack } });
+        // Keep the in-memory object the rest of this modal instance is
+        // closed over in sync too, not just the DB — so if the user reopens
+        // this same product without a full grid refresh, it still reflects
+        // what was just saved.
+        p.location = { floor, row, rack };
+        if (window.showToast) window.showToast('Storage location updated', 'success');
+        // Both the grid (each card's location badge) and the Floor/Row/Rack
+        // filter dropdowns' <option> lists need refreshing — a brand-new
+        // value typed here previously only showed up after a full page
+        // reload (see refreshLocationFilters()'s own comment). Filters
+        // first — it can reset a stale catalogFloor/Row/Rack selection back
+        // to 'All' if this edit just renamed the value it pointed at, and
+        // the grid render right after should reflect that immediately.
+        await refreshLocationFilters();
+        await renderGrid(cur);
+      } catch (err) {
+        console.error('[Catalog] Failed to update storage location:', err);
+        if (window.showToast) window.showToast('Failed to update location', 'error');
+      } finally {
+        saveLocBtn.disabled = false;
+        saveLocBtn.innerHTML = original;
+      }
+    };
+  }
 }
