@@ -1444,6 +1444,12 @@ async function openPurchaseReturnModal(purchase, cur) {
       }, 0);
     });
   }
+
+  // updateModal() was only ever defined above, never actually called — the
+  // "Return" button in Reports > Purchases did all its setup (returnedItems,
+  // refundMethod, renderRows) and then silently did nothing, since the one
+  // function that actually opens the modal never ran.
+  updateModal();
 }
 
 async function renderCustomerReport(container, cur) {
