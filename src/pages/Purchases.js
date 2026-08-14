@@ -89,20 +89,35 @@ export async function renderPurchases(container, subPage) {
         const bulkDel = document.getElementById('bulkDeletePurchBtn');
         if (bulkDel) {
           bulkDel.onclick = async () => {
+            // Same "only an un-received order is safe to delete outright"
+            // rule as the single-row delete button — split the selection
+            // instead of letting a mixed batch fail/partially-apply midway.
+            const selectedPurchases = filtered.filter(p => selectedIds.has(String(p.id)));
+            const deletable = selectedPurchases.filter(p => p.status === 'Ordered');
+            const lockedCount = selectedPurchases.length - deletable.length;
+
             openModal({
               title: 'Bulk Delete',
-              body: `<p>Delete ${selectedIds.size} purchase records? This will NOT revert stock changes.</p>`,
-              footer: `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-danger" id="confirmBulkPurchBtn">Delete All</button>`
+              body: `
+                <p>Delete ${deletable.length} purchase order(s)? None have been received yet, so no stock will be affected.</p>
+                ${lockedCount > 0 ? `<p style="color:var(--warning); font-size:13px; margin-top:8px"><i class="fa-solid fa-lock mr-4"></i>${lockedCount} selected purchase(s) already received — skipped. Use Return on each instead to reverse stock.</p>` : ''}
+              `,
+              footer: deletable.length > 0
+                ? `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-danger" id="confirmBulkPurchBtn">Delete ${deletable.length}</button>`
+                : `<button class="btn btn-ghost" onclick="closeModal()">Close</button>`
             });
-            document.getElementById('confirmBulkPurchBtn').onclick = async () => {
-              for (const id of selectedIds) {
-                await deletePurchase(id);
-              }
-              selectedIds.clear();
-              closeModal();
-              showToast('Purchases deleted', 'success');
-              await renderRows();
-            };
+            const confirmBulkBtn = document.getElementById('confirmBulkPurchBtn');
+            if (confirmBulkBtn) {
+              confirmBulkBtn.onclick = async () => {
+                for (const p of deletable) {
+                  await deletePurchase(p.id);
+                }
+                selectedIds.clear();
+                closeModal();
+                showToast(`${deletable.length} purchase(s) deleted${lockedCount > 0 ? `, ${lockedCount} skipped (already received)` : ''}`, 'success');
+                await renderRows();
+              };
+            }
           };
         }
         document.getElementById('clearPurchSelBtn').onclick = async () => { selectedIds.clear(); await renderRows(); };
@@ -151,9 +166,11 @@ export async function renderPurchases(container, subPage) {
                 <button class="btn btn-sm receive-btn" data-id="${p.id}" style="background:var(--success);border-color:var(--success);color:#fff"><i class="fa-solid fa-truck-ramp-box"></i> Mark Received</button>
               ` : ''}
               <button class="btn btn-ghost btn-sm view-btn" data-id="${p.id}"><i class="fa-solid fa-eye"></i> View</button>
-              ${canManageInventory ? `
+              ${canManageInventory ? (p.status === 'Ordered' ? `
                 <button class="btn btn-ghost btn-sm delete-btn" data-id="${p.id}" style="color:var(--danger)"><i class="fa-solid fa-trash-can"></i></button>
-              ` : ''}
+              ` : `
+                <button class="btn btn-ghost btn-sm delete-locked-btn" data-id="${p.id}" style="color:var(--text-muted)" title="Already received — deleting won't undo its stock. Use Return instead."><i class="fa-solid fa-lock"></i></button>
+              `) : ''}
             </div>
           </td>
         </tr>
@@ -212,8 +229,8 @@ export async function renderPurchases(container, subPage) {
             <div style="text-align:center; padding: 20px 0;">
               <i class="fa-solid fa-trash-can text-danger" style="font-size: 48px; margin-bottom: 24px;"></i>
               <h3 style="margin-bottom:8px">Confirm Delete</h3>
-              <p style="color:var(--text-muted); font-size:14px; margin-bottom:32px">Are you sure you want to delete purchase <b>${p.id}</b>? This will NOT revert stock changes. Use with caution.</p>
-              
+              <p style="color:var(--text-muted); font-size:14px; margin-bottom:32px">Are you sure you want to delete purchase order <b>${p.id}</b>? It hasn't been received yet, so no stock will be affected.</p>
+
               <div style="display:flex; gap:16px; justify-content:center;">
                 <button class="btn btn-ghost" onclick="closeModal()" style="flex:1">Cancel</button>
                 <button class="btn btn-primary" id="confirmDeletePurchaseBtn" style="flex:1; background:var(--danger); border-color:var(--danger)">Delete</button>
@@ -224,10 +241,42 @@ export async function renderPurchases(container, subPage) {
         });
 
         document.getElementById('confirmDeletePurchaseBtn').onclick = async () => {
-          await deletePurchase(p.id);
-          showToast('Purchase record deleted', 'success');
+          try {
+            await deletePurchase(p.id);
+            showToast('Purchase record deleted', 'success');
+            closeModal();
+            await renderRows();
+          } catch (err) {
+            showToast(err.message || 'Failed to delete purchase', 'error');
+          }
+        };
+      };
+    });
+
+    // Row's delete icon is a locked/disabled state for anything already
+    // received — points to Return instead of pretending delete would work.
+    tbody.querySelectorAll('.delete-locked-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const p = filtered.find(x => x.id === btn.dataset.id);
+        openModal({
+          title: "Can't Delete This Purchase",
+          body: `
+            <div style="text-align:center; padding: 20px 0;">
+              <i class="fa-solid fa-lock" style="font-size: 48px; margin-bottom: 24px; color:var(--warning)"></i>
+              <h3 style="margin-bottom:8px">Already Received</h3>
+              <p style="color:var(--text-muted); font-size:14px; margin-bottom:8px">Purchase <b>${p.id}</b> already added stock to your inventory.</p>
+              <p style="color:var(--text-muted); font-size:13px; margin-bottom:32px">Deleting it here would leave that stock uncorrected. Use <b>Return</b> from the purchase's details instead — it properly reverses the stock.</p>
+              <div style="display:flex; gap:16px; justify-content:center;">
+                <button class="btn btn-ghost" onclick="closeModal()" style="flex:1">Close</button>
+                <button class="btn btn-primary" id="goToPurchaseDetailsBtn" style="flex:1">View Details</button>
+              </div>
+            </div>
+          `,
+          footer: ''
+        });
+        document.getElementById('goToPurchaseDetailsBtn').onclick = async () => {
           closeModal();
-          await renderRows();
+          await viewPurchaseDetails(p);
         };
       };
     });

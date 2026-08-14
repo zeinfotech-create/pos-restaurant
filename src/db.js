@@ -2270,6 +2270,17 @@ export async function savePurchase(pur) {
 }
 
 export async function deletePurchase(id) {
+  // A purchase past 'Ordered' has already moved real stock (receivePurchase()
+  // credited it, or a return partially/fully reversed it) — deleting the
+  // record itself would leave that stock change (and its Inventory Log
+  // entries, which reference this purchase by id but aren't touched by a
+  // delete) permanently uncorrected. Only an un-received order — which never
+  // touched stock at all — is safe to remove outright; anything already
+  // received must go through Return instead, which properly reverses stock.
+  const purchase = await getDataById('purchases', id);
+  if (purchase && purchase.status !== 'Ordered') {
+    throw new Error("This purchase has already been received — deleting it won't undo its stock. Use Return instead.");
+  }
   await deleteData('purchases', id);
 }
 
