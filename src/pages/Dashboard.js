@@ -6,11 +6,41 @@ import { getTodaySales, getOrders, getReturns, getSettings, hasPermission, getPr
 import { store } from '../store.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
+import { openModal, closeModal } from '../components/Modal.js';
+import { paginate, renderPaginationBar } from '../utils/pagination.js';
 
 let dateRangeType = 'today';
 let customStartDate = '';
 let customEndDate = '';
 let dashClickDelegated = false;
+// Reassigned on every renderDashboard() call and read by name (not closed
+// over) from the delegated click handler below, which is attached only
+// once (guarded by dashClickDelegated) — a plain const captured at first
+// attachment would go stale on every subsequent render, same class of bug
+// the dash-addstock-btn comment above already documents for this file.
+let latestTopProductsMap = {};
+let latestCur = '';
+
+// Shared by the Top Products card (top 5) and the "View All Products" modal
+// so the discount+tax-aware revenue formula only lives in one place.
+function computeTopProductsMap(validOrders) {
+  const prodMap = {};
+  validOrders.forEach(o => {
+    (o.items || []).forEach(item => {
+      const name = item.name || 'Unknown';
+      if (!prodMap[name]) prodMap[name] = { qty: 0, revenue: 0, emoji: item.emoji || '📦' };
+      prodMap[name].qty += (item.qty || 1);
+      const baseLineTotal = (item.price || 0) * (item.qty || 1);
+      const discountTotal = item.itemDiscountType === 'pct'
+        ? (baseLineTotal * (item.itemDiscount || 0) / 100)
+        : ((item.itemDiscount || 0) * (item.qty || 1));
+      const discountedTotal = Math.max(0, baseLineTotal - discountTotal);
+      const lineRevenue = item.taxType === 'inclusive' ? discountedTotal : discountedTotal + (item.finalTax || 0);
+      prodMap[name].revenue += lineRevenue;
+    });
+  });
+  return prodMap;
+}
 
 export async function renderDashboard(container) {
   const settings = await getSettings();
@@ -279,14 +309,36 @@ export async function renderDashboard(container) {
           <button class="btn btn-ghost btn-sm" onclick="window.navigate('orders')">View Orders</button>
         </div>
         ${(() => {
+          // A Split order/refund has its actual per-method amounts in
+          // .payments — bucketing by .paymentMethod ('Split', a fixed
+          // label, not a real method) with the FULL total dumped in one
+          // slice hid what was actually collected by each method. Break
+          // each row into its own method's bucket instead; only orders
+          // with no structured payments at all (single-method sales, or
+          // older records predating this) fall back to the old
+          // paymentMethod+total shortcut.
           const payMap = {};
           validOrders.forEach(o => {
-            const m = o.paymentMethod || 'Cash';
-            payMap[m] = (payMap[m] || 0) + (o.total || 0);
+            if (o.payments && o.payments.length > 0) {
+              o.payments.forEach(p => {
+                const m = p.method || 'Cash';
+                payMap[m] = (payMap[m] || 0) + (p.amount || 0);
+              });
+            } else {
+              const m = o.paymentMethod || 'Cash';
+              payMap[m] = (payMap[m] || 0) + (o.total || 0);
+            }
           });
           salesReturns.forEach(r => {
-            const m = r.refundMethod || 'Cash';
-            payMap[m] = (payMap[m] || 0) - (r.total || 0);
+            if (r.payments && r.payments.length > 0) {
+              r.payments.forEach(p => {
+                const m = p.method || 'Cash';
+                payMap[m] = (payMap[m] || 0) - (p.amount || 0);
+              });
+            } else {
+              const m = r.refundMethod || 'Cash';
+              payMap[m] = (payMap[m] || 0) - (r.total || 0);
+            }
           });
           const entries = Object.entries(payMap).filter(([, v]) => v > 0.005).sort((a,b) => b[1] - a[1]);
           const payTotal = entries.reduce((s, [,v]) => s + v, 0);
@@ -367,26 +419,17 @@ export async function renderDashboard(container) {
       <div class="card">
         <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-trophy mr-8" style="color:#fbbf24"></i>Top Products</div>
         ${(() => {
-          const prodMap = {};
-          validOrders.forEach(o => {
-            (o.items || []).forEach(item => {
-              const name = item.name || 'Unknown';
-              if (!prodMap[name]) prodMap[name] = { qty: 0, revenue: 0, emoji: item.emoji || '📦' };
-              // Order line items are always saved with `.qty`, never
-              // `.quantity` — the old field name here was never present on
-              // any real order, so this silently counted every line as
-              // qty=1 regardless of how many were actually sold.
-              prodMap[name].qty += (item.qty || 1);
-              prodMap[name].revenue += (item.price || 0) * (item.qty || 1);
-            });
-          });
-          const topProds = Object.entries(prodMap).sort((a,b) => b[1].revenue - a[1].revenue).slice(0, 5);
+          const prodMap = computeTopProductsMap(validOrders);
+          latestTopProductsMap = prodMap;
+          latestCur = cur;
+          const allEntries = Object.entries(prodMap).sort((a,b) => b[1].revenue - a[1].revenue);
+          const topProds = allEntries.slice(0, 5);
           if (topProds.length === 0) {
             return `<div class="empty-state" style="padding:30px 0"><i class="fa-solid fa-trophy"></i><p>No product data</p></div>`;
           }
           const maxRev = topProds[0]?.[1].revenue || 1;
           const barColors = ['#818cf8','#34d399','#fbbf24','#f87171','#60a5fa'];
-          return topProds.map(([name, data], i) => {
+          const rows = topProds.map(([name, data], i) => {
             const pct = (data.revenue / maxRev) * 100;
             return `
               <div style="margin-bottom:14px;">
@@ -406,6 +449,12 @@ export async function renderDashboard(container) {
               </div>
             `;
           }).join('');
+          const viewAllBtn = allEntries.length > 5 ? `
+            <button class="btn btn-ghost" id="viewAllProductsBtn" style="width:100%; margin-top:4px; font-size:12px; padding:8px;">
+              View All ${allEntries.length} Products <i class="fa-solid fa-arrow-right ml-4"></i>
+            </button>
+          ` : '';
+          return rows + viewAllBtn;
         })()}
       </div>
     </div>
@@ -534,6 +583,10 @@ export async function renderDashboard(container) {
   // and threw "Product not found for ID" instead of updating anything.
   if (!dashClickDelegated) {
     dashClickDelegated = true;
+    container.addEventListener('click', (e) => {
+      const viewAllBtn = e.target.closest('#viewAllProductsBtn');
+      if (viewAllBtn) openAllProductsModal(latestTopProductsMap, latestCur);
+    });
     container.addEventListener('click', async (e) => {
       const btn = e.target.closest('.dash-addstock-btn');
       if (!btn) return;
@@ -605,4 +658,133 @@ function getGreeting() {
 
 function formatTime(dateStr) {
   return new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+}
+
+// "View All Products" — the Top Products card only ever shows the top 5;
+// this opens the same ranked list in full, searchable and paginated, reusing
+// prodMap already computed by computeTopProductsMap() (no extra DB reads) and
+// the shared paginate()/renderPaginationBar() helper (utils/pagination.js) so
+// this doesn't hand-roll a third copy of the pagination-bar markup/wiring.
+const ALL_PRODUCTS_PAGE_SIZE = 10;
+const ALL_PRODUCTS_BAR_COLORS = ['#818cf8','#34d399','#fbbf24','#f87171','#60a5fa','#a78bfa','#f472b6','#22d3ee','#facc15','#4ade80'];
+
+// Sort options for the "View All Products" modal — value encodes both the
+// field ('revenue'|'qty') and direction so a single <select> can drive it.
+const ALL_PRODUCTS_SORTS = {
+  'revenue-desc': { field: 'revenue', dir: -1, label: 'Price: High to Low' },
+  'revenue-asc':  { field: 'revenue', dir: 1,  label: 'Price: Low to High' },
+  'qty-desc':     { field: 'qty',     dir: -1, label: 'Sold: High to Low' },
+  'qty-asc':      { field: 'qty',     dir: 1,  label: 'Sold: Low to High' },
+};
+
+function openAllProductsModal(prodMap, cur) {
+  const baseEntries = Object.entries(prodMap);
+  const maxRev = baseEntries.reduce((m, [, d]) => Math.max(m, d.revenue), 0) || 1;
+  const maxQty = baseEntries.reduce((m, [, d]) => Math.max(m, d.qty), 0) || 1;
+  let page = 1;
+  let searchTerm = '';
+  let sortKey = 'revenue-desc';
+
+  function getFiltered() {
+    const { field, dir } = ALL_PRODUCTS_SORTS[sortKey];
+    const sorted = [...baseEntries].sort((a, b) => (a[1][field] - b[1][field]) * dir);
+    if (!searchTerm) return sorted;
+    const q = searchTerm.toLowerCase();
+    return sorted.filter(([name]) => name.toLowerCase().includes(q));
+  }
+
+  function renderRows(pageItems, startRank) {
+    if (pageItems.length === 0) {
+      return `<div class="empty-state" style="padding:30px 0"><i class="fa-solid fa-magnifying-glass"></i><p>No products found</p></div>`;
+    }
+    const barField = ALL_PRODUCTS_SORTS[sortKey].field;
+    const barMax = barField === 'qty' ? maxQty : maxRev;
+    return pageItems.map(([name, data], i) => {
+      const rank = startRank + i + 1;
+      const pct = barMax > 0 ? (data[barField] / barMax) * 100 : 0;
+      const color = ALL_PRODUCTS_BAR_COLORS[(rank - 1) % ALL_PRODUCTS_BAR_COLORS.length];
+      return `
+        <div style="display:flex; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px solid var(--border-subtle);">
+          <div style="width:22px; text-align:center; font-size:12px; font-weight:700; color:var(--text-muted)">${rank}</div>
+          <div style="font-size:18px; flex-shrink:0;">${data.emoji}</div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:13px; font-weight:600; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(name)}</div>
+            <div style="height:6px; background:var(--bg-app); border-radius:3px; overflow:hidden; margin-top:5px;">
+              <div style="height:100%; width:${pct}%; background:${color}; border-radius:3px;"></div>
+            </div>
+          </div>
+          <div style="text-align:right; min-width:76px; flex-shrink:0;">
+            <div style="font-size:11px; color:var(--text-muted)">${data.qty} sold</div>
+            <div style="font-size:13px; font-weight:700; color:var(--text-primary)">${cur}${data.revenue.toFixed(2)}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderModalBody() {
+    const { pageItems, page: clampedPage } = paginate(getFiltered(), page, ALL_PRODUCTS_PAGE_SIZE);
+    page = clampedPage;
+    return `
+      <div style="padding:2px 2px 0;">
+        <div class="all-prod-sort-row">
+          <div style="position:relative; flex:1; min-width:0;">
+            <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); font-size:13px;"></i>
+            <input type="text" id="allProdSearchInput" class="form-input" placeholder="Search products..." value="${escapeHtml(searchTerm)}" style="width:100%; padding-left:34px;">
+          </div>
+          <select id="allProdSortSelect" class="form-select">
+            ${Object.entries(ALL_PRODUCTS_SORTS).map(([key, s]) => `<option value="${key}" ${key === sortKey ? 'selected' : ''}>${s.label}</option>`).join('')}
+          </select>
+        </div>
+        <div id="allProdRowsArea">${renderRows(pageItems, (page - 1) * ALL_PRODUCTS_PAGE_SIZE)}</div>
+        <div id="allProdPagArea" style="margin-top:12px;"></div>
+      </div>
+    `;
+  }
+
+  function refresh(preserveFocus) {
+    const { pageItems, page: clampedPage, totalPages } = paginate(getFiltered(), page, ALL_PRODUCTS_PAGE_SIZE);
+    page = clampedPage;
+    const rowsArea = document.getElementById('allProdRowsArea');
+    if (rowsArea) rowsArea.innerHTML = renderRows(pageItems, (page - 1) * ALL_PRODUCTS_PAGE_SIZE);
+
+    renderPaginationBar(document.getElementById('allProdPagArea'), {
+      page, totalPages,
+      onChange: (newPage) => { page = newPage; refresh(true); }
+    });
+
+    const searchInput = document.getElementById('allProdSearchInput');
+    if (searchInput) {
+      searchInput.oninput = (e) => {
+        searchTerm = e.target.value;
+        page = 1;
+        refresh(false);
+      };
+      if (!preserveFocus) {
+        searchInput.focus();
+        const v = searchInput.value;
+        searchInput.setSelectionRange(v.length, v.length);
+      }
+    }
+
+    const sortSelect = document.getElementById('allProdSortSelect');
+    if (sortSelect) {
+      sortSelect.onchange = (e) => {
+        sortKey = e.target.value;
+        page = 1;
+        refresh(true);
+      };
+    }
+  }
+
+  openModal({
+    title: `<i class="fa-solid fa-trophy mr-8" style="color:#fbbf24"></i>All Products (${baseEntries.length})`,
+    body: renderModalBody(),
+    footer: `<button class="btn btn-ghost" id="allProdCloseBtn" style="width:100%">Close</button>`,
+    sidePanel: false
+  });
+
+  refresh(true);
+  const closeBtn = document.getElementById('allProdCloseBtn');
+  if (closeBtn) closeBtn.onclick = () => closeModal();
 }

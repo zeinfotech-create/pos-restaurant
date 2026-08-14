@@ -2490,8 +2490,19 @@ function renderPaymentChart(orders, returns, cur) {
   // pre-return gross total while the card next to it showed the post-return
   // net, visibly disagreeing on the same screen.
   (returns || []).forEach(r => {
-    const method = r.refundMethod || 'Cash';
-    methods[method] = (methods[method] || 0) - (r.total || 0);
+    // Same fix as the orders loop above — a split refund's actual
+    // per-method amounts live in r.payments now; only fall back to the
+    // single refundMethod+total when there's no structured breakdown
+    // (single-method refunds, or older records predating it).
+    if (r.payments && r.payments.length > 0) {
+      r.payments.forEach(p => {
+        const method = p.method || 'Cash';
+        methods[method] = (methods[method] || 0) - (p.amount || 0);
+      });
+    } else {
+      const method = r.refundMethod || 'Cash';
+      methods[method] = (methods[method] || 0) - (r.total || 0);
+    }
   });
   // Drop any bucket that nets to ~0 or negative (e.g. a refund larger than
   // that method's own bucket after a payment-method rename) rather than

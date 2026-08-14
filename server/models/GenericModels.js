@@ -17,4 +17,11 @@ module.exports = {
     ImportTracker: createGenericModel('ImportTracker'),
     BackupHistory: createGenericModel('BackupHistory'),
     ImportHistory: createGenericModel('ImportHistory'),
+    // Staff commission records (db.js's saveStaffIncentive()) — had no
+    // model at all in ModelMap (not even the wrong generic Record one the
+    // categories/etc. bug above had), so every sync attempt failed
+    // outright with "No model found for store: staff_incentives", logged
+    // but never surfaced to the cashier. Saved fine locally, just never
+    // reached the shared hub for other devices/reports to see.
+    StaffIncentive: createGenericModel('StaffIncentive'),
 };

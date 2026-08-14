@@ -6752,6 +6752,31 @@ input:checked + .toggle-slider:before {
   appearance: textfield;
 }
 
+/* Dashboard "View All Products" modal — search box + sort dropdown row.
+   Same premium-select-wrapper sizing issue as .discount-amount-group above:
+   the visible dropdown is a `.premium-select-wrapper` sibling injected by
+   utils/premiumSelect.js, not the (now-hidden) <select> itself, so it must
+   be sized here or it defaults to width:100% and overlaps the search box. */
+.all-prod-sort-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.all-prod-sort-row .premium-select-wrapper {
+  width: 190px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 480px) {
+  .all-prod-sort-row {
+    flex-wrap: wrap;
+  }
+  .all-prod-sort-row .premium-select-wrapper {
+    width: 100%;
+  }
+}
+
 .discount-amount-group input::-webkit-outer-spin-button,
 .discount-amount-group input::-webkit-inner-spin-button {
   -webkit-appearance: none;

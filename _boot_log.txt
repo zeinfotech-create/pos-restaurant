@@ -1,0 +1,150 @@
+
+> zeinfotech-pos@1.0.2 electron:dev
+> concurrently --kill-others-on-fail "vite" "npm run electron:start"
+
+[1] 
+[1] > zeinfotech-pos@1.0.2 electron:start
+[1] > wait-on http://localhost:5173 && electron .
+[1] 
+[0] 
+[0]   VITE v7.3.1  ready in 406 ms
+[0] 
+[0]   ➜  Local:   http://localhost:5173/
+[0]   ➜  Network: http://10.203.38.249:5173/
+[1] 
+[1] [Mongo] Something is already listening on 27017 — using it instead of spawning our own.
+[1] [Debug] startServer_debug.log written to C:\Users\sathe\AppData\Roaming\ZeInfoTech POS
+[1] [Server] Launching with node: C:\Program Files\nodejs\node.exe
+[1] [Server] Script: C:\Project\pos-lite\server\index.js | exists: true
+[1] [Server] CWD: C:\Project\pos-lite\server
+[1] [Server] Electron desktop build — forcing MONGODB_MODE=local
+[1] [Server] ⏳ Connecting to MongoDB (local)...
+[1] [Server] ✅ MongoDB connected (local: mongodb://127.0.0.1:27017/pos_db)
+[1] [Server] 🚀 POS Sync Hub running on ws://localhost:3030
+[1]    Health: http://localhost:3030/health
+[1] [Server] Database: MongoDB [local] (mongodb://127.0.0.1:27017/pos_db)
+[1] [Server] [Hub] New connection: ::ffff:127.0.0.1 | licenseKey: POS-07LWQWH
+[1] [Server] [Hub] [RAW] Received: get_adb_status from ::ffff:127.0.0.1 | Store: N/A
+[1] [Server] [Hub] [RAW] Received: register from ::ffff:127.0.0.1 | Store: N/A
+[1] [Server] [Hub] Registered client for license: POS-07LWQWH (total: 1)
+[1] [Server] [Hub] [RAW] Received: pos_fetch_all from ::ffff:127.0.0.1 | Store: N/A
+[1] [Server] [Hub] 📂 Fetch All Request for POS-07LWQWH (Branch: b1)
+[1] [Server] [Hub] [RAW] Received: update from ::ffff:127.0.0.1 | Store: settings
+[1] [Server] [Hub] [RAW] Received: update from ::ffff:127.0.0.1 | Store: settings
+[1] [Server] [Hub] [UPDATE] Store: settings | ID: settings_b1 | License: POS-07LWQWH
+[1] [Server] [Hub] [UPDATE] Store: settings | ID: global_settings | License: POS-07LWQWH
+[1] [Server] [Hub] 📤 Sent 177 records to client
+[1] [Server] [Hub] ⚙️ SETTINGS UPDATE for POS-07LWQWH: {
+[1]   id: 'settings_b1',
+[1]   taxes: 1,
+[1]   payments: 2,
+[1]   storeName: 'My Local POS',
+[1]   taxRate: 5
+[1] }
+[1] [Hub] 🔄 Propagating storeName "My Local POS" for license: POS-07LWQWH (Type: Branch)
+[1] [Server] [Hub] ⚙️ SETTINGS UPDATE for POS-07LWQWH: {
+[1]   id: 'global_settings',
+[1]   taxes: 1,
+[1]   payments: 2,
+[1]   storeName: 'My Local POS',
+[1]   taxRate: 5
+[1] }
+[1] [Hub] 🔄 Propagating storeName "My Local POS" for license: POS-07LWQWH (Type: Global)
+[1] [Server] [Hub] ✅ Updated global license businessName to "My Local POS" and type to "unchanged"
+[1] [Server] [Hub] ✅ Updated branch "b1" name to "My Local POS"
+[1] [Server] [Hub] ✅ Saved to settings: global_settings (License: POS-07LWQWH)
+[1]   - Taxes saved: [5]
+[1]   - Payments saved: ["Cash","UPI"]
+[1] [Hub] [DEBUG] UPDATE SUCCESS - Store: settings, ID: global_settings, Status in Doc: N/A
+[1] [Server] [Hub] ✅ Saved to settings: settings_b1 (License: POS-07LWQWH)
+[1]   - Taxes saved: [5]
+[1]   - Payments saved: ["Cash","UPI"]
+[1] [Hub] [DEBUG] UPDATE SUCCESS - Store: settings, ID: settings_b1, Status in Doc: N/A
+[1] [Server] [Hub] [RAW] Received: update from ::ffff:127.0.0.1 | Store: staff_incentives
+[1] [Server] [Hub] [UPDATE] Store: staff_incentives | ID: INC-1786578847650 | License: POS-07LWQWH
+[1] [Server] [Hub] ✅ Saved to staff_incentives: INC-1786578847650 (License: POS-07LWQWH)
+[1] [Hub] [DEBUG] UPDATE SUCCESS - Store: staff_incentives, ID: INC-1786578847650, Status in Doc: N/A
+[1] [Server] [Hub] Client disconnected. Remaining: 0
+[1] [Server] [Hub] New connection: ::ffff:127.0.0.1 | licenseKey: POS-07LWQWH
+[1] [Server] [Hub] [RAW] Received: get_adb_status from ::ffff:127.0.0.1 | Store: N/A
+[1] [Server] [Hub] [RAW] Received: register from ::ffff:127.0.0.1 | Store: N/A
+[1] [Server] [Hub] Registered client for license: POS-07LWQWH (total: 1)
+[1] [Server] [Hub] [RAW] Received: pos_fetch_all from ::ffff:127.0.0.1 | Store: N/A
+[1] [Server] [Hub] 📂 Fetch All Request for POS-07LWQWH (Branch: b1)
+[1] [Server] [Hub] [RAW] Received: update from ::ffff:127.0.0.1 | Store: settings
+[1] [Server] [Hub] [RAW] Received: update from ::ffff:127.0.0.1 | Store: settings
+[1] [Server] [Hub] [UPDATE] Store: settings | ID: settings_b1 | License: POS-07LWQWH
+[1] [Server] [Hub] [UPDATE] Store: settings | ID: global_settings | License: POS-07LWQWH
+[1] [Server] [Hub] 📤 Sent 178 records to client
+[1] [Server] [Hub] ⚙️ SETTINGS UPDATE for POS-07LWQWH: {
+[1]   id: 'settings_b1',
+[1]   taxes: 1,
+[1]   payments: 2,
+[1]   storeName: 'My Local POS',
+[1]   taxRate: 5
+[1] }
+[1] [Hub] 🔄 Propagating storeName "My Local POS" for license: POS-07LWQWH (Type: Branch)
+[1] [Server] [Hub] ⚙️ SETTINGS UPDATE for POS-07LWQWH: {
+[1]   id: 'global_settings',
+[1]   taxes: 1,
+[1]   payments: 2,
+[1]   storeName: 'My Local POS',
+[1]   taxRate: 5
+[1] }
+[1] [Hub] 🔄 Propagating storeName "My Local POS" for license: POS-07LWQWH (Type: Global)
+[1] [Server] [Hub] ✅ Updated global license businessName to "My Local POS" and type to "unchanged"
+[1] [Server] [Hub] ✅ Updated branch "b1" name to "My Local POS"
+[1] [Server] [Hub] ✅ Saved to settings: global_settings (License: POS-07LWQWH)
+[1]   - Taxes saved: [5]
+[1]   - Payments saved: ["Cash","UPI"]
+[1] [Hub] [DEBUG] UPDATE SUCCESS - Store: settings, ID: global_settings, Status in Doc: N/A
+[1] [Server] [Hub] ✅ Saved to settings: settings_b1 (License: POS-07LWQWH)
+[1]   - Taxes saved: [5]
+[1]   - Payments saved: ["Cash","UPI"]
+[1] [Hub] [DEBUG] UPDATE SUCCESS - Store: settings, ID: settings_b1, Status in Doc: N/A
+[1] [Server] [Hub] Client disconnected. Remaining: 0
+[1] [Server] [Hub] New connection: ::ffff:127.0.0.1 | licenseKey: POS-07LWQWH
+[1] [Server] [Hub] [RAW] Received: get_adb_status from ::ffff:127.0.0.1 | Store: N/A
+[1] [Server] [Hub] [RAW] Received: register from ::ffff:127.0.0.1 | Store: N/A
+[1] [Server] [Hub] Registered client for license: POS-07LWQWH (total: 1)
+[1] [Server] [Hub] [RAW] Received: pos_fetch_all from ::ffff:127.0.0.1 | Store: N/A
+[1] [Server] [Hub] 📂 Fetch All Request for POS-07LWQWH (Branch: b1)
+[1] [Server] [Hub] 📤 Sent 178 records to client
+[1] [Server] [Hub] Client disconnected. Remaining: 0
+[1] [Server] [Hub] New connection: ::ffff:127.0.0.1 | licenseKey: POS-07LWQWH
+[1] [Server] [Hub] [RAW] Received: get_adb_status from ::ffff:127.0.0.1 | Store: N/A
+[1] [Server] [Hub] [RAW] Received: register from ::ffff:127.0.0.1 | Store: N/A
+[1] [Server] [Hub] Registered client for license: POS-07LWQWH (total: 1)
+[1] [Server] [Hub] [RAW] Received: pos_fetch_all from ::ffff:127.0.0.1 | Store: N/A
+[1] [Server] [Hub] 📂 Fetch All Request for POS-07LWQWH (Branch: b1)
+[1] [Server] [Hub] [RAW] Received: update from ::ffff:127.0.0.1 | Store: settings
+[1] [Server] [Hub] [RAW] Received: update from ::ffff:127.0.0.1 | Store: settings
+[1] [Server] [Hub] [UPDATE] Store: settings | ID: settings_b1 | License: POS-07LWQWH
+[1] [Server] [Hub] [UPDATE] Store: settings | ID: global_settings | License: POS-07LWQWH
+[1] [Server] [Hub] 📤 Sent 178 records to client
+[1] [Server] [Hub] ⚙️ SETTINGS UPDATE for POS-07LWQWH: {
+[1]   id: 'settings_b1',
+[1]   taxes: 1,
+[1]   payments: 2,
+[1]   storeName: 'My Local POS',
+[1]   taxRate: 5
+[1] }
+[1] [Hub] 🔄 Propagating storeName "My Local POS" for license: POS-07LWQWH (Type: Branch)
+[1] [Server] [Hub] ⚙️ SETTINGS UPDATE for POS-07LWQWH: {
+[1]   id: 'global_settings',
+[1]   taxes: 1,
+[1]   payments: 2,
+[1]   storeName: 'My Local POS',
+[1]   taxRate: 5
+[1] }
+[1] [Hub] 🔄 Propagating storeName "My Local POS" for license: POS-07LWQWH (Type: Global)
+[1] [Server] [Hub] ✅ Updated global license businessName to "My Local POS" and type to "unchanged"
+[1] [Server] [Hub] ✅ Updated branch "b1" name to "My Local POS"
+[1] [Server] [Hub] ✅ Saved to settings: global_settings (License: POS-07LWQWH)
+[1]   - Taxes saved: [5]
+[1]   - Payments saved: ["Cash","UPI"]
+[1] [Hub] [DEBUG] UPDATE SUCCESS - Store: settings, ID: global_settings, Status in Doc: N/A
+[1] [Server] [Hub] ✅ Saved to settings: settings_b1 (License: POS-07LWQWH)
+[1]   - Taxes saved: [5]
+[1]   - Payments saved: ["Cash","UPI"]
+[1] [Hub] [DEBUG] UPDATE SUCCESS - Store: settings, ID: settings_b1, Status in Doc: N/A

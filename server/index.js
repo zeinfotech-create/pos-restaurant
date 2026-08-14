@@ -92,7 +92,7 @@ const UpgradeKey = require('./models/UpgradeKey');
 // doc — every sync of a category/sub-category/backup entry/import entry
 // created a fresh near-empty document instead of updating one, with the
 // real data (name, etc.) never actually persisted.
-const { Category, SubCategory, ImportTracker, BackupHistory, ImportHistory } = require('./models/GenericModels');
+const { Category, SubCategory, ImportTracker, BackupHistory, ImportHistory, StaffIncentive } = require('./models/GenericModels');
 
 const ModelMap = {
     'users': User,
@@ -120,7 +120,8 @@ const ModelMap = {
     'categories': Category,
     'sub_categories': SubCategory,
     'admins': Admin,
-    'upgrade_keys': UpgradeKey
+    'upgrade_keys': UpgradeKey,
+    'staff_incentives': StaffIncentive
 };
 
 // ============================================================
