@@ -2515,17 +2515,79 @@ export async function getSupplierOutstandingReport(branchId = null, startDate = 
   return Object.values(supplierMap).sort((a, b) => b.outstanding - a.outstanding);
 }
 
-export async function getPurchasesMonthly() {
-  const purchases = await getPurchases();
+export async function getPurchasesMonthly(branchId = null) {
+  // branchId was silently ignored here before — every caller (Reports.js's
+  // Purchase Report trend chart, Profitability Analysis) already passed
+  // currentBranchFilter expecting it to scope the chart, but this always
+  // summed EVERY branch's purchases regardless.
+  const purchases = await getPurchases(branchId);
   const returnedTotals = await getPurchaseReturnedTotals();
   const months = {};
   purchases.forEach(p => {
     const d = new Date(p.date);
     const m = d.toLocaleString('en', { month: 'short', year: 'numeric' });
     const netTotal = Math.max(0, (p.total || 0) - (returnedTotals[p.id] || 0));
-    months[m] = (months[m] || 0) + netTotal;
+    if (!months[m]) months[m] = { total: 0, count: 0, date: d };
+    months[m].total += netTotal;
+    months[m].count += 1;
   });
-  return Object.entries(months).map(([label, total]) => ({ label, total }));
+  // Chronological, not insertion order — insertion order only happens to
+  // match time when purchases are entered in date order, which isn't
+  // guaranteed (a backdated entry, a sync from another device, etc.).
+  return Object.entries(months)
+    .sort((a, b) => a[1].date - b[1].date)
+    .map(([label, m]) => ({ label, total: m.total, count: m.count }));
+}
+
+// Date-range-aware purchase trend, with the bucket size adapting to how
+// wide the selected range actually is — a narrow selection (a single day,
+// or a few days) bucketed by MONTH would collapse into one lone bar and the
+// "trend" would be meaningless; bucketed by DAY instead, it stays a real
+// multi-point trend. A wide selection (a year+, or "All Time") bucketed by
+// day would instead render as dozens/hundreds of bars — that one stays
+// bucketed by month. Threshold is ~31 days either way.
+export async function getPurchasesTrend(branchId = null, startDate = null, endDate = null) {
+  const purchases = await getPurchases(branchId, startDate, endDate);
+  const returnedTotals = await getPurchaseReturnedTotals();
+
+  if (purchases.length === 0) return { granularity: 'monthly', data: [] };
+
+  // The explicitly selected range decides granularity when given — a
+  // single-day filter with exactly one purchase in it should still read as
+  // "daily", not fall back to a zero-width span of that one purchase's own
+  // date. Falls back to the actual min/max purchase dates only when no
+  // range was selected at all (e.g. "All Time").
+  const purchaseTimes = purchases.map(p => new Date(p.date).getTime());
+  const spanStartMs = startDate ? parseLocalDate(startDate).getTime() : Math.min(...purchaseTimes);
+  const spanEndMs = endDate ? parseLocalDate(endDate).getTime() : Math.max(...purchaseTimes);
+  const spanDays = Math.max(1, (spanEndMs - spanStartMs) / 86400000);
+  const granularity = spanDays <= 31 ? 'daily' : 'monthly';
+
+  const buckets = {};
+  purchases.forEach(p => {
+    const d = new Date(p.date);
+    const key = granularity === 'daily' ? localDateOnly(p.date) : d.toLocaleString('en', { month: 'short', year: 'numeric' });
+    const netTotal = Math.max(0, (p.total || 0) - (returnedTotals[p.id] || 0));
+    if (!buckets[key]) {
+      buckets[key] = {
+        label: granularity === 'daily' ? d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : key,
+        total: 0,
+        count: 0,
+        // String (YYYY-MM-DD) sorts correctly as-is for daily buckets;
+        // monthly buckets sort by the bucket's own timestamp instead, since
+        // "Aug 2026" has no natural lexicographic order against "Sep 2025".
+        sortKey: granularity === 'daily' ? key : d.getTime()
+      };
+    }
+    buckets[key].total += netTotal;
+    buckets[key].count += 1;
+  });
+
+  const data = Object.values(buckets)
+    .sort((a, b) => (a.sortKey < b.sortKey ? -1 : (a.sortKey > b.sortKey ? 1 : 0)))
+    .map(({ label, total, count }) => ({ label, total, count }));
+
+  return { granularity, data };
 }
 
 export const DEFAULT_LOW_STOCK_THRESHOLD = 10;

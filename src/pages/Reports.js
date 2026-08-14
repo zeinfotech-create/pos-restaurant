@@ -1,4 +1,4 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getMonthlySales, getSuppliers, getPurchases, getPurchasesMonthly, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getMonthlySales, getSuppliers, getPurchases, getPurchasesMonthly, getPurchasesTrend, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
@@ -752,7 +752,10 @@ async function renderSalesAnalysis(container, cur) {
 async function renderPurchaseReport(container, cur) {
   const purchases = await getPurchases(currentBranchFilter, currentStartDate, currentEndDate);
   const purchasesSorted = purchases.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
-  const monthly = await getPurchasesMonthly(currentBranchFilter);
+  // Bucket size adapts to the selected range — see getPurchasesTrend()'s own
+  // comment — so this now actually reflects the same date range/branch the
+  // stat cards above it do, instead of always being an all-time monthly view.
+  const trend = await getPurchasesTrend(currentBranchFilter, currentStartDate, currentEndDate);
   // Net out returned value (purchase.total is never mutated by a return —
   // see getPurchaseReturnedTotals()'s comment in db.js) so a fully-returned
   // purchase doesn't keep inflating this range's total procurement spend.
@@ -779,7 +782,14 @@ async function renderPurchaseReport(container, cur) {
     </div>
 
     <div class="card mb-16">
-      <div class="font-bold mb-16">Monthly Purchase Trend</div>
+      <div class="mb-16">
+        <div class="font-bold">${trend.granularity === 'daily' ? 'Daily' : 'Monthly'} Purchase Trend</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+          ${trend.granularity === 'daily'
+            ? 'Bucketed by day — the selected range is narrow enough that a month-by-month view would collapse to a single bar.'
+            : 'Bucketed by month — matches the date range and branch selected above.'}
+        </div>
+      </div>
       <div style="height:300px"><canvas id="procurementChart"></canvas></div>
     </div>
 
@@ -798,7 +808,7 @@ async function renderPurchaseReport(container, cur) {
     </div>
   `;
 
-  renderProcurementChart(monthly);
+  renderProcurementChart(trend.data, cur);
 
   const purchaseTableEl = document.getElementById('purchaseRecentBody').closest('table');
 
@@ -2739,35 +2749,97 @@ function renderPaymentChart(orders, returns, cur) {
   });
 }
 
-function renderProcurementChart(data) {
+function renderProcurementChart(data, cur = '₹') {
   const ctx = document.getElementById('procurementChart');
   if (!ctx || !data) return;
   if (procurementChart) { procurementChart.destroy(); procurementChart = null; }
+
+  // Gradient needs a real canvas 2D context to build, so it's created here
+  // rather than as a plain color string — a flat fill looked flat/basic
+  // next to every other "advanced" chart in this app that already uses one.
+  const canvasCtx = ctx.getContext('2d');
+  const gradient = canvasCtx.createLinearGradient(0, 0, 0, 300);
+  gradient.addColorStop(0, 'rgba(245, 158, 11, 0.35)');
+  gradient.addColorStop(1, 'rgba(245, 158, 11, 0.02)');
+
   procurementChart = new Chart(ctx, {
-    type: 'line',
+    // Combo chart: bars for how many purchases landed each month (volume),
+    // line for what they cost (value) — a single line only ever showed
+    // value, so two purchases of very different sizes in the same month
+    // looked identical to one big one. Two axes since ₹ and count are on
+    // completely different scales.
     data: {
       labels: data.map(d => d.label),
-      datasets: [{
-        label: 'Purchase Cost',
-        data: data.map(d => d.total),
-        backgroundColor: 'rgba(245, 158, 11, 0.1)',
-        borderColor: '#f59e0b',
-        borderWidth: 3,
-        tension: 0.4,
-        fill: true,
-        pointBackgroundColor: '#f59e0b',
-        pointBorderColor: '#fff',
-        pointBorderWidth: 2,
-        pointRadius: 4,
-      }],
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Purchases Made',
+          data: data.map(d => d.count),
+          backgroundColor: 'rgba(99, 102, 241, 0.35)',
+          hoverBackgroundColor: 'rgba(99, 102, 241, 0.55)',
+          borderRadius: 6,
+          borderSkipped: false,
+          yAxisID: 'yCount',
+          order: 2,
+        },
+        {
+          type: 'line',
+          label: 'Purchase Cost',
+          data: data.map(d => d.total),
+          backgroundColor: gradient,
+          borderColor: '#f59e0b',
+          borderWidth: 3,
+          tension: 0.35,
+          fill: true,
+          pointBackgroundColor: '#f59e0b',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          yAxisID: 'yCost',
+          order: 1,
+        },
+      ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          align: 'end',
+          labels: { color: '#94a3b8', boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: 'circle' }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(17, 24, 39, 0.92)',
+          padding: 12,
+          cornerRadius: 8,
+          titleFont: { weight: '700' },
+          callbacks: {
+            label: (item) => item.dataset.yAxisID === 'yCost'
+              ? `Purchase Cost: ${cur}${item.parsed.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              : `Purchases Made: ${item.parsed.y}`
+          }
+        }
+      },
       scales: {
-        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
-        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' }, beginAtZero: true },
+        x: { grid: { display: false }, ticks: { color: '#94a3b8' } },
+        yCost: {
+          position: 'left',
+          beginAtZero: true,
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { color: '#f59e0b', callback: (v) => `${cur}${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}` },
+          title: { display: true, text: 'Purchase Cost', color: '#f59e0b', font: { size: 11, weight: '600' } }
+        },
+        yCount: {
+          position: 'right',
+          beginAtZero: true,
+          grid: { drawOnChartArea: false },
+          ticks: { color: '#818cf8', precision: 0 },
+          title: { display: true, text: 'Purchases Made', color: '#818cf8', font: { size: 11, weight: '600' } }
+        },
       },
     }
   });
