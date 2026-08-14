@@ -967,6 +967,12 @@ async function renderVehicleDeliveryReport(container, cur) {
 }
 
 async function renderOutstandingReport(container, cur) {
+  // Same fallback list Purchases.js's own purchase-creation form and
+  // "Record a Payment" section use, so the method choices offered here
+  // match everywhere else a supplier payment gets recorded.
+  const settings = await getSettings();
+  const payMethods = settings.paymentMethods?.length ? settings.paymentMethods : ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Cheque'];
+
   // Purchase side: money the shop owes suppliers
   const suppliers = await getSupplierOutstandingReport(currentBranchFilter, currentStartDate, currentEndDate);
   const totalPurchaseOutstanding = suppliers.reduce((s, x) => s + x.outstanding, 0);
@@ -974,7 +980,11 @@ async function renderOutstandingReport(container, cur) {
   // Sales side: money owed TO the shop from customer credit sales (formerly the separate
   // "Credit Hub" tab — merged here so both directions of "outstanding" live in one place)
   const ordersRaw = await getOrders(currentBranchFilter, currentStartDate, currentEndDate);
-  const creditOrders = ordersRaw.filter(o => o.isCredit);
+  // cancelOrder() (Orders.js) reverses a credit order's debt in full but
+  // deliberately leaves `isCredit` untouched for audit history — without
+  // this guard, a cancelled order still showed up here as real outstanding
+  // debt even though it was already voided and cleared.
+  const creditOrders = ordersRaw.filter(o => o.isCredit && o.status !== 'cancelled');
   const creditMap = {};
   creditOrders.forEach(o => {
     const cid = o.customer?.id || 'unknown';
@@ -1142,7 +1152,7 @@ async function renderOutstandingReport(container, cur) {
             body: `
               <div class="table-wrap">
                 <table class="responsive-table">
-                  <thead><tr><th>Order #</th><th>Date</th><th>Total</th><th>Balance</th></tr></thead>
+                  <thead><tr><th>Order #</th><th>Date</th><th>Total</th><th>Balance</th><th>Actions</th></tr></thead>
                   <tbody>
                     ${res.pageItems.map(o => `
                       <tr>
@@ -1150,6 +1160,7 @@ async function renderOutstandingReport(container, cur) {
                         <td data-label="Date">${o.date ? new Date(o.date).toLocaleDateString() : 'N/A'}</td>
                         <td data-label="Total">${cur}${o.total.toFixed(2)}</td>
                         <td data-label="Balance" class="font-bold" style="color:var(--warning)">${cur}${o.balance.toFixed(2)}</td>
+                        <td><button class="btn btn-success btn-sm outstanding-settle-btn" data-id="${o.id}"><i class="fa-solid fa-money-bill-wave"></i> Settle</button></td>
                       </tr>
                     `).join('')}
                   </tbody>
@@ -1161,6 +1172,22 @@ async function renderOutstandingReport(container, cur) {
           });
           renderPaginationBar(document.getElementById('outstandingOrdersModalPagination'), {
             page: res.page, totalPages: res.totalPages, onChange: (p) => { modalPage = p; renderOrdersModal(); }
+          });
+
+          // Reuses Orders.js's own split-settle UI (payOrder) directly from
+          // here — clears the balance without leaving the Outstanding
+          // report. On success, re-renders this whole report section so
+          // the now-cleared (or partially reduced) balance reflects
+          // immediately instead of showing a stale figure until the user
+          // navigates away and back.
+          document.querySelectorAll('.outstanding-settle-btn').forEach(sbtn => {
+            sbtn.onclick = async () => {
+              const allOrders = await getOrders(currentBranchFilter);
+              const fullOrder = allOrders.find(x => x.id === sbtn.dataset.id);
+              if (!fullOrder) { showToast('Order not found', 'error'); return; }
+              const { payOrder } = await import('./Orders.js');
+              await payOrder(fullOrder, cur, () => renderOutstandingReport(container, cur));
+            };
           });
         }
         renderOrdersModal();
@@ -1206,7 +1233,7 @@ async function renderOutstandingReport(container, cur) {
             body: `
               <div class="table-wrap">
                 <table class="responsive-table">
-                  <thead><tr><th>Invoice #</th><th>Date</th><th>Total</th><th>Paid</th><th>Outstanding</th></tr></thead>
+                  <thead><tr><th>Invoice #</th><th>Date</th><th>Total</th><th>Paid</th><th>Outstanding</th><th>Actions</th></tr></thead>
                   <tbody>
                     ${res.pageItems.map(p => `
                       <tr>
@@ -1215,6 +1242,17 @@ async function renderOutstandingReport(container, cur) {
                         <td data-label="Total">${cur}${p.total.toFixed(2)}</td>
                         <td data-label="Paid" class="text-success">${cur}${p.amountPaid.toFixed(2)}</td>
                         <td data-label="Outstanding" class="font-bold text-danger">${cur}${p.outstanding.toFixed(2)}</td>
+                        <td>
+                          ${p.outstanding > 0.01 ? `
+                            <div style="display:flex; gap:6px; align-items:center;">
+                              <select class="outstanding-pay-method" data-id="${p.id}" style="width:110px; padding:4px 6px; font-size:12px; border:1px solid var(--border); border-radius:6px; background:var(--bg-elevated); color:var(--text-main);">
+                                ${payMethods.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')}
+                              </select>
+                              <input type="number" class="form-input outstanding-pay-amount" data-id="${p.id}" value="${p.outstanding.toFixed(2)}" min="0.01" max="${p.outstanding.toFixed(2)}" style="width:90px; padding:4px 6px; font-size:12px;" />
+                              <button class="btn btn-success btn-sm outstanding-pay-btn" data-id="${p.id}"><i class="fa-solid fa-money-bill-wave"></i> Pay</button>
+                            </div>
+                          ` : '<span class="text-muted" style="font-size:11px;">Settled</span>'}
+                        </td>
                       </tr>
                     `).join('')}
                   </tbody>
@@ -1226,6 +1264,33 @@ async function renderOutstandingReport(container, cur) {
           });
           renderPaginationBar(document.getElementById('outstandingPurchasesModalPagination'), {
             page: res.page, totalPages: res.totalPages, onChange: (p) => { modalPage = p; renderPurchasesModal(); }
+          });
+
+          // recordSupplierPayment() (Purchases.js) is the same fresh-read +
+          // overpay-guard logic viewPurchaseDetails()'s own "Record a
+          // Payment" button uses — reused here so a supplier balance can be
+          // cleared right from the Outstanding report, no navigation away.
+          document.querySelectorAll('.outstanding-pay-btn').forEach(pbtn => {
+            pbtn.onclick = async () => {
+              const amountInput = document.querySelector(`.outstanding-pay-amount[data-id="${pbtn.dataset.id}"]`);
+              const methodSelect = document.querySelector(`.outstanding-pay-method[data-id="${pbtn.dataset.id}"]`);
+              const amount = parseFloat(amountInput?.value) || 0;
+              if (amount <= 0) { showToast('Enter a valid payment amount', 'error'); return; }
+              pbtn.disabled = true;
+              const original = pbtn.innerHTML;
+              pbtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+              try {
+                const { recordSupplierPayment } = await import('./Purchases.js');
+                await recordSupplierPayment(pbtn.dataset.id, amount, methodSelect?.value);
+                showToast('Payment recorded', 'success');
+                closeModal();
+                await renderOutstandingReport(container, cur);
+              } catch (err) {
+                showToast(err.message || 'Failed to record payment.', 'error');
+                pbtn.disabled = false;
+                pbtn.innerHTML = original;
+              }
+            };
           });
         }
         renderPurchasesModal();

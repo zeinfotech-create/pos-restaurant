@@ -900,7 +900,13 @@ async function openReturnModal(order, cur) {
     updateModal();
 }
 
-async function payOrder(order, cur) {
+// Exported so other pages (Reports.js's Outstanding report) can reuse this
+// exact split-settle UI to clear a customer's debt directly from there,
+// instead of duplicating it. onSuccess is called after renderOrderList()'s
+// own refresh (a safe no-op when #ordersContent doesn't exist, i.e. when
+// called from a page other than Orders.js) — lets a caller elsewhere
+// refresh its own view too.
+export async function payOrder(order, cur, onSuccess = null) {
   const settings = await getSettings();
   const balance = order.total - (order.redeemedPoints || 0) - (order.creditUsed || 0) - (order.payments || []).reduce((s, p) => s + p.amount, 0);
   const methodsList = settings.paymentMethods && settings.paymentMethods.length > 0 ? settings.paymentMethods : ['Cash', 'Card', 'UPI'];
@@ -1030,6 +1036,7 @@ async function payOrder(order, cur) {
         closeModal();
         showToast('Payment settled successfully!', 'success');
         await renderOrderList(cur);
+        if (onSuccess) onSuccess();
       } catch (err) {
         showToast('Error: ' + err.message, 'error');
         btn.disabled = false;

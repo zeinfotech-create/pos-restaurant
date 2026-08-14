@@ -855,7 +855,58 @@ async function openCostChangeSuggestionModal(costChanges) {
   };
 }
 
+// Records a payment against a purchase's outstanding balance — extracted
+// out of viewPurchaseDetails()'s own "Record a Payment to Supplier" button
+// so Reports.js's Outstanding report can settle a purchase directly from
+// there too, without duplicating this exact fresh-read/cap-check logic (the
+// double-window overpay guard below is easy to silently break if copied).
+export async function recordSupplierPayment(purchaseId, amount, method = null) {
+  if (!(amount > 0)) throw new Error('Enter a valid payment amount');
+
+  // Re-read the purchase fresh instead of trusting whatever balance the
+  // caller computed earlier — without this, a fast double-click (or a
+  // second payment recorded from another window) would compute its new
+  // total off a stale amountPaid and silently discard whichever payment
+  // applied second.
+  const freshPurchases = await getPurchases();
+  const freshPurchase = freshPurchases.find(p => p.id === purchaseId);
+  if (!freshPurchase) throw new Error('Purchase record not found.');
+
+  // The outstanding-balance CAP must also be checked against this same
+  // fresh read — otherwise two windows open on the same purchase can each
+  // pass their own stale ceiling check and together overpay past the
+  // purchase total (the write below already uses fresh data so it doesn't
+  // silently discard either payment, but without this the second payment
+  // would still be wrongly *accepted* when it shouldn't be).
+  const freshReturnedTotals = await getPurchaseReturnedTotals();
+  const freshNetTotal = Math.max(0, freshPurchase.total - (freshReturnedTotals[freshPurchase.id] || 0));
+  const freshOutstanding = Math.max(0, freshNetTotal - (freshPurchase.amountPaid || 0));
+  if (amount > freshOutstanding + 0.01) {
+    throw new Error(`Payment can't exceed the outstanding balance (₹${freshOutstanding.toFixed(2)})`);
+  }
+
+  // Purchases only ever tracked a single paymentMethod (set once, at
+  // creation) with no way to know which method a LATER installment payment
+  // actually used — paymentHistory is a new, append-only log of each one
+  // (mirroring order.payments on the sales side), kept alongside the
+  // existing amountPaid running total rather than replacing it, so nothing
+  // that already reads amountPaid for the outstanding calc needs to change.
+  const paymentHistory = [...(freshPurchase.paymentHistory || []), {
+    method: method || freshPurchase.paymentMethod || 'Cash',
+    amount,
+    date: new Date().toISOString()
+  }];
+
+  await savePurchase({
+    ...freshPurchase,
+    amountPaid: (freshPurchase.amountPaid || 0) + amount,
+    paymentHistory
+  });
+}
+
 async function viewPurchaseDetails(purchase) {
+  const settings = await getSettings();
+  const payMethods = settings.paymentMethods?.length ? settings.paymentMethods : ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Cheque'];
   const amountPaid = purchase.amountPaid || 0;
   // A purchase return reduces what's actually owed to the supplier, but
   // (matching the same convention sales returns use against order.total)
@@ -936,6 +987,9 @@ async function viewPurchaseDetails(purchase) {
         <div style="margin-top:16px; padding:16px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border)">
           <label class="form-label">Record a Payment to Supplier</label>
           <div style="display:flex; gap:8px">
+            <select id="recordPaymentMethod" style="width:140px; padding:6px 8px; border:1px solid var(--border); border-radius:8px; background:var(--bg-elevated); color:var(--text-main);">
+              ${payMethods.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')}
+            </select>
             <input class="form-input" type="number" id="recordPaymentAmount" placeholder="0.00" min="0" max="${outstanding}" style="flex:1" />
             <button class="btn btn-primary" id="recordPaymentBtn">Add Payment</button>
           </div>
@@ -977,33 +1031,13 @@ async function viewPurchaseDetails(purchase) {
   recordPaymentBtn?.addEventListener('click', async () => {
     if (recordPaymentBtn.disabled) return;
     const input = document.getElementById('recordPaymentAmount');
+    const methodSelect = document.getElementById('recordPaymentMethod');
     const amount = parseFloat(input.value) || 0;
     if (amount <= 0) { showToast('Enter a valid payment amount', 'error'); return; }
 
     recordPaymentBtn.disabled = true;
     try {
-      // Re-read the purchase fresh instead of using the stale `purchase`/
-      // `amountPaid` captured at modal-open time — without this, a fast
-      // double-click (or a second payment recorded from another window)
-      // would compute its new total off the same stale amountPaid and
-      // silently discard whichever payment applied second.
-      const freshPurchases = await getPurchases();
-      const freshPurchase = freshPurchases.find(p => p.id === purchase.id);
-      if (!freshPurchase) throw new Error('Purchase record not found.');
-      // The outstanding-balance CAP must also be checked against this same
-      // fresh read, not the `outstanding` closure captured at modal-open
-      // time — otherwise two windows open on the same purchase can each
-      // pass their own stale ceiling check and together overpay past the
-      // purchase total (the write above already uses fresh data so it
-      // doesn't silently discard either payment, but without this the
-      // second payment would still be wrongly *accepted* when it shouldn't be).
-      const freshReturnedTotals = await getPurchaseReturnedTotals();
-      const freshNetTotal = Math.max(0, freshPurchase.total - (freshReturnedTotals[freshPurchase.id] || 0));
-      const freshOutstanding = Math.max(0, freshNetTotal - (freshPurchase.amountPaid || 0));
-      if (amount > freshOutstanding + 0.01) {
-        throw new Error(`Payment can't exceed the outstanding balance (₹${freshOutstanding.toFixed(2)})`);
-      }
-      await savePurchase({ ...freshPurchase, amountPaid: (freshPurchase.amountPaid || 0) + amount });
+      await recordSupplierPayment(purchase.id, amount, methodSelect?.value);
     } catch (err) {
       recordPaymentBtn.disabled = false;
       showToast(err.message || 'Failed to record payment.', 'error');
