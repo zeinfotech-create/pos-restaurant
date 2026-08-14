@@ -1004,8 +1004,11 @@ async function renderPurchaseReport(container, cur) {
   // Net out returned value (purchase.total is never mutated by a return —
   // see getPurchaseReturnedTotals()'s comment in db.js) so a fully-returned
   // purchase doesn't keep inflating this range's total procurement spend.
+  // 'Ordered' (not-yet-received) purchases are excluded too — same reasoning
+  // as getSupplierOutstandingReport()/getPurchasesTrend() in db.js, they
+  // aren't a real cost until the goods actually arrive.
   const returnedTotals = await getPurchaseReturnedTotals();
-  const totalSpend = purchases.reduce((s, p) => s + Math.max(0, (p.total || 0) - (returnedTotals[p.id] || 0)), 0);
+  const totalSpend = purchases.filter(p => p.status !== 'Ordered').reduce((s, p) => s + Math.max(0, (p.total || 0) - (returnedTotals[p.id] || 0)), 0);
   const canExportPurch = await hasPermission('reports:export');
 
   container.innerHTML = `
@@ -1045,7 +1048,7 @@ async function renderPurchaseReport(container, cur) {
       </div>
       <div class="table-wrap">
         <table class="responsive-table">
-          <thead><tr><th>Date</th><th>ID</th><th>Supplier</th><th>Total</th><th>Action</th></tr></thead>
+          <thead><tr><th>Date</th><th>ID</th><th>Supplier</th><th>Total</th><th>Status</th><th>Action</th></tr></thead>
           <tbody id="purchaseRecentBody"></tbody>
         </table>
       </div>
@@ -1064,10 +1067,17 @@ async function renderPurchaseReport(container, cur) {
                 <td data-label="ID">${p.id}</td>
                 <td data-label="Supplier">${escapeHtml(p.supplierName)}</td>
                 <td data-label="Total" class="font-bold text-danger">${cur}${p.total.toFixed(2)}</td>
+                <td data-label="Status"><span class="badge ${p.status === 'Ordered' ? 'badge-info' : 'badge-success'}">${p.status === 'Ordered' ? 'Ordered' : p.status}</span></td>
                 <td>
-                  <button class="btn btn-ghost btn-sm purchase-return-btn" data-id="${p.id}">
-                    <i class="fa-solid fa-rotate-left"></i> Return
-                  </button>
+                  ${p.status === 'Ordered' ? `
+                    <button class="btn btn-ghost btn-sm purchase-receive-btn" data-id="${p.id}" style="color:var(--success)">
+                      <i class="fa-solid fa-truck-ramp-box"></i> Mark Received
+                    </button>
+                  ` : `
+                    <button class="btn btn-ghost btn-sm purchase-return-btn" data-id="${p.id}">
+                      <i class="fa-solid fa-rotate-left"></i> Return
+                    </button>
+                  `}
                 </td>
               </tr>
             `;
@@ -1084,6 +1094,18 @@ async function renderPurchaseReport(container, cur) {
       btn.onclick = async () => {
         const pur = purchases.find(p => p.id === btn.dataset.id);
         if (pur) await openPurchaseReturnModal(pur, cur, () => renderPurchaseReport(container, cur));
+      };
+    });
+
+    // Reuses Purchases.js's own confirm-then-receive flow instead of a
+    // second copy of it here — same modal the Purchases list row opens.
+    tbody.querySelectorAll('.purchase-receive-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const pur = purchases.find(p => p.id === btn.dataset.id);
+        if (pur) {
+          const { markPurchaseReceived } = await import('./Purchases.js');
+          await markPurchaseReceived(pur, () => renderPurchaseReport(container, cur));
+        }
       };
     });
 
@@ -1554,6 +1576,14 @@ async function renderOutstandingReport(container, cur) {
 // default here referenced one that was never actually in scope, which
 // would have thrown as soon as a return was ever confirmed).
 export async function openPurchaseReturnModal(purchase, cur, onSuccess) {
+  // Defense in depth — both call sites (Purchases.js's viewPurchaseDetails,
+  // this file's own Purchase Report row) already hide the Return button for
+  // an 'Ordered' purchase, but guard here too: there's no physical stock on
+  // the shelf yet to return against.
+  if (purchase.status === 'Ordered') {
+    showToast("This purchase hasn't been received yet — nothing to return.", 'warning');
+    return;
+  }
   const returns = await getReturns();
   const allReturns = returns.filter(r => r.purchaseId === purchase.id);
   const returnedQtyMap = {};
@@ -1948,10 +1978,14 @@ async function renderSupplierReport(container, cur) {
 
   const processed = suppliers.map(s => {
     const supPurchases = purchases.filter(p => p.supplierId === s.id);
+    // 'Ordered' (not-yet-received) purchases still count toward orderCount
+    // (an order WAS placed with this supplier) but not toward totalSpend —
+    // same reasoning as renderPurchaseReport()'s totalSpend above.
+    const receivedSupPurchases = supPurchases.filter(p => p.status !== 'Ordered');
     return {
       ...s,
       orderCount: supPurchases.length,
-      totalSpend: supPurchases.reduce((sum, p) => sum + Math.max(0, (p.total || 0) - (returnedTotals[p.id] || 0)), 0)
+      totalSpend: receivedSupPurchases.reduce((sum, p) => sum + Math.max(0, (p.total || 0) - (returnedTotals[p.id] || 0)), 0)
     };
   }).sort((a, b) => b.totalSpend - a.totalSpend);
 
@@ -2082,7 +2116,11 @@ function computePurchaseRateWiseSummary(purchases) {
 
 async function renderGSTReport(container, cur) {
   const orders = (await getOrders(currentBranchFilter, currentStartDate, currentEndDate)).filter(o => o.status !== 'cancelled');
-  const purchases = await getPurchases(currentBranchFilter, currentStartDate, currentEndDate);
+  // ITC can only be claimed once goods are actually received (CGST Act,
+  // Sec 16(2)(b)) — a purchase still at 'Ordered' hasn't met that yet, so it's
+  // excluded from input tax credit the same way it's excluded from cost/
+  // outstanding aggregates elsewhere.
+  const purchases = (await getPurchases(currentBranchFilter, currentStartDate, currentEndDate)).filter(p => p.status !== 'Ordered');
   const salesReturns = (await getReturns(currentBranchFilter, currentStartDate, currentEndDate)).filter(r => r.type === 'sales');
 
   // Net sales returns into the same item-level computation as orders, instead

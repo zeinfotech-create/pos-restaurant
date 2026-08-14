@@ -2273,6 +2273,70 @@ export async function deletePurchase(id) {
   await deleteData('purchases', id);
 }
 
+// Second half of the "Order → Received" 2-step purchase workflow — savePurchase()
+// (or the form that calls it) now only ever creates a purchase with
+// status:'Ordered' and touches NO stock at all; THIS function is the only
+// place stock actually gets credited, and only once, when the goods have
+// physically arrived. Mirrors what used to be inline in Purchases.js's
+// completePurchaseBtn handler (weighted-average cost blend, per-variant
+// stock, inventory log) verbatim, just moved here so both the Purchases.js
+// "Mark as Received" button and any future caller share one implementation.
+export async function receivePurchase(purchaseId, receivedByName = '') {
+  const purchase = await getDataById('purchases', purchaseId);
+  if (!purchase) throw new Error('Purchase not found');
+  if (purchase.status !== 'Ordered') {
+    throw new Error('This purchase has already been marked as received.');
+  }
+
+  const costChanges = [];
+  const allProducts = await getProducts();
+  for (const item of purchase.items || []) {
+    const p = allProducts.find(x => String(x.id) === String(item.id));
+    if (!p) continue;
+    let oldStock = 0;
+    const newCost = Number(item.cost) || 0;
+    if (item.variantName && p.variants) {
+      const v = p.variants.find(v => v.name === item.variantName);
+      if (v) {
+        oldStock = v.stock || 0;
+        if (newCost > 0) {
+          const oldCost = Number(v.costPrice) || 0;
+          const totalQty = oldStock + item.qty;
+          const blendedCost = totalQty > 0 ? parseFloat((((oldStock * oldCost) + (item.qty * newCost)) / totalQty).toFixed(2)) : newCost;
+          if (blendedCost !== oldCost) {
+            costChanges.push({ productId: p.id, variantName: item.variantName, name: `${p.name} (${item.variantName})`, oldCost, newCost: blendedCost, oldPrice: Number(v.price) || 0 });
+          }
+          v.costPrice = blendedCost;
+        }
+        v.stock = (v.stock || 0) + item.qty;
+        p.stock = p.variants.reduce((s, vr) => s + (vr.stock || 0), 0);
+        p.costPrice = p.variants[0]?.costPrice ?? p.costPrice;
+      }
+    } else {
+      oldStock = p.stock || 0;
+      if (newCost > 0) {
+        const oldCost = Number(p.costPrice) || 0;
+        const totalQty = oldStock + item.qty;
+        const blendedCost = totalQty > 0 ? parseFloat((((oldStock * oldCost) + (item.qty * newCost)) / totalQty).toFixed(2)) : newCost;
+        if (blendedCost !== oldCost) {
+          costChanges.push({ productId: p.id, variantName: null, name: p.name, oldCost, newCost: blendedCost, oldPrice: Number(p.price) || 0 });
+        }
+        p.costPrice = blendedCost;
+      }
+      p.stock = oldStock + item.qty;
+    }
+    await updateProduct(p);
+    await logInventoryChange(p.id, item.variantName || null, 'IN', item.qty, 'Purchase Received', purchase.branchId, purchase.id, oldStock, oldStock + item.qty, receivedByName);
+  }
+
+  purchase.status = 'Completed';
+  purchase.receivedAt = new Date().toISOString();
+  purchase.receivedBy = receivedByName || '';
+  await updateData('purchases', purchase);
+
+  return { purchase, costChanges };
+}
+
 // Analytics helpers (Modified for branch filtering if needed)
 export async function getTodaySales(branchId = null, startDate = null, endDate = null) {
   const today = new Date().toDateString();
@@ -2495,7 +2559,10 @@ export async function getPurchaseReturnedTotals() {
 }
 
 export async function getSupplierOutstandingReport(branchId = null, startDate = null, endDate = null) {
-  const allPurchases = await getPurchases(branchId, startDate, endDate);
+  // A purchase still at 'Ordered' (goods not yet received) isn't a payable
+  // yet in standard accounting terms — exclude it here the same way an
+  // un-received PO shouldn't inflate "money the shop owes suppliers".
+  const allPurchases = (await getPurchases(branchId, startDate, endDate)).filter(p => p.status !== 'Ordered');
   const returnedTotals = await getPurchaseReturnedTotals();
 
   const supplierMap = {};
@@ -2520,7 +2587,9 @@ export async function getPurchasesMonthly(branchId = null) {
   // Purchase Report trend chart, Profitability Analysis) already passed
   // currentBranchFilter expecting it to scope the chart, but this always
   // summed EVERY branch's purchases regardless.
-  const purchases = await getPurchases(branchId);
+  // 'Ordered' (not-yet-received) purchases aren't a real cost yet — excluded
+  // the same way as getSupplierOutstandingReport() above.
+  const purchases = (await getPurchases(branchId)).filter(p => p.status !== 'Ordered');
   const returnedTotals = await getPurchaseReturnedTotals();
   const months = {};
   purchases.forEach(p => {
@@ -2547,7 +2616,9 @@ export async function getPurchasesMonthly(branchId = null) {
 // day would instead render as dozens/hundreds of bars — that one stays
 // bucketed by month. Threshold is ~31 days either way.
 export async function getPurchasesTrend(branchId = null, startDate = null, endDate = null) {
-  const purchases = await getPurchases(branchId, startDate, endDate);
+  // 'Ordered' (not-yet-received) purchases aren't a real cost yet — excluded
+  // the same way as getSupplierOutstandingReport() above.
+  const purchases = (await getPurchases(branchId, startDate, endDate)).filter(p => p.status !== 'Ordered');
   const returnedTotals = await getPurchaseReturnedTotals();
 
   if (purchases.length === 0) return { granularity: 'monthly', data: [] };
@@ -2601,7 +2672,9 @@ export async function getSalesVsPurchasesTrend(branchId = null, startDate = null
   const orders = allOrders.filter(o => o.status !== 'cancelled');
   const allReturns = await getReturns(branchId, startDate, endDate);
   const salesReturns = allReturns.filter(r => r.type === 'sales');
-  const purchases = await getPurchases(branchId, startDate, endDate);
+  // 'Ordered' (not-yet-received) purchases aren't a real cost yet — excluded
+  // the same way as getSupplierOutstandingReport() above.
+  const purchases = (await getPurchases(branchId, startDate, endDate)).filter(p => p.status !== 'Ordered');
   const purchaseReturnedTotals = await getPurchaseReturnedTotals();
 
   if (orders.length === 0 && salesReturns.length === 0 && purchases.length === 0) {
@@ -2663,6 +2736,11 @@ export async function getPaymentMethodReport(branchId = null, startDate = null, 
   const orders = allOrders.filter(o => o.status !== 'cancelled');
   const allReturns = await getReturns(branchId, startDate, endDate);
   const salesReturns = allReturns.filter(r => r.type === 'sales');
+  // Deliberately NOT filtering out 'Ordered' (not-yet-received) purchases
+  // here, unlike the cost/outstanding aggregates above — an advance payment
+  // to a supplier before goods arrive is still real cash leaving the shop,
+  // and paymentsOut below only ever sums actual recorded paymentHistory
+  // entries, never the purchase's un-received total.
   const purchases = await getPurchases(branchId, startDate, endDate);
 
   const collectionMap = {};

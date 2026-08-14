@@ -1,4 +1,4 @@
-import { getPurchases, getSuppliers, getProducts, savePurchase, updateProduct, getCurrentBranch, getCurrentUser, deletePurchase, hasPermission, logInventoryChange, getPurchaseReturnedTotals, getSettings } from '../db.js';
+import { getPurchases, getSuppliers, getProducts, savePurchase, updateProduct, getCurrentBranch, getCurrentUser, deletePurchase, hasPermission, logInventoryChange, getPurchaseReturnedTotals, getSettings, receivePurchase } from '../db.js';
 import { store } from '../store.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
@@ -142,11 +142,14 @@ export async function renderPurchases(container, subPage) {
           <td data-label="Supplier">${escapeHtml(p.supplierName) || 'Unknown Supplier'}</td>
           <td data-label="Total Amount" class="font-bold">\u20B9${p.total.toFixed(2)}</td>
           <td data-label="Status">
-            <span class="badge ${p.status === 'Completed' ? 'badge-success' : 'badge-warning'}">${p.status}</span>
+            <span class="badge ${p.status === 'Ordered' ? 'badge-info' : (p.status === 'Completed' ? 'badge-success' : 'badge-warning')}" title="${p.status === 'Ordered' ? 'Placed with supplier \u2014 stock not received yet' : ''}">${p.status === 'Ordered' ? 'Ordered' : p.status}</span>
             <span class="badge ${paymentBadgeClass} ml-4" title="${outstanding > 0.01 ? `Outstanding: \u20B9${outstanding.toFixed(2)}` : 'Fully paid'}">${paymentLabel}</span>
           </td>
           <td>
             <div style="display:flex;gap:4px">
+              ${p.status === 'Ordered' && canManageInventory ? `
+                <button class="btn btn-sm receive-btn" data-id="${p.id}" style="background:var(--success);border-color:var(--success);color:#fff"><i class="fa-solid fa-truck-ramp-box"></i> Mark Received</button>
+              ` : ''}
               <button class="btn btn-ghost btn-sm view-btn" data-id="${p.id}"><i class="fa-solid fa-eye"></i> View</button>
               ${canManageInventory ? `
                 <button class="btn btn-ghost btn-sm delete-btn" data-id="${p.id}" style="color:var(--danger)"><i class="fa-solid fa-trash-can"></i></button>
@@ -189,6 +192,13 @@ export async function renderPurchases(container, subPage) {
       btn.onclick = async () => {
         const p = filtered.find(x => x.id === btn.dataset.id);
         await viewPurchaseDetails(p);
+      };
+    });
+
+    tbody.querySelectorAll('.receive-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const p = filtered.find(x => x.id === btn.dataset.id);
+        await markPurchaseReceived(p, renderRows);
       };
     });
 
@@ -597,8 +607,8 @@ export async function openPurchaseForm(container) {
     `,
     footer: `
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" id="completePurchaseBtn" style="min-width: 220px; background:var(--success); border-color:var(--success)">
-        <i class="fa-solid fa-check-double mr-8"></i> Complete Purchase
+      <button class="btn btn-primary" id="completePurchaseBtn" style="min-width: 220px; background:var(--success); border-color:var(--success)" title="Saves the order without adding stock — use Mark as Received once goods physically arrive">
+        <i class="fa-solid fa-cart-shopping mr-8"></i> Save Purchase Order
       </button>
     `
   });
@@ -822,7 +832,13 @@ export async function openPurchaseForm(container) {
     completePurchaseBtn.disabled = true;
     try {
       const currentUser = await getCurrentUser();
-      const newPur = await savePurchase({
+      // Stock is deliberately NOT touched here — this only records that the
+      // order was placed. Goods may still be in transit, and crediting stock
+      // now would let it get sold before it's physically on the shelf. The
+      // status stays 'Ordered' until someone explicitly clicks "Mark as
+      // Received" (see receivePurchase() in db.js), which is the only place
+      // stock/cost actually gets updated.
+      await savePurchase({
         date: new Date().toISOString(),
         supplierId,
         supplierName: sup.name || 'Unknown Supplier',
@@ -840,80 +856,13 @@ export async function openPurchaseForm(container) {
         paymentHistory,
         recordedBy: currentUser?.name || '',
         billAttachment,
-        status: 'Completed'
+        status: 'Ordered'
       });
 
-      // Update Stock Logic — mirrors saveOrder()'s deduction in db.js: a
-      // variant's own stock is the source of truth, with product.stock kept
-      // only as a derived sum, so receiving stock against a variant here stays
-      // consistent with what sales and the product-edit form both read.
-      // costChanges collects every item whose blended cost actually moved —
-      // surfaced to the user afterward as an optional "update selling price
-      // to keep the same margin?" suggestion (openCostChangeSuggestionModal
-      // below). Selling price itself is never touched here automatically.
-      const costChanges = [];
-      const allProducts = await getProducts();
-      for (const item of itemsToProcess) {
-        const p = allProducts.find(x => String(x.id) === String(item.id));
-        if (p) {
-          let oldStock = 0;
-          const newCost = Number(item.cost) || 0;
-          // Weighted Average Cost — a second purchase of the same product at
-          // a different price (e.g. ₹10/unit ten days ago, ₹15/unit now)
-          // used to leave costPrice exactly where it was (only stock moved),
-          // silently going stale the moment stock at two different costs
-          // physically mixed on the same shelf. Blends old and new cost by
-          // quantity instead — the same method Tally/Zoho Books default to —
-          // so Dashboard/Reports profit margins stay accurate without
-          // anyone having to hand-edit costPrice after every purchase.
-          // Skipped when newCost is 0 (free samples/promo stock) so a
-          // genuinely free restock doesn't drag the real cost basis down.
-          if (item.variantName && p.variants) {
-            const v = p.variants.find(v => v.name === item.variantName);
-            if (v) {
-              oldStock = v.stock || 0;
-              if (newCost > 0) {
-                const oldCost = Number(v.costPrice) || 0;
-                const totalQty = oldStock + item.qty;
-                const blendedCost = totalQty > 0 ? parseFloat((((oldStock * oldCost) + (item.qty * newCost)) / totalQty).toFixed(2)) : newCost;
-                if (blendedCost !== oldCost) {
-                  costChanges.push({ productId: p.id, variantName: item.variantName, name: `${p.name} (${item.variantName})`, oldCost, newCost: blendedCost, oldPrice: Number(v.price) || 0 });
-                }
-                v.costPrice = blendedCost;
-              }
-              v.stock = (v.stock || 0) + item.qty;
-              p.stock = p.variants.reduce((s, vr) => s + (vr.stock || 0), 0);
-              // Products.js's own save handler treats variant[0]'s cost as
-              // the product-level costPrice representative (finalVariants[0].
-              // costPrice) — mirrored here so this stays consistent with
-              // whatever a manual edit there would have produced.
-              p.costPrice = p.variants[0]?.costPrice ?? p.costPrice;
-            }
-          } else {
-            oldStock = p.stock || 0;
-            if (newCost > 0) {
-              const oldCost = Number(p.costPrice) || 0;
-              const totalQty = oldStock + item.qty;
-              const blendedCost = totalQty > 0 ? parseFloat((((oldStock * oldCost) + (item.qty * newCost)) / totalQty).toFixed(2)) : newCost;
-              if (blendedCost !== oldCost) {
-                costChanges.push({ productId: p.id, variantName: null, name: p.name, oldCost, newCost: blendedCost, oldPrice: Number(p.price) || 0 });
-              }
-              p.costPrice = blendedCost;
-            }
-            p.stock = oldStock + item.qty;
-          }
-          await updateProduct(p);
-          await logInventoryChange(p.id, item.variantName || null, 'IN', item.qty, 'Purchase Received', newPur.branchId, newPur.id, oldStock, oldStock + item.qty, currentUser?.name);
-        }
-      }
-
-      showToast('Purchase completed and stock updated!', 'success');
+      showToast('Purchase order saved. Stock will update once you Mark as Received.', 'success');
       closeModal();
       const { navigate } = await import('../router.js');
       await navigate('purchases');
-      if (costChanges.length > 0) {
-        await openCostChangeSuggestionModal(costChanges);
-      }
     } finally {
       completePurchaseBtn.disabled = false;
     }
@@ -1019,6 +968,58 @@ async function openCostChangeSuggestionModal(costChanges) {
       showToast('Failed to update some prices', 'error');
       applyBtn.disabled = false;
       applyBtn.innerHTML = '<i class="fa-solid fa-check"></i> Update Selected';
+    }
+  };
+}
+
+// First half of the "Order → Received" 2-step workflow's UI side — confirms
+// goods have actually arrived, then delegates the real stock/cost work to
+// db.js's receivePurchase() and surfaces the same "update selling price?"
+// suggestion the old single-step flow used to show inline. Exported so
+// Reports.js's Purchase Report list (which shows 'Ordered' rows too) can
+// wire the same action to its own row button instead of duplicating it.
+export async function markPurchaseReceived(purchase, onSuccess) {
+  openModal({
+    title: 'Mark Purchase as Received',
+    body: `
+      <div style="text-align:center; padding: 20px 0;">
+        <i class="fa-solid fa-truck-ramp-box" style="font-size: 48px; margin-bottom: 24px; color:var(--success)"></i>
+        <h3 style="margin-bottom:8px">Confirm Goods Received</h3>
+        <p style="color:var(--text-muted); font-size:14px; margin-bottom:8px">
+          Confirm that the items in purchase <b>${escapeHtml(purchase.id)}</b> from <b>${escapeHtml(purchase.supplierName || 'Unknown Supplier')}</b> have physically arrived.
+        </p>
+        <p style="color:var(--text-muted); font-size:12px; margin-bottom:32px">
+          Stock will be added and cost prices updated immediately — only confirm once the goods are actually in hand.
+        </p>
+        <div style="display:flex; gap:16px; justify-content:center;">
+          <button class="btn btn-ghost" onclick="closeModal()" style="flex:1">Not Yet</button>
+          <button class="btn btn-primary" id="confirmReceivePurchaseBtn" style="flex:1; background:var(--success); border-color:var(--success)">
+            <i class="fa-solid fa-check-double mr-4"></i> Yes, Goods Received
+          </button>
+        </div>
+      </div>
+    `,
+    footer: ''
+  });
+
+  const confirmBtn = document.getElementById('confirmReceivePurchaseBtn');
+  confirmBtn.onclick = async () => {
+    if (confirmBtn.disabled) return;
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Receiving...';
+    try {
+      const currentUser = await getCurrentUser();
+      const { costChanges } = await receivePurchase(purchase.id, currentUser?.name || '');
+      showToast('Purchase received — stock updated!', 'success');
+      closeModal();
+      if (onSuccess) await onSuccess();
+      if (costChanges.length > 0) {
+        await openCostChangeSuggestionModal(costChanges);
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to mark as received', 'error');
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = '<i class="fa-solid fa-check-double mr-4"></i> Yes, Goods Received';
     }
   };
 }
@@ -1328,6 +1329,14 @@ async function viewPurchaseDetails(purchase) {
           </tfoot>
         </table>
       </div>
+      ${purchase.status === 'Ordered' ? `
+        <div style="margin-top:16px; padding:16px; background:rgba(59,130,246,0.08); border-radius:12px; border:1px solid var(--info, #3b82f6); display:flex; justify-content:space-between; align-items:center; gap:12px;">
+          <div>
+            <div class="form-label" style="margin-bottom:2px"><i class="fa-solid fa-triangle-exclamation mr-4"></i>Awaiting Receipt</div>
+            <div style="font-size:12px; color:var(--text-muted);">Order placed with supplier — stock hasn't been added yet. Mark as Received only once goods physically arrive.</div>
+          </div>
+        </div>
+      ` : ''}
       ${outstanding > 0 ? `
         <div style="margin-top:16px; padding:16px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
           <div>
@@ -1340,7 +1349,11 @@ async function viewPurchaseDetails(purchase) {
     `,
     footer: `
       <button class="btn btn-primary" onclick="closeModal()">Close Details</button>
-      <button class="btn btn-danger" id="purchaseReturnBtn"><i class="fa-solid fa-rotate-left mr-4"></i> Return</button>
+      ${purchase.status === 'Ordered' ? `
+        <button class="btn" id="purchaseReceiveBtn" style="background:var(--success);border-color:var(--success);color:#fff"><i class="fa-solid fa-truck-ramp-box mr-4"></i> Mark as Received</button>
+      ` : `
+        <button class="btn btn-danger" id="purchaseReturnBtn"><i class="fa-solid fa-rotate-left mr-4"></i> Return</button>
+      `}
       <button class="btn btn-ghost" id="printVoucherBtn"><i class="fa-solid fa-print mr-4"></i> Print Voucher</button>
     `
   });
@@ -1372,6 +1385,13 @@ async function viewPurchaseDetails(purchase) {
 
   document.getElementById('recordPaymentBtn')?.addEventListener('click', async () => {
     await openSupplierPaymentModal(purchase.id, settings.currency || '₹', async () => {
+      const { navigate } = await import('../router.js');
+      await navigate('purchases');
+    });
+  });
+
+  document.getElementById('purchaseReceiveBtn')?.addEventListener('click', async () => {
+    await markPurchaseReceived(purchase, async () => {
       const { navigate } = await import('../router.js');
       await navigate('purchases');
     });
