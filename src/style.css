@@ -2607,6 +2607,43 @@ table {
   border-color: var(--border);
 }
 
+/* Custom Order (POS product grid) — drag-and-drop reordering */
+.product-card.custom-order-tile {
+  cursor: grab;
+}
+
+.product-card.custom-order-tile:active {
+  cursor: grabbing;
+}
+
+.pos-drag-handle {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text-muted);
+  font-size: 10px;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.product-card.dragging {
+  opacity: 0.4;
+  transform: scale(0.96);
+}
+
+.product-card.drag-over {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary), 0 6px 18px rgba(79, 70, 229, 0.25);
+  transform: translateY(-2px);
+}
+
 /* ============================================ POS CART METADATA */
 
 .cart-order-meta {

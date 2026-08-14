@@ -418,7 +418,13 @@ const DEFAULT_SETTINGS = {
   networkId: 'GLOBAL',
   email: '',
   roundOffEnabled: false,
-  deploymentMode: 'standalone'
+  deploymentMode: 'standalone',
+  // POS product-grid "Custom Order" — array of product ids in the order the
+  // user manually dragged them into (POS.js). Branch-scoped like the rest of
+  // `settings`, so it rides the existing settings save/sync path instead of
+  // needing a whole new IndexedDB store. Products not present in this list
+  // (new arrivals) sort after the ones the user has placed.
+  posCustomProductOrder: []
 };
 
 export const BUSINESS_FEATURES = {

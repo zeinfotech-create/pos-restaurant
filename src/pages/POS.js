@@ -1,4 +1,4 @@
-import { getProducts, getSettings, getCustomers, isRegisterOpen, getBusinessFeatures, getAppointments, getStaff, saveAppointment, deleteAppointment, updateAppointmentStatus, hasPermission, getCategories, getSubCategories, getLowStockProducts, getExpiringProducts, getCurrentRegisterId, getCurrentBranch, updateProduct, logInventoryChange, getCurrentUser } from '../db.js';
+import { getProducts, getSettings, updateSettings, getCustomers, isRegisterOpen, getBusinessFeatures, getAppointments, getStaff, saveAppointment, deleteAppointment, updateAppointmentStatus, hasPermission, getCategories, getSubCategories, getLowStockProducts, getExpiringProducts, getCurrentRegisterId, getCurrentBranch, updateProduct, logInventoryChange, getCurrentUser } from '../db.js';
 import { store, addToCart, onCartUpdate, getCartTotals, updateQty, removeFromCart, clearCart, setDiscount, setExtraTax, loadAppointmentIntoCart, updateCartItem } from '../store.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { openCustomerForm } from '../components/CustomerForm.js';
@@ -23,6 +23,10 @@ let currentSuggestions = [];
 // resolve to the same product and addToCart() runs twice, silently
 // doubling the scanned item's quantity.
 let isProcessingEnterAdd = false;
+// Drag-and-drop custom product order (only active while currentSort ===
+// 'custom'). Tracks the id of the tile currently being dragged; module-level
+// since only one drag can be in flight at a time for this page.
+let dragSrcProductId = null;
 export async function renderPOS(container) {
   if (window._posCleanup) { window._posCleanup(); window._posCleanup = null; }
 
@@ -141,16 +145,18 @@ export async function renderPOS(container) {
           <div class="category-chips-header" style="display:flex; justify-content:space-between; align-items:center; gap:12px">
             <div class="category-chips" id="categoryChips"></div>
             <div class="sort-control" style="background:var(--bg-elevated); border:2px solid ${currentSort === 'name-asc' ? 'var(--border)' : 'var(--primary)'}; border-radius:8px;  padding: 4px 10px; display:flex; align-items:center; gap:8px; flex-shrink:0; box-shadow: ${currentSort === 'name-asc' ? 'none' : '0 0 10px rgba(99, 102, 241, 0.3)'}; transition: all 0.2s">
-              <i class="fa-solid fa-arrow-up-wide-short" style="font-size:12px; color:${currentSort === 'name-asc' ? 'var(--text-secondary)' : 'var(--primary)'}; opacity:0.8"></i>
+              <i class="fa-solid ${currentSort === 'custom' ? 'fa-arrows-up-down-left-right' : 'fa-arrow-up-wide-short'}" style="font-size:12px; color:${currentSort === 'name-asc' ? 'var(--text-secondary)' : 'var(--primary)'}; opacity:0.8"></i>
               <select id="posSortSelect" style="border:none; background:transparent; font-size:12px; font-weight:700; outline:none; color:${currentSort === 'name-asc' ? 'var(--text-primary)' : 'var(--primary)'}; cursor:pointer; height:24px; padding-right:8px">
                 <option value="name-asc" ${currentSort === 'name-asc' ? 'selected' : ''} style="background:var(--bg-elevated); color:var(--text-primary)">A to Z</option>
                 <option value="name-desc" ${currentSort === 'name-desc' ? 'selected' : ''} style="background:var(--bg-elevated); color:var(--text-primary)">Z to A</option>
                 <option value="price-asc" ${currentSort === 'price-asc' ? 'selected' : ''} style="background:var(--bg-elevated); color:var(--text-primary)">Price: Low to High</option>
                 <option value="price-desc" ${currentSort === 'price-desc' ? 'selected' : ''} style="background:var(--bg-elevated); color:var(--text-primary)">Price: High to Low</option>
                 <option value="most-sold" ${currentSort === 'most-sold' ? 'selected' : ''} style="background:var(--bg-elevated); color:var(--text-primary)">Most Sold First</option>
+                <option value="custom" ${currentSort === 'custom' ? 'selected' : ''} style="background:var(--bg-elevated); color:var(--text-primary)">Custom Order</option>
               </select>
             </div>
           </div>
+          <div id="posCustomOrderBanner"></div>
         </div>
         <div class="pos-products-grid-scroll">
           <div class="grid-auto" id="productGrid"></div>
@@ -425,8 +431,9 @@ async function renderProductGrid(append = false) {
 
   const branchId = store.branch?.id;
   const allProducts = await getProducts(branchId);
+  const settings = await getSettings(branchId);
   let products = [...allProducts];
-  
+
   // 1. Filtering
   if (currentCategory !== 'All') {
     if (currentCategory === 'Uncategorized') {
@@ -449,7 +456,7 @@ async function renderProductGrid(append = false) {
   }
 
   // 2. Sorting
-  const orders = import.meta ? [] : (window.db?.getOrders ? window.db.getOrders(branchId) : []); 
+  const orders = import.meta ? [] : (window.db?.getOrders ? window.db.getOrders(branchId) : []);
   // Fallback because getOrders is imported but let's be safe. Wait, I can call the imported getOrders.
   // Actually, I'll calculate popular items count if "most-sold" is selected.
   let popularMap = {};
@@ -463,12 +470,25 @@ async function renderProductGrid(append = false) {
     });
   }
 
+  // "Custom Order" — user-dragged arrangement, saved per-branch on
+  // settings.posCustomProductOrder (array of product ids). Anything not yet
+  // placed (new products) falls after the placed ones, alphabetically among
+  // themselves so it's at least predictable until the user drags them too.
+  let customOrderMap = {};
+  if (currentSort === 'custom') {
+    const savedOrder = Array.isArray(settings.posCustomProductOrder) ? settings.posCustomProductOrder : [];
+    savedOrder.forEach((id, idx) => { customOrderMap[String(id)] = idx; });
+  }
+
   products.sort((a, b) => {
-    // RULE 1: Out of stock last
-    const aStock = a.stock || 0;
-    const bStock = b.stock || 0;
-    if (aStock > 0 && bStock <= 0) return -1;
-    if (aStock <= 0 && bStock > 0) return 1;
+    // RULE 1: Out of stock last — skipped in Custom Order mode so a manually
+    // dragged arrangement stays exactly where the user put it, stock or not.
+    if (currentSort !== 'custom') {
+      const aStock = a.stock || 0;
+      const bStock = b.stock || 0;
+      if (aStock > 0 && bStock <= 0) return -1;
+      if (aStock <= 0 && bStock > 0) return 1;
+    }
 
     // RULE 2: Primary Sort
     switch (currentSort) {
@@ -477,9 +497,40 @@ async function renderProductGrid(append = false) {
       case 'price-asc': return (a.price || 0) - (b.price || 0);
       case 'price-desc': return (b.price || 0) - (a.price || 0);
       case 'most-sold': return (popularMap[b.id] || 0) - (popularMap[a.id] || 0);
+      case 'custom': {
+        const aIdx = customOrderMap[String(a.id)];
+        const bIdx = customOrderMap[String(b.id)];
+        const aPlaced = aIdx !== undefined, bPlaced = bIdx !== undefined;
+        if (aPlaced && bPlaced) return aIdx - bIdx;
+        if (aPlaced) return -1;
+        if (bPlaced) return 1;
+        return a.name.localeCompare(b.name);
+      }
       default: return 0;
     }
   });
+
+  // Custom Order banner — instructions + a way to undo, shown only in this mode.
+  const banner = document.getElementById('posCustomOrderBanner');
+  if (banner) {
+    banner.innerHTML = currentSort === 'custom' ? `
+      <div style="display:flex; align-items:center; gap:10px; background:rgba(99,102,241,0.08); border:1px dashed var(--primary); border-radius:8px; padding:8px 14px; margin:10px 0; font-size:12px; color:var(--text-primary);">
+        <i class="fa-solid fa-hand-pointer" style="color:var(--primary)"></i>
+        <span style="flex:1;"><b>Drag &amp; drop</b> any product tile to arrange your own order. Saved automatically.</span>
+        <button id="posResetCustomOrderBtn" class="btn btn-ghost btn-sm" style="font-size:11px; padding:4px 10px;">
+          <i class="fa-solid fa-rotate-left"></i> Reset
+        </button>
+      </div>
+    ` : '';
+    const resetBtn = document.getElementById('posResetCustomOrderBtn');
+    if (resetBtn) {
+      resetBtn.onclick = async () => {
+        await updateSettings({ posCustomProductOrder: [] });
+        if (window.showToast) window.showToast('Custom order reset', 'success');
+        await renderProductGrid();
+      };
+    }
+  }
 
   // 3. Pagination (Lazy Load)
   const slicedProducts = products.slice(0, visibleCount);
@@ -489,7 +540,7 @@ async function renderProductGrid(append = false) {
     return;
   }
 
-  const settings = await getSettings();
+  const isCustomMode = currentSort === 'custom';
 
   const html = slicedProducts.map(p => {
     const hasVariants = p.variants && p.variants.length > 0;
@@ -517,10 +568,11 @@ async function renderProductGrid(append = false) {
     const finalPrice = p.taxType === 'inclusive' ? basePrice : basePrice * (1 + taxRate/100);
 
     return `
-      <div class="product-card ${isOutOfStock ? 'out-of-stock' : ''}" data-id="${p.id}" style="position:relative">
+      <div class="product-card ${isOutOfStock ? 'out-of-stock' : ''} ${isCustomMode ? 'custom-order-tile' : ''}" data-id="${p.id}" style="position:relative" ${isCustomMode ? 'draggable="true"' : ''}>
+        ${isCustomMode ? `<div class="pos-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
         ${isPopular ? `<div style="position:absolute; top:6px; left:6px; width:24px; height:24px; background:linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color:#fff; display:flex; align-items:center; justify-content:center; border-radius:50%; z-index:2; box-shadow:0 4px 8px rgba(217,119,6,0.3); border:1.5px solid rgba(255,255,255,0.4); animation: pulse 2s infinite" title="Most Sold Item"><i class="fa-solid fa-crown" style="font-size:10px"></i></div>` : ''}
         <div class="product-emoji">
-          ${p.image ? `<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;border-radius:8px" />` : (p.emoji || '📦')}
+          ${p.image ? `<img src="${p.image}" draggable="false" style="width:100%;height:100%;object-fit:cover;border-radius:8px" />` : (p.emoji || '📦')}
         </div>
         <div class="product-name" style="${isOutOfStock ? 'opacity:0.6' : ''}">${escapeHtml(p.name)}</div>
         <div class="product-price">
@@ -542,6 +594,9 @@ async function renderProductGrid(append = false) {
 
   grid.querySelectorAll('.product-card:not(.out-of-stock)').forEach(card => {
     card.addEventListener('click', async () => {
+      // In Custom Order mode a click firing right after a drag (dragstart
+      // already set this) shouldn't also add the item to cart.
+      if (dragSrcProductId) return;
       const product = allProducts.find(p => p.id == card.dataset.id);
       if (product) {
         if (product.variants && product.variants.length > 0) {
@@ -552,6 +607,88 @@ async function renderProductGrid(append = false) {
       }
     });
   });
+
+  wireProductGridDrag(grid);
+}
+
+// Drag-and-drop reordering for Custom Order mode. Wired once per #productGrid
+// element (guarded via a dataset flag) since renderProductGrid() only
+// replaces the grid's innerHTML on sort/search/pagination changes — the grid
+// element itself persists across those, so delegated listeners bound to it
+// survive without needing to be re-attached every render.
+function wireProductGridDrag(grid) {
+  if (grid.dataset.dragWired) return;
+  grid.dataset.dragWired = '1';
+
+  grid.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('.product-card[draggable="true"]');
+    if (!card) return;
+    dragSrcProductId = card.dataset.id;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    // Required by the HTML5 drag API for the drop to fire in some browsers,
+    // even though the actual id is tracked via the closure var above.
+    e.dataTransfer.setData('text/plain', card.dataset.id);
+  });
+
+  grid.addEventListener('dragover', (e) => {
+    const card = e.target.closest('.product-card[draggable="true"]');
+    if (!card || !dragSrcProductId || card.dataset.id === dragSrcProductId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    grid.querySelectorAll('.product-card.drag-over').forEach(el => el.classList.remove('drag-over'));
+    card.classList.add('drag-over');
+  });
+
+  grid.addEventListener('dragleave', (e) => {
+    const card = e.target.closest('.product-card[draggable="true"]');
+    if (card && !card.contains(e.relatedTarget)) card.classList.remove('drag-over');
+  });
+
+  grid.addEventListener('drop', async (e) => {
+    const card = e.target.closest('.product-card[draggable="true"]');
+    e.preventDefault();
+    if (!card || !dragSrcProductId) return;
+    const targetId = card.dataset.id;
+    card.classList.remove('drag-over');
+    if (targetId === dragSrcProductId) return;
+    await persistCustomOrder(dragSrcProductId, targetId);
+    await renderProductGrid();
+  });
+
+  grid.addEventListener('dragend', () => {
+    grid.querySelectorAll('.product-card.dragging, .product-card.drag-over').forEach(el => el.classList.remove('dragging', 'drag-over'));
+    // Cleared on a short delay, not immediately — the 'click' listener above
+    // needs to still see it on the click event that Chromium fires right
+    // after a drag-and-drop sequence ends on the same element.
+    setTimeout(() => { dragSrcProductId = null; }, 50);
+  });
+}
+
+// Moves `draggedId` to just before `targetId` in the branch's saved custom
+// order, persisting the FULL product id list (not just the currently
+// filtered/visible tiles) so a drag performed while searching/filtering
+// doesn't silently drop every other product out of the saved order.
+async function persistCustomOrder(draggedId, targetId) {
+  const branchId = store.branch?.id;
+  const [allProductsFresh, settings] = await Promise.all([getProducts(branchId), getSettings(branchId)]);
+  const savedOrder = Array.isArray(settings.posCustomProductOrder) ? settings.posCustomProductOrder : [];
+
+  const idToProduct = new Map(allProductsFresh.map(p => [String(p.id), p]));
+  const placed = savedOrder.map(String).filter(id => idToProduct.has(id));
+  const placedSet = new Set(placed);
+  const unplaced = allProductsFresh
+    .filter(p => !placedSet.has(String(p.id)))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(p => String(p.id));
+
+  let fullOrder = [...placed, ...unplaced];
+  const dId = String(draggedId), tId = String(targetId);
+  fullOrder = fullOrder.filter(id => id !== dId);
+  const targetIdx = fullOrder.indexOf(tId);
+  fullOrder.splice(targetIdx === -1 ? fullOrder.length : targetIdx, 0, dId);
+
+  await updateSettings({ posCustomProductOrder: fullOrder });
 }
 
 
