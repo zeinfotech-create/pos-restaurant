@@ -916,13 +916,14 @@ async function renderVehicleDeliveryReport(container, cur) {
             body: `
               <div class="table-wrap">
                 <table class="responsive-table">
-                  <thead><tr><th>Order #</th><th>Date</th><th>Total</th></tr></thead>
+                  <thead><tr><th>Order #</th><th>Date</th><th>Total</th><th>Actions</th></tr></thead>
                   <tbody>
                     ${res.pageItems.map(o => `
                       <tr>
                         <td data-label="Order #">${o.dailyNumber ? '#' + o.dailyNumber : o.id}</td>
                         <td data-label="Date">${o.date ? new Date(o.date).toLocaleString() : 'N/A'}</td>
                         <td data-label="Total" class="font-bold text-success">${cur}${o.total.toFixed(2)}</td>
+                        <td><button class="btn btn-ghost btn-sm vehicle-order-view-btn" data-id="${o.id}"><i class="fa-solid fa-receipt"></i> View Receipt</button></td>
                       </tr>
                     `).join('')}
                   </tbody>
@@ -934,6 +935,22 @@ async function renderVehicleDeliveryReport(container, cur) {
           });
           renderPaginationBar(document.getElementById('vehicleModalPagination'), {
             page: res.page, totalPages: res.totalPages, onChange: (p) => { modalPage = p; renderVehicleModal(); }
+          });
+
+          // Reuses Orders.js's own order-detail/receipt view (same Print/
+          // Process Return/Settle Payment actions as the full Order History
+          // page) instead of building a second, stripped-down preview here
+          // — v.orders only carries a summary {id, dailyNumber, date, total}
+          // for this list, so the full order record is fetched fresh by id
+          // right when a row's button is actually clicked.
+          document.querySelectorAll('.vehicle-order-view-btn').forEach(vbtn => {
+            vbtn.onclick = async () => {
+              const allOrders = await getOrders(currentBranchFilter);
+              const fullOrder = allOrders.find(x => x.id === vbtn.dataset.id);
+              if (!fullOrder) { showToast('Order not found', 'error'); return; }
+              const { viewOrderDetail } = await import('./Orders.js');
+              await viewOrderDetail(fullOrder, cur);
+            };
           });
         }
         renderVehicleModal();
