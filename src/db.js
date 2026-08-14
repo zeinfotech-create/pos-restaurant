@@ -1437,6 +1437,154 @@ export async function saveReturn(ret) {
   return ret;
 }
 
+/**
+ * Cancel Order — voids an Unpaid/Credit sale that nothing was ever actually
+ * collected against (customer walked away without paying, order created by
+ * mistake, etc.). Deliberately scoped to ONLY credit orders with zero
+ * payments recorded: a PAID order genuinely needs its money handed back,
+ * which is exactly what the existing Return Items (refund) flow already
+ * does correctly — this function doesn't duplicate that, it fills the gap
+ * Return can't: reversing a sale where no real money ever moved, without
+ * forcing the cashier to pick a refund method for cash that was never taken.
+ *
+ * Mirrors (rather than calls) saveOrder()'s stock/loyalty/credit side-effect
+ * block and saveReturn()'s staff-commission clawback, run in reverse.
+ */
+export async function cancelOrder(orderId, cancelReason = '', cancelledBy = '') {
+  const order = await getDataById('orders', orderId);
+  if (!order) throw new Error('Order not found');
+  if (order.status === 'cancelled') throw new Error('This order is already cancelled.');
+  if (order.status !== 'credit') {
+    throw new Error('Only Unpaid orders can be cancelled this way. For a paid order, use "Return Items" to refund it instead.');
+  }
+  const paidSoFar = (order.payments || []).reduce((s, p) => s + (p.amount || 0), 0);
+  if (paidSoFar > 0.01) {
+    throw new Error('This order already has payments collected against it — settle or return that amount first before cancelling.');
+  }
+  const existingReturns = (await getReturns()).filter(r => r.orderId === orderId);
+  if (existingReturns.length > 0) {
+    throw new Error('This order already has a return processed against it — use Return Items for any further adjustment.');
+  }
+
+  // 1. Restore stock for every line item (mirrors deleteOrder()'s loop —
+  // each item's write is independent so one failure can't block the rest).
+  const products = await getProducts();
+  for (const item of order.items || []) {
+    try {
+      const p = products.find(x => x.id === item.id);
+      if (p) {
+        let oldStock = 0;
+        let newStock = 0;
+        if (item.variantName && p.variants) {
+          const v = p.variants.find(v => v.name === item.variantName);
+          if (v) {
+            oldStock = v.stock || 0;
+            v.stock = (v.stock || 0) + item.qty;
+            p.stock = p.variants.reduce((s, vr) => s + (vr.stock || 0), 0);
+            newStock = v.stock;
+          }
+        } else {
+          oldStock = p.stock || 0;
+          p.stock = (p.stock || 0) + item.qty;
+          newStock = p.stock;
+        }
+        await updateProduct(p);
+        await logInventoryChange(p.id, item.variantName || null, 'IN', item.qty, `Order Cancelled (${order.id})`, order.branchId, order.id, oldStock, newStock, cancelledBy || 'System');
+      }
+    } catch (err) {
+      console.error(`[cancelOrder] Stock restore failed for order ${order.id}, product ${item.id}:`, err);
+    }
+  }
+
+  // 2. Reverse staff commission — full clawback, same shape saveReturn()
+  // already uses for a partial/full refund's negative incentive entry.
+  if (order.staff) {
+    const commissionRate = parseFloat(order.staff.commissionRate) || 0;
+    if (commissionRate > 0) {
+      const clawback = (order.total || 0) * commissionRate / 100;
+      try {
+        await saveStaffIncentive({
+          staffId: order.staff.id,
+          staffName: order.staff.name,
+          orderId: order.id,
+          orderTotal: -(order.total || 0),
+          commissionRate,
+          amount: -parseFloat(clawback.toFixed(2)),
+          branchId: order.branchId,
+          note: `Commission reversed — order ${order.id} cancelled`
+        });
+      } catch (err) {
+        console.error(`[cancelOrder] Staff commission clawback failed for order ${order.id}:`, err);
+      }
+    }
+  }
+
+  // 3. Reverse loyalty points earned, refund any points redeemed, and roll
+  // back totalSpent/totalOrders — all of which saveOrder() applied
+  // unconditionally at creation, credit sale or not.
+  if (order.customer?.id) {
+    const custId = order.customer.id;
+    const pointsToClaw = order.awardedPoints || 0;
+    const pointsToRefund = order.redeemedPoints || 0;
+    try {
+      const updatedCust = await db.update(KEYS.CUSTOMERS, custId, async (cust) => {
+        cust.totalSpent = Math.max(0, (cust.totalSpent || 0) - (order.total || 0));
+        cust.totalOrders = Math.max(0, (cust.totalOrders || 0) - 1);
+        if (pointsToClaw > 0) cust.loyaltyPoints = Math.max(0, (cust.loyaltyPoints || 0) - pointsToClaw);
+        if (pointsToRefund > 0) cust.loyaltyPoints = (cust.loyaltyPoints || 0) + pointsToRefund;
+        cust.updatedAt = new Date().toISOString();
+        return cust;
+      });
+      if (updatedCust) {
+        dispatchCustomerSync(updatedCust);
+        if (pointsToClaw > 0) await addLoyaltyTransaction(custId, 'Adjust', -pointsToClaw, order.id, `Reversed — order ${order.id} cancelled`);
+        if (pointsToRefund > 0) await addLoyaltyTransaction(custId, 'Adjust', pointsToRefund, order.id, `Redeemed points refunded — order ${order.id} cancelled`);
+      }
+    } catch (err) {
+      console.error(`[cancelOrder] Loyalty reversal failed for order ${order.id}:`, err);
+    }
+
+    // 4. Reverse any store-credit balance that was spent, and the unpaid
+    // debt itself (paidSoFar is 0 here — guarded above — so the full
+    // remaining debt is exactly what saveOrder() originally added).
+    try {
+      if (order.creditUsed > 0) {
+        await adjustCustomerCredit(custId, order.creditUsed, 'Credit', `Reversed — order ${order.id} cancelled`, order.id);
+      }
+      const totalDebt = Math.max(0, (order.total || 0) - (order.redeemedPoints || 0) - (order.creditUsed || 0));
+      if (totalDebt > 0.01) {
+        await adjustCustomerCredit(custId, totalDebt, 'Credit', `Debt cancelled — order ${order.id} voided`, order.id);
+      }
+    } catch (err) {
+      console.error(`[cancelOrder] Credit balance reversal failed for order ${order.id}:`, err);
+    }
+  }
+
+  // 5. Reverse shift stats. No payment methods to unwind from collections
+  // (guarded above — nothing was ever collected), but shift.sales and
+  // ordersCount both need to come back out. Same "whichever register is
+  // open right now" convention saveReturn()'s own shift call already uses —
+  // the original shift may well be closed by the time this runs.
+  try {
+    const registerId = await getCurrentRegisterId();
+    await updateShiftSales(order.branchId, -(order.total || 0), [], registerId, false, false, true);
+  } catch (err) {
+    console.error(`[cancelOrder] Shift stats reversal failed for order ${order.id}:`, err);
+  }
+
+  // 6. Finally, mark the order itself cancelled — after every reversal
+  // above has run, so a failure partway through still leaves the order
+  // looking "credit" (inspectable/retryable) rather than silently
+  // "cancelled" with some side effects never actually undone.
+  order.status = 'cancelled';
+  order.cancelledAt = new Date().toISOString();
+  order.cancelledBy = cancelledBy || '';
+  order.cancelReason = cancelReason || '';
+  await updateData('orders', order);
+
+  return order;
+}
+
 export async function getSettings(branchId = null) {
   let data = await db.getAll(KEYS.SETTINGS) || [];
   if (!Array.isArray(data)) data = [data];
@@ -2654,14 +2802,22 @@ export async function closeRegister(shiftId, closingBalance, notes) {
   return shift;
 }
 
-export async function updateShiftSales(branchId, amount, paymentData, registerId = null, isReturn = false, isDebtSettlement = false) {
+export async function updateShiftSales(branchId, amount, paymentData, registerId = null, isReturn = false, isDebtSettlement = false, isCancel = false) {
   const rid = registerId || await getCurrentRegisterId();
   const shift = await getCurrentShift(branchId, rid);
   if (!shift) return;
 
   if (!isDebtSettlement) {
     shift.sales = (shift.sales || 0) + amount;
-    if (!isReturn) shift.ordersCount = (shift.ordersCount || 0) + 1;
+    // isCancel: a cancelOrder() reversal — the original sale DID count as a
+    // real order when it was made, so unlike a return (which leaves
+    // ordersCount alone — the transaction still happened, just partly/fully
+    // refunded), voiding it should actually decrement the count back out.
+    if (isCancel) {
+      shift.ordersCount = Math.max(0, (shift.ordersCount || 0) - 1);
+    } else if (!isReturn) {
+      shift.ordersCount = (shift.ordersCount || 0) + 1;
+    }
   }
 
   if (!shift.collections) shift.collections = {};

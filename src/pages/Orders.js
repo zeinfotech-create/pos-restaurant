@@ -364,6 +364,13 @@ export async function viewOrderDetail(order, cur) {
   const settings = await getSettings();
   const allReturns = (await getReturns()).filter(r => r.orderId === order.id);
   const hasReturns = allReturns.length > 0;
+  // Scoped to Unpaid orders only — a paid order needs its money genuinely
+  // handed back, which "Process Return" already does correctly; Cancel
+  // Order exists specifically for the "never actually paid" case that
+  // Return can't model without asking for a refund method for cash that
+  // was never taken. cancelOrder() itself re-validates all of this
+  // server-side-equivalent — this is just the button's visibility gate.
+  const canCancel = order.status === 'credit' && !hasReturns && await hasPermission('orders:cancel');
 
   openModal({
     title: `Order ${order.id}`,
@@ -372,6 +379,9 @@ export async function viewOrderDetail(order, cur) {
           <button class="btn btn-ghost" id="closeDetailBtn">Close</button>
           ${order.status === 'credit' ? `
             <button class="btn btn-success" id="payOrderBtn"><i class="fa-solid fa-money-bill-wave"></i> Settle Payment</button>
+          ` : ''}
+          ${canCancel ? `
+            <button class="btn btn-danger" id="cancelOrderBtn"><i class="fa-solid fa-ban"></i> Cancel Order</button>
           ` : ''}
           ${await hasPermission('orders:refund') ? `
             <button class="btn btn-danger" id="returnOrderBtn"><i class="fa-solid fa-rotate-left"></i> Process Return</button>
@@ -387,6 +397,9 @@ export async function viewOrderDetail(order, cur) {
 
   setTimeout(() => {
     renderReceiptBarcodes(document.querySelector('.modal-body'));
+
+    const cancelBtn = document.getElementById('cancelOrderBtn');
+    if (cancelBtn) cancelBtn.onclick = () => openCancelOrderModal(order, cur);
 
     const closeBtn = document.getElementById('closeDetailBtn');
     const printBtn = document.getElementById('printOrderBtn');
@@ -445,6 +458,53 @@ export async function viewOrderDetail(order, cur) {
     }
 
   }, 0);
+}
+
+// Confirmation step for Cancel Order — a free-text reason (optional) plus a
+// clear statement of exactly what gets reversed, since db.cancelOrder() is
+// a destructive, irreversible action (unlike Return, there's no line-item
+// undo for a cancel gone wrong short of manually recreating the sale).
+async function openCancelOrderModal(order, cur) {
+  openModal({
+    title: `<i class="fa-solid fa-ban mr-8" style="color:var(--danger)"></i>Cancel Order ${escapeHtml(order.id)}`,
+    body: `
+      <div style="padding:4px 2px;">
+        <div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:10px; padding:12px 14px; margin-bottom:16px; font-size:13px; color:var(--text-primary); line-height:1.5;">
+          <i class="fa-solid fa-triangle-exclamation mr-8" style="color:var(--danger)"></i>
+          This voids the order completely — stock will be restored, any loyalty points/staff commission reversed, and
+          <b>${escapeHtml(order.customer?.name || 'the customer')}</b>'s outstanding debt of <b>${cur}${(order.total || 0).toFixed(2)}</b> will be cleared. This cannot be undone.
+        </div>
+        <label class="form-label">Reason (optional)</label>
+        <textarea id="cancelOrderReason" class="form-input" rows="3" placeholder="e.g. Customer didn't have payment and left"></textarea>
+      </div>
+    `,
+    footer: `
+      <button class="btn btn-ghost" id="cancelOrderBackBtn">Back</button>
+      <button class="btn btn-danger" id="cancelOrderConfirmBtn"><i class="fa-solid fa-ban"></i> Cancel Order</button>
+    `,
+    disableBackdropDismiss: true
+  });
+
+  document.getElementById('cancelOrderBackBtn').onclick = () => viewOrderDetail(order, cur);
+  document.getElementById('cancelOrderConfirmBtn').onclick = async () => {
+    const btn = document.getElementById('cancelOrderConfirmBtn');
+    const reason = document.getElementById('cancelOrderReason')?.value.trim() || '';
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Cancelling...';
+    try {
+      const db = await import('../db.js');
+      const session = await db.getSession();
+      await db.cancelOrder(order.id, reason, session?.user?.name || 'Admin');
+      showToast('Order cancelled', 'success');
+      closeModal();
+      await renderOrderList(cur);
+    } catch (err) {
+      console.error('[Orders] Cancel order failed:', err);
+      showToast(err.message || 'Failed to cancel order', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-ban"></i> Cancel Order';
+    }
+  };
 }
 
 async function openReturnModal(order, cur) {
