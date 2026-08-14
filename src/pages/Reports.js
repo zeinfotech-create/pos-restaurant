@@ -1026,11 +1026,11 @@ async function renderVehicleDeliveryReport(container, cur) {
             body: `
               <div class="table-wrap">
                 <table class="responsive-table">
-                  <thead><tr><th>Order #</th><th>Date</th><th>Total</th><th>Actions</th></tr></thead>
+                  <thead><tr><th>Order ID</th><th>Date</th><th>Total</th><th>Actions</th></tr></thead>
                   <tbody>
                     ${res.pageItems.map(o => `
                       <tr>
-                        <td data-label="Order #">${o.dailyNumber ? '#' + o.dailyNumber : o.id}</td>
+                        <td data-label="Order ID"><span class="badge badge-primary">${escapeHtml(o.id)}</span></td>
                         <td data-label="Date">${o.date ? new Date(o.date).toLocaleString() : 'N/A'}</td>
                         <td data-label="Total" class="font-bold text-success">${cur}${o.total.toFixed(2)}</td>
                         <td><button class="btn btn-ghost btn-sm vehicle-order-view-btn" data-id="${o.id}"><i class="fa-solid fa-receipt"></i> View Receipt</button></td>
@@ -1256,11 +1256,11 @@ async function renderOutstandingReport(container, cur) {
             body: `
               <div class="table-wrap">
                 <table class="responsive-table">
-                  <thead><tr><th>Order #</th><th>Date</th><th>Total</th><th>Balance</th><th>Actions</th></tr></thead>
+                  <thead><tr><th>Order ID</th><th>Date</th><th>Total</th><th>Balance</th><th>Actions</th></tr></thead>
                   <tbody>
                     ${res.pageItems.map(o => `
                       <tr>
-                        <td data-label="Order #">${o.dailyNumber ? '#' + o.dailyNumber : o.id}</td>
+                        <td data-label="Order ID"><span class="badge badge-primary">${escapeHtml(o.id)}</span></td>
                         <td data-label="Date">${o.date ? new Date(o.date).toLocaleDateString() : 'N/A'}</td>
                         <td data-label="Total">${cur}${o.total.toFixed(2)}</td>
                         <td data-label="Balance" class="font-bold" style="color:var(--warning)">${cur}${o.balance.toFixed(2)}</td>
@@ -2854,20 +2854,14 @@ function renderProcurementChart(data, cur = '₹') {
   if (!ctx || !data) return;
   if (procurementChart) { procurementChart.destroy(); procurementChart = null; }
 
-  // Gradient needs a real canvas 2D context to build, so it's created here
-  // rather than as a plain color string — a flat fill looked flat/basic
-  // next to every other "advanced" chart in this app that already uses one.
-  const canvasCtx = ctx.getContext('2d');
-  const gradient = canvasCtx.createLinearGradient(0, 0, 0, 300);
-  gradient.addColorStop(0, 'rgba(245, 158, 11, 0.35)');
-  gradient.addColorStop(1, 'rgba(245, 158, 11, 0.02)');
-
   procurementChart = new Chart(ctx, {
-    // Combo chart: bars for how many purchases landed each month (volume),
-    // line for what they cost (value) — a single line only ever showed
-    // value, so two purchases of very different sizes in the same month
-    // looked identical to one big one. Two axes since ₹ and count are on
-    // completely different scales.
+    // Both bars now (was bar + line) — grouped side by side per bucket, on
+    // two axes since ₹ and count are on completely different scales. Safe
+    // as a plain grouped bar here (unlike the Sales-vs-Purchases chart,
+    // which needed a hand-packed single-dataset layout to avoid gaps) —
+    // getPurchasesTrend() only ever creates a bucket where a purchase
+    // actually happened, so count and cost are always both present
+    // together; there's no sparse/missing-value case to leave a gap here.
     data: {
       labels: data.map(d => d.label),
       datasets: [
@@ -2875,29 +2869,21 @@ function renderProcurementChart(data, cur = '₹') {
           type: 'bar',
           label: 'Purchases Made',
           data: data.map(d => d.count),
-          backgroundColor: 'rgba(99, 102, 241, 0.35)',
-          hoverBackgroundColor: 'rgba(99, 102, 241, 0.55)',
+          backgroundColor: 'rgba(99, 102, 241, 0.65)',
+          hoverBackgroundColor: 'rgba(99, 102, 241, 0.85)',
           borderRadius: 6,
           borderSkipped: false,
           yAxisID: 'yCount',
-          order: 2,
         },
         {
-          type: 'line',
+          type: 'bar',
           label: 'Purchase Cost',
           data: data.map(d => d.total),
-          backgroundColor: gradient,
-          borderColor: '#f59e0b',
-          borderWidth: 3,
-          tension: 0.35,
-          fill: true,
-          pointBackgroundColor: '#f59e0b',
-          pointBorderColor: '#fff',
-          pointBorderWidth: 2,
-          pointRadius: 4,
-          pointHoverRadius: 6,
+          backgroundColor: 'rgba(245, 158, 11, 0.65)',
+          hoverBackgroundColor: 'rgba(245, 158, 11, 0.85)',
+          borderRadius: 6,
+          borderSkipped: false,
           yAxisID: 'yCost',
-          order: 1,
         },
       ],
     },
