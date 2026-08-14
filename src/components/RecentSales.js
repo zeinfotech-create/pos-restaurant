@@ -53,7 +53,11 @@ export async function openRecentSalesModal(cur) {
 
 function renderRow(o, cur) {
   const isCancelled = o.status === 'cancelled';
-  const isUnpaid = o.status === 'credit' || o.paymentMethod === 'Unpaid';
+  // cancelOrder() reverses the debt in full but deliberately leaves the
+  // order's original paymentMethod/status='credit' fields untouched for
+  // audit history — isUnpaid must check isCancelled first, or a voided
+  // order still reads as "Unpaid" here even though nothing is owed anymore.
+  const isUnpaid = !isCancelled && (o.status === 'credit' || o.paymentMethod === 'Unpaid');
   const isReturned = o.status === 'returned' || o.status === 'partial-return';
   // Fixed rgb triplets (not var(--danger) etc.) so the badge background tint
   // below can use a literal rgba() alpha — CSS custom properties can't be
@@ -63,7 +67,7 @@ function renderRow(o, cur) {
   const statusLabel = isCancelled ? 'Cancelled' : (isUnpaid ? 'Unpaid' : (o.status === 'partial-return' ? 'Partial Return' : (o.status === 'returned' ? 'Returned' : 'Paid')));
   const itemCount = (o.items || []).reduce((s, it) => s + (it.qty || 1), 0);
   const time = new Date(o.date).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-  const payLabel = isUnpaid ? 'Unpaid' : (o.payments && o.payments.length > 1 ? `Split (${o.payments.length})` : (o.paymentMethod || 'Cash'));
+  const payLabel = isCancelled ? 'Voided' : (isUnpaid ? 'Unpaid' : (o.payments && o.payments.length > 1 ? `Split (${o.payments.length})` : (o.paymentMethod || 'Cash')));
 
   return `
     <div class="recent-sale-row" data-id="${o.id}" style="display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--border-subtle); border-radius:10px; cursor:pointer;">

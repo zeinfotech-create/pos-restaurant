@@ -248,8 +248,12 @@ async function renderOrderList(cur) {
               <td data-label="Total" class="font-bold text-accent">${cur}${o.total.toFixed(2)}</td>
               <td data-label="Status">${renderStatusBadge(o.status)}</td>
               <td data-label="Payment">
-                <span class="badge badge-${payBadge(o.paymentMethod)}">${o.paymentMethod}</span>
-                ${o.isCredit ? `<span class="badge badge-danger ml-4" style="font-size:9px">CREDIT</span>` : ''}
+                ${o.status === 'cancelled' ? `
+                  <span class="badge" style="font-size:9px; opacity:0.6;" title="Cancelled — debt/stock already reversed, nothing owed">Voided</span>
+                ` : `
+                  <span class="badge badge-${payBadge(o.paymentMethod)}">${o.paymentMethod}</span>
+                  ${o.isCredit ? `<span class="badge badge-danger ml-4" style="font-size:9px">CREDIT</span>` : ''}
+                `}
               </td>
               <td>
                 <button class="btn btn-ghost btn-sm view-btn" data-id="${o.id}">
@@ -371,6 +375,11 @@ export async function viewOrderDetail(order, cur) {
   // was never taken. cancelOrder() itself re-validates all of this
   // server-side-equivalent — this is just the button's visibility gate.
   const canCancel = order.status === 'credit' && !hasReturns && await hasPermission('orders:cancel');
+  // cancelOrder() already reverses stock/loyalty/commission/debt in full —
+  // Process Return running again on top of that would double-reverse every
+  // one of those (stock added back twice, credit balance corrected twice,
+  // etc.). A cancelled order has nothing left to return.
+  const canReturn = order.status !== 'cancelled' && await hasPermission('orders:refund');
 
   openModal({
     title: `Order ${order.id}`,
@@ -383,7 +392,7 @@ export async function viewOrderDetail(order, cur) {
           ${canCancel ? `
             <button class="btn btn-danger" id="cancelOrderBtn"><i class="fa-solid fa-ban"></i> Cancel Order</button>
           ` : ''}
-          ${await hasPermission('orders:refund') ? `
+          ${canReturn ? `
             <button class="btn btn-danger" id="returnOrderBtn"><i class="fa-solid fa-rotate-left"></i> Process Return</button>
           ` : ''}
           ${hasReturns ? `
@@ -508,6 +517,14 @@ async function openCancelOrderModal(order, cur) {
 }
 
 async function openReturnModal(order, cur) {
+  // Defense in depth — viewOrderDetail() already hides the button that
+  // reaches this for a cancelled order (its reversal is already done in
+  // full via cancelOrder()), but guard the entry point itself too rather
+  // than relying solely on that button never rendering.
+  if (order.status === 'cancelled') {
+    showToast('This order was already cancelled — there is nothing left to return.', 'error');
+    return;
+  }
   const db = await import('../db.js');
   const products = await db.getProducts();
   const settings = await getSettings();

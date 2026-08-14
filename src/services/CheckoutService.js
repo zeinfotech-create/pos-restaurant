@@ -1296,8 +1296,12 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
 
       <div style="font-size:12px; margin-bottom:16px">
         <div style="font-weight:700; margin-bottom:4px">Payment Status</div>
-        ${(order.payments || []).map(p => `<div style="display:flex; justify-content:space-between"><span>${escapeHtml(p.method)}</span><span>${cur}${p.amount.toFixed(2)}</span></div>`).join('')}
-        ${(!order.payments || order.payments.length === 0) ? `<div style="display:flex; justify-content:space-between"><span>${escapeHtml(order.paymentMethod || 'Unpaid')}</span><span>${cur}${total.toFixed(2)}</span></div>` : ''}
+        ${order.status === 'cancelled' ? `
+          <div style="display:flex; justify-content:space-between; color:var(--text-muted)"><span>Order Cancelled</span><span>${cur}0.00 due</span></div>
+        ` : `
+          ${(order.payments || []).map(p => `<div style="display:flex; justify-content:space-between"><span>${escapeHtml(p.method)}</span><span>${cur}${p.amount.toFixed(2)}</span></div>`).join('')}
+          ${(!order.payments || order.payments.length === 0) ? `<div style="display:flex; justify-content:space-between"><span>${escapeHtml(order.paymentMethod || 'Unpaid')}</span><span>${cur}${total.toFixed(2)}</span></div>` : ''}
+        `}
       </div>
 
       ${settings.showTermsOnReceipt && settings.receiptTerms ? `
@@ -1566,34 +1570,44 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
       <div class="receipt-divider"></div>
       <div style="font-size:11px;padding:0 4px">
         <div class="font-bold mb-4" style="font-size:12px">Payment Status</div>
-        ${(order.payments || []).map(p => {
-          let txnText = '';
-          if (p.transactionId) {
-            txnText = `<div class="no-print" style="font-size:9px; color:var(--text-muted); opacity:0.8; margin-top:-2px; margin-bottom:4px; margin-left:2px; font-family:monospace;">TXN: ${p.transactionId} ${p.terminalMethod ? `[${p.terminalMethod}]` : ''}</div>`;
-          }
-          return `
-          <div class="flex items-center justify-between" style="padding:2px 0">
-            <span>${escapeHtml(p.method)}</span>
-            <span class="font-semibold">${cur}${p.amount.toFixed(2)}</span>
+        ${order.status === 'cancelled' ? `
+          <div class="flex items-center justify-between" style="color:var(--text-muted)">
+            <span>Order Cancelled</span>
+            <span class="font-semibold">${cur}0.00 due</span>
           </div>
-          ${txnText}
-          `;
-        }).join('')}
-        ${(!order.payments || order.payments.length === 0) ? `<div class="flex items-center justify-between"><span>${escapeHtml(order.paymentMethod || 'Unpaid')}</span><span class="font-semibold">${cur}${total.toFixed(2)}</span></div>` : ''}
-        
-        ${order.creditUsed ? `
-          <div class="flex items-center justify-between mt-2" style="color:#6366f1">
-            <span>Credit Balance Used</span>
-            <span class="font-bold">-${cur}${order.creditUsed.toFixed(2)}</span>
+          <div style="font-size:10px;opacity:0.6;margin-top:2px">
+            This order was voided${order.cancelReason ? ` — ${escapeHtml(order.cancelReason)}` : ''}. No amount is due; any earlier debt was reversed.
           </div>
-        ` : ''}
-        ${order.isCredit ? `
-          <div class="flex items-center justify-between border-t border-dashed mt-4 pt-4" style="color:var(--danger)">
-            <span>Balance Due (New Debt)</span>
-            <span class="font-bold">${cur}${(order.total - (order.redeemedPoints || 0) - (order.creditUsed || 0) - (order.payments || []).reduce((s, p) => s + p.amount, 0)).toFixed(2)}</span>
-          </div>
-          <div style="font-size:10px;opacity:0.6;margin-top:2px">Note: ${escapeHtml(order.creditInfo)}</div>
-        ` : ''}
+        ` : `
+          ${(order.payments || []).map(p => {
+            let txnText = '';
+            if (p.transactionId) {
+              txnText = `<div class="no-print" style="font-size:9px; color:var(--text-muted); opacity:0.8; margin-top:-2px; margin-bottom:4px; margin-left:2px; font-family:monospace;">TXN: ${p.transactionId} ${p.terminalMethod ? `[${p.terminalMethod}]` : ''}</div>`;
+            }
+            return `
+            <div class="flex items-center justify-between" style="padding:2px 0">
+              <span>${escapeHtml(p.method)}</span>
+              <span class="font-semibold">${cur}${p.amount.toFixed(2)}</span>
+            </div>
+            ${txnText}
+            `;
+          }).join('')}
+          ${(!order.payments || order.payments.length === 0) ? `<div class="flex items-center justify-between"><span>${escapeHtml(order.paymentMethod || 'Unpaid')}</span><span class="font-semibold">${cur}${total.toFixed(2)}</span></div>` : ''}
+
+          ${order.creditUsed ? `
+            <div class="flex items-center justify-between mt-2" style="color:#6366f1">
+              <span>Credit Balance Used</span>
+              <span class="font-bold">-${cur}${order.creditUsed.toFixed(2)}</span>
+            </div>
+          ` : ''}
+          ${order.isCredit ? `
+            <div class="flex items-center justify-between border-t border-dashed mt-4 pt-4" style="color:var(--danger)">
+              <span>Balance Due (New Debt)</span>
+              <span class="font-bold">${cur}${(order.total - (order.redeemedPoints || 0) - (order.creditUsed || 0) - (order.payments || []).reduce((s, p) => s + p.amount, 0)).toFixed(2)}</span>
+            </div>
+            <div style="font-size:10px;opacity:0.6;margin-top:2px">Note: ${escapeHtml(order.creditInfo)}</div>
+          ` : ''}
+        `}
       </div>
       <div class="receipt-divider"></div>
       ${settings.showTermsOnReceipt && settings.receiptTerms ? `
