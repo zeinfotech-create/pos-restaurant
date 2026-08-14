@@ -644,20 +644,59 @@ export async function openPurchaseForm(container) {
       // variant's own stock is the source of truth, with product.stock kept
       // only as a derived sum, so receiving stock against a variant here stays
       // consistent with what sales and the product-edit form both read.
+      // costChanges collects every item whose blended cost actually moved —
+      // surfaced to the user afterward as an optional "update selling price
+      // to keep the same margin?" suggestion (openCostChangeSuggestionModal
+      // below). Selling price itself is never touched here automatically.
+      const costChanges = [];
       const allProducts = await getProducts();
       for (const item of itemsToProcess) {
         const p = allProducts.find(x => String(x.id) === String(item.id));
         if (p) {
           let oldStock = 0;
+          const newCost = Number(item.cost) || 0;
+          // Weighted Average Cost — a second purchase of the same product at
+          // a different price (e.g. ₹10/unit ten days ago, ₹15/unit now)
+          // used to leave costPrice exactly where it was (only stock moved),
+          // silently going stale the moment stock at two different costs
+          // physically mixed on the same shelf. Blends old and new cost by
+          // quantity instead — the same method Tally/Zoho Books default to —
+          // so Dashboard/Reports profit margins stay accurate without
+          // anyone having to hand-edit costPrice after every purchase.
+          // Skipped when newCost is 0 (free samples/promo stock) so a
+          // genuinely free restock doesn't drag the real cost basis down.
           if (item.variantName && p.variants) {
             const v = p.variants.find(v => v.name === item.variantName);
             if (v) {
               oldStock = v.stock || 0;
+              if (newCost > 0) {
+                const oldCost = Number(v.costPrice) || 0;
+                const totalQty = oldStock + item.qty;
+                const blendedCost = totalQty > 0 ? parseFloat((((oldStock * oldCost) + (item.qty * newCost)) / totalQty).toFixed(2)) : newCost;
+                if (blendedCost !== oldCost) {
+                  costChanges.push({ productId: p.id, variantName: item.variantName, name: `${p.name} (${item.variantName})`, oldCost, newCost: blendedCost, oldPrice: Number(v.price) || 0 });
+                }
+                v.costPrice = blendedCost;
+              }
               v.stock = (v.stock || 0) + item.qty;
               p.stock = p.variants.reduce((s, vr) => s + (vr.stock || 0), 0);
+              // Products.js's own save handler treats variant[0]'s cost as
+              // the product-level costPrice representative (finalVariants[0].
+              // costPrice) — mirrored here so this stays consistent with
+              // whatever a manual edit there would have produced.
+              p.costPrice = p.variants[0]?.costPrice ?? p.costPrice;
             }
           } else {
             oldStock = p.stock || 0;
+            if (newCost > 0) {
+              const oldCost = Number(p.costPrice) || 0;
+              const totalQty = oldStock + item.qty;
+              const blendedCost = totalQty > 0 ? parseFloat((((oldStock * oldCost) + (item.qty * newCost)) / totalQty).toFixed(2)) : newCost;
+              if (blendedCost !== oldCost) {
+                costChanges.push({ productId: p.id, variantName: null, name: p.name, oldCost, newCost: blendedCost, oldPrice: Number(p.price) || 0 });
+              }
+              p.costPrice = blendedCost;
+            }
             p.stock = oldStock + item.qty;
           }
           await updateProduct(p);
@@ -669,8 +708,114 @@ export async function openPurchaseForm(container) {
       closeModal();
       const { navigate } = await import('../router.js');
       await navigate('purchases');
+      if (costChanges.length > 0) {
+        await openCostChangeSuggestionModal(costChanges);
+      }
     } finally {
       completePurchaseBtn.disabled = false;
+    }
+  };
+}
+
+// After a purchase changes a product's blended cost, the selling price is
+// left exactly where it was (see the loop above) — margin quietly shifts
+// either way, which the shop owner may or may not want to correct. Rather
+// than silently auto-adjusting a customer-facing price, this surfaces every
+// changed item with a suggested new price that would preserve the OLD
+// margin %, and lets the owner pick which ones (if any) to actually apply.
+async function openCostChangeSuggestionModal(costChanges) {
+  const cur = store.settings?.currency || '₹';
+
+  const rows = costChanges.map((c, i) => {
+    // Suggestion only makes sense starting from a real, positive existing
+    // margin — a product already priced at/below its old cost, or with no
+    // price set at all, has no margin % worth "preserving".
+    const hasValidMargin = c.oldPrice > 0 && c.oldCost > 0 && c.oldPrice > c.oldCost;
+    const oldMarginPct = hasValidMargin ? (c.oldPrice - c.oldCost) / c.oldPrice : null;
+    const suggestedPrice = hasValidMargin ? parseFloat((c.newCost / (1 - oldMarginPct)).toFixed(2)) : null;
+    const pctChange = c.oldCost > 0 ? (((c.newCost - c.oldCost) / c.oldCost) * 100).toFixed(1) : null;
+    const direction = c.newCost > c.oldCost ? 'up' : 'down';
+
+    return `
+      <div style="display:flex; align-items:center; gap:12px; padding:12px; border:1px solid var(--border); border-radius:10px; margin-bottom:8px;">
+        <input type="checkbox" class="cost-change-check" data-idx="${i}" ${suggestedPrice != null ? 'checked' : 'disabled'} style="width:16px; height:16px; flex-shrink:0;" />
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:700; font-size:13px; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(c.name)}</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+            Cost: ${cur}${c.oldCost.toFixed(2)} → ${cur}${c.newCost.toFixed(2)}
+            <span style="color:${direction === 'up' ? 'var(--danger)' : 'var(--success)'}; font-weight:700;">(${direction === 'up' ? '+' : ''}${pctChange}%)</span>
+          </div>
+          ${suggestedPrice != null ? `
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+              Price: ${cur}${c.oldPrice.toFixed(2)} → <b style="color:var(--primary)">${cur}${suggestedPrice.toFixed(2)}</b>
+              <span style="opacity:0.7;">(keeps ${(oldMarginPct * 100).toFixed(0)}% margin)</span>
+            </div>
+          ` : `
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px; font-style:italic;">No existing margin to preserve — review price manually.</div>
+          `}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  openModal({
+    title: `<i class="fa-solid fa-tags mr-8" style="color:var(--primary)"></i>Cost Changed — Update Selling Price?`,
+    body: `
+      <div style="padding:2px 0;">
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:14px;">
+          The blended cost for ${costChanges.length} item(s) changed with this purchase. Selling price wasn't touched — pick which ones to update to keep their original margin, or skip and decide later.
+        </p>
+        ${rows}
+      </div>
+    `,
+    footer: `
+      <button class="btn btn-ghost" id="costChangeSkipBtn">Skip All</button>
+      <button class="btn btn-primary" id="costChangeApplyBtn"><i class="fa-solid fa-check"></i> Update Selected</button>
+    `,
+    sidePanel: false
+  });
+
+  document.getElementById('costChangeSkipBtn').onclick = () => closeModal();
+  document.getElementById('costChangeApplyBtn').onclick = async () => {
+    const applyBtn = document.getElementById('costChangeApplyBtn');
+    const checks = document.querySelectorAll('.cost-change-check');
+    const toApply = [];
+    checks.forEach(chk => {
+      if (chk.checked) {
+        const idx = parseInt(chk.dataset.idx);
+        const c = costChanges[idx];
+        const hasValidMargin = c.oldPrice > 0 && c.oldCost > 0 && c.oldPrice > c.oldCost;
+        if (hasValidMargin) {
+          const oldMarginPct = (c.oldPrice - c.oldCost) / c.oldPrice;
+          toApply.push({ ...c, suggestedPrice: parseFloat((c.newCost / (1 - oldMarginPct)).toFixed(2)) });
+        }
+      }
+    });
+
+    if (toApply.length === 0) { closeModal(); return; }
+
+    applyBtn.disabled = true;
+    applyBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating...';
+    try {
+      const freshProducts = await getProducts();
+      for (const c of toApply) {
+        const p = freshProducts.find(x => String(x.id) === String(c.productId));
+        if (!p) continue;
+        if (c.variantName && p.variants) {
+          const v = p.variants.find(v => v.name === c.variantName);
+          if (v) v.price = c.suggestedPrice;
+        } else {
+          p.price = c.suggestedPrice;
+        }
+        await updateProduct(p);
+      }
+      showToast(`Selling price updated for ${toApply.length} item(s)`, 'success');
+      closeModal();
+    } catch (err) {
+      console.error('[Purchases] Failed to apply suggested prices:', err);
+      showToast('Failed to update some prices', 'error');
+      applyBtn.disabled = false;
+      applyBtn.innerHTML = '<i class="fa-solid fa-check"></i> Update Selected';
     }
   };
 }
