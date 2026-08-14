@@ -431,6 +431,7 @@ export async function openPurchaseForm(container) {
             <i class="fa-solid fa-plus mr-4"></i> Add
           </button>
         </div>
+        <div id="lastPurchaseHint" style="margin-top:8px; font-size:11px; color:var(--text-muted); min-height:16px;"></div>
       </div>
 
       <div class="variant-row" style="margin-top:12px; margin-bottom:4px; padding:0 4px">
@@ -473,7 +474,7 @@ export async function openPurchaseForm(container) {
       </div>
     `,
     footer: `
-      <button class="btn btn-ghost" onclick="closeModal()">Abandon Entry</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" id="completePurchaseBtn" style="min-width: 220px; background:var(--success); border-color:var(--success)">
         <i class="fa-solid fa-check-double mr-8"></i> Complete Purchase
       </button>
@@ -481,6 +482,40 @@ export async function openPurchaseForm(container) {
   });
 
   renderItems();
+
+  // "Last purchased" hint — a quick glance at what this product cost and
+  // when it was last bought, so a new price doesn't get typed in blind next
+  // to what was actually paid before. Reuses existingPurchases (already
+  // fetched above for the invoice-number suggestion) instead of a fresh
+  // DB read on every dropdown change.
+  const lastPurchaseHintEl = document.getElementById('lastPurchaseHint');
+  const addProductSelect = document.getElementById('addProductSelect');
+  const cur = store.settings?.currency || '₹';
+
+  function updateLastPurchaseHint() {
+    if (!lastPurchaseHintEl || !addProductSelect) return;
+    const pid = addProductSelect.value;
+    if (!pid) { lastPurchaseHintEl.innerHTML = ''; return; }
+
+    const sortedPurchases = [...existingPurchases].sort((a, b) => new Date(b.date) - new Date(a.date));
+    let found = null;
+    for (const pur of sortedPurchases) {
+      const item = (pur.items || []).find(it => String(it.id) === String(pid));
+      if (item) { found = { date: pur.date, qty: item.qty, cost: item.cost, supplierName: pur.supplierName }; break; }
+    }
+
+    if (!found) {
+      lastPurchaseHintEl.innerHTML = `<i class="fa-solid fa-circle-info mr-4"></i> No previous purchase on record for this product.`;
+      return;
+    }
+
+    const daysAgo = Math.max(0, Math.round((Date.now() - new Date(found.date).getTime()) / 86400000));
+    const whenLabel = daysAgo === 0 ? 'today' : (daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`);
+    lastPurchaseHintEl.innerHTML = `<i class="fa-solid fa-clock-rotate-left mr-4"></i> Last bought <b>${whenLabel}</b> — ${found.qty} units @ <b>${cur}${Number(found.cost).toFixed(2)}</b> from ${escapeHtml(found.supplierName || 'Unknown Supplier')}`;
+  }
+
+  addProductSelect?.addEventListener('change', updateLastPurchaseHint);
+  updateLastPurchaseHint();
 
   const billUploadBtn = document.getElementById('purBillUploadBtn');
   const billFileInput = document.getElementById('purBillFile');
