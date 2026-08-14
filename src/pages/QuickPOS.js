@@ -242,6 +242,13 @@ export async function renderQuickPOS(container) {
          ` : ''}
       </div>
 
+      ${store.selectedCustomer && (store.selectedCustomer.creditBalance || 0) < 0 ? `
+      <div style="display:flex; align-items:center; gap:10px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:8px 14px; margin-bottom:8px; font-size:12px; color:var(--danger); font-weight:600;">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span><b>${escapeHtml(store.selectedCustomer.name)}</b> already owes <b>${cur}${Math.abs(store.selectedCustomer.creditBalance).toFixed(2)}</b> from previous purchases.</span>
+      </div>
+      ` : ''}
+
       <!-- Main Content Grid -->
       <div class="ep-main-grid">
          <!-- Left Column: Customer Details -->

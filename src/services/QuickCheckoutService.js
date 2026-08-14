@@ -191,6 +191,12 @@ export async function openQuickCheckout(onSuccess = null) {
             </div>
 
             <div class="qc-container">
+                ${customer && (customer.creditBalance || 0) < 0 ? `
+                  <div style="display:flex; align-items:center; gap:10px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); border-radius:10px; padding:10px 14px; font-size:13px; color:var(--danger); font-weight:600;">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <span><b>${escapeHtml(customer.name)}</b> already owes <b>${cur}${Math.abs(customer.creditBalance).toFixed(2)}</b> from previous purchases.</span>
+                  </div>
+                ` : ''}
                 <div class="qc-main-layout">
                     <!-- Left: Payments -->
                     <div>

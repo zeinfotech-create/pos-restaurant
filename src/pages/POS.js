@@ -756,6 +756,12 @@ export async function renderCart(cur) {
             <span class="cart-loyalty-tier" style="color:${store.selectedCustomer.tier?.color || 'var(--primary)'}">${store.selectedCustomer.tier?.name || 'Silver'}</span>
           </div>
         ` : ''}
+        ${store.selectedCustomer && (store.selectedCustomer.creditBalance || 0) < 0 ? `
+          <div style="display:flex; align-items:center; gap:8px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:6px 10px; margin:4px 10px 0; font-size:11px; color:var(--danger); font-weight:600;">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>Already owes <b>${cur}${Math.abs(store.selectedCustomer.creditBalance).toFixed(2)}</b> from before.</span>
+          </div>
+        ` : ''}
         ${settings.enableStaffEarnings !== false ? `
         <div class="cart-meta-row no-hover" style="padding:4px 10px; position:relative">
           <span class="cart-meta-icon"><i class="fa-solid fa-user-tie"></i></span>

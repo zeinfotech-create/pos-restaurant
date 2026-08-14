@@ -160,6 +160,12 @@ export async function openCheckout() {
         </div>
 
         <div class="checkout-fullscreen-container">
+            ${store.selectedCustomer && (store.selectedCustomer.creditBalance || 0) < 0 ? `
+              <div style="display:flex; align-items:center; gap:10px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); border-radius:10px; padding:10px 14px; font-size:13px; color:var(--danger); font-weight:600;">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span><b>${escapeHtml(store.selectedCustomer.name)}</b> already owes <b>${cur}${Math.abs(store.selectedCustomer.creditBalance).toFixed(2)}</b> from previous purchases.</span>
+              </div>
+            ` : ''}
             <div class="checkout-main-grid">
                 <!-- Left Column -->
                 <div>
