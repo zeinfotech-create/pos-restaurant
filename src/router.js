@@ -234,6 +234,7 @@ export async function navigate(page) {
         'reports/sales-analysis': 'Business Analysis',
         'reports/purchases': 'Purchase Report',
         'reports/gst': 'GST Summary Report',
+        'reports/payments': 'Payment Report',
         'reports/customers': 'Customer Report',
         'reports/suppliers': 'Supplier Report',
         'reports/registers': 'Register Report',

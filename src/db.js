@@ -2647,6 +2647,71 @@ export async function getSalesVsPurchasesTrend(branchId = null, startDate = null
   return { granularity, data };
 }
 
+// Full payment-method breakdown for Reports.js's "Payments" tab — both
+// directions of money movement, broken down per method:
+//  - collections: money IN from sales, net of sales returns/refunds
+//  - paymentsOut: money OUT to suppliers (purchases)
+// Mirrors the same ".payments array, fallback to single method field" logic
+// already used for Dashboard's Payment Breakdown donut and Reports.js's own
+// Sales chart payment breakdown, extended to purchases too, and correctly
+// excludes cancelled orders and Unpaid (credit) sales — a sale that's still
+// on credit hasn't actually collected anything yet, so counting its full
+// total against a payment method would overstate what's really been
+// collected in cash/UPI/etc so far.
+export async function getPaymentMethodReport(branchId = null, startDate = null, endDate = null) {
+  const allOrders = await getOrders(branchId, startDate, endDate);
+  const orders = allOrders.filter(o => o.status !== 'cancelled');
+  const allReturns = await getReturns(branchId, startDate, endDate);
+  const salesReturns = allReturns.filter(r => r.type === 'sales');
+  const purchases = await getPurchases(branchId, startDate, endDate);
+
+  const collectionMap = {};
+  const bump = (map, method, amount, isRefund = false) => {
+    const m = method || 'Cash';
+    if (!map[m]) map[m] = { method: m, count: 0, total: 0 };
+    map[m].total += isRefund ? -amount : amount;
+    if (!isRefund) map[m].count += 1;
+  };
+
+  orders.forEach(o => {
+    if (o.payments && o.payments.length > 0) {
+      o.payments.forEach(p => bump(collectionMap, p.method, p.amount || 0));
+    } else if (o.paymentMethod && o.paymentMethod !== 'Unpaid') {
+      // Single-method sale (no structured payments array) — an Unpaid/
+      // credit sale is deliberately excluded here since nothing was
+      // actually collected against any method yet.
+      bump(collectionMap, o.paymentMethod, o.total || 0);
+    }
+  });
+  salesReturns.forEach(r => {
+    if (r.payments && r.payments.length > 0) {
+      r.payments.forEach(p => bump(collectionMap, p.method, p.amount || 0, true));
+    } else if (r.refundMethod) {
+      bump(collectionMap, r.refundMethod, r.total || 0, true);
+    }
+  });
+
+  const paymentOutMap = {};
+  purchases.forEach(p => {
+    if (p.paymentHistory && p.paymentHistory.length > 0) {
+      p.paymentHistory.forEach(h => bump(paymentOutMap, h.method, h.amount || 0));
+    } else if ((p.amountPaid || 0) > 0.001) {
+      // Purchase recorded before per-payment method tracking existed —
+      // attribute the whole running total to its single paymentMethod
+      // field once, same fallback convention as everything else here.
+      bump(paymentOutMap, p.paymentMethod, p.amountPaid);
+    }
+  });
+
+  const collections = Object.values(collectionMap).filter(c => Math.abs(c.total) > 0.001).sort((a, b) => b.total - a.total);
+  const paymentsOut = Object.values(paymentOutMap).filter(c => Math.abs(c.total) > 0.001).sort((a, b) => b.total - a.total);
+
+  const totalCollected = collections.reduce((s, c) => s + c.total, 0);
+  const totalPaidOut = paymentsOut.reduce((s, c) => s + c.total, 0);
+
+  return { collections, paymentsOut, totalCollected, totalPaidOut, netCashFlow: totalCollected - totalPaidOut };
+}
+
 export const DEFAULT_LOW_STOCK_THRESHOLD = 10;
 
 /**

@@ -1,4 +1,4 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getSuppliers, getPurchases, getPurchasesTrend, getSalesVsPurchasesTrend, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getSuppliers, getPurchases, getPurchasesTrend, getSalesVsPurchasesTrend, getPaymentMethodReport, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
@@ -73,6 +73,7 @@ export async function renderReports(container, subPage = 'sales') {
       <button class="btn btn-ghost btn-sm ${subPage === 'purchases' ? 'active-tab' : ''}" onclick="navigate('reports/purchases')">Purchase</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'vehicles' ? 'active-tab' : ''}" onclick="navigate('reports/vehicles')">Vehicles</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'outstanding' ? 'active-tab' : ''}" onclick="navigate('reports/outstanding')">Outstanding</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'payments' ? 'active-tab' : ''}" onclick="navigate('reports/payments')">Payments</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'gst' ? 'active-tab' : ''}" onclick="navigate('reports/gst')">GST Center</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'customers' ? 'active-tab' : ''}" onclick="navigate('reports/customers')">Customers</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'staff' ? 'active-tab' : ''}" onclick="navigate('reports/staff')">Staff</button>
@@ -106,6 +107,9 @@ export async function renderReports(container, subPage = 'sales') {
       break;
     case 'outstanding':
       await renderOutstandingReport(contentEl, cur);
+      break;
+    case 'payments':
+      await renderPaymentMethodReport(contentEl, cur);
       break;
     case 'gst':
       await renderGSTReport(contentEl, cur);
@@ -847,6 +851,147 @@ async function renderSalesAnalysis(container, cur) {
       }
     });
   }
+}
+
+async function renderPaymentMethodReport(container, cur) {
+  // getPaymentMethodReport() (db.js) is the single source of truth for
+  // this — same ".payments array, fallback to single method, exclude
+  // cancelled/Unpaid" logic Dashboard's own Payment Breakdown donut and
+  // this file's Sales chart already use for collections, extended to also
+  // cover money paid OUT to suppliers (purchases), so this one screen
+  // shows both directions instead of just the sales side.
+  const report = await getPaymentMethodReport(currentBranchFilter, currentStartDate, currentEndDate);
+  const canExportPay = await hasPermission('reports:export');
+
+  const shareRow = (row, total, cur) => {
+    const pct = total > 0 ? (row.total / total) * 100 : 0;
+    return `
+      <tr>
+        <td data-label="Method" class="font-bold">${escapeHtml(row.method)}</td>
+        <td data-label="Transactions">${row.count}</td>
+        <td data-label="Total" class="font-bold">${cur}${row.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td data-label="Share">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="flex:1; height:6px; background:var(--bg-app); border-radius:3px; overflow:hidden; min-width:40px;">
+              <div style="height:100%; width:${pct}%; background:var(--primary); border-radius:3px;"></div>
+            </div>
+            <span style="font-size:11px; color:var(--text-muted); flex-shrink:0;">${pct.toFixed(0)}%</span>
+          </div>
+        </td>
+      </tr>
+    `;
+  };
+
+  const collectionsRows = report.collections.map(r => shareRow(r, report.totalCollected, cur)).join('')
+    || `<tr><td colspan="4" style="text-align:center;padding:40px;opacity:0.5">No collections in this range</td></tr>`;
+  const paymentsOutRows = report.paymentsOut.map(r => shareRow(r, report.totalPaidOut, cur)).join('')
+    || `<tr><td colspan="4" style="text-align:center;padding:40px;opacity:0.5">No supplier payments in this range</td></tr>`;
+
+  container.innerHTML = `
+    <div class="grid-3 gap-16 mb-24">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(16,185,129,0.15)"><i class="fa-solid fa-money-bill-trend-up" style="color:#10b981"></i></div>
+        <div class="stat-info">
+          <div class="stat-value text-success">${cur}${report.totalCollected.toLocaleString()}</div>
+          <div class="stat-label">Total Collected (Sales)</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(239,68,68,0.15)"><i class="fa-solid fa-money-bill-transfer" style="color:#ef4444"></i></div>
+        <div class="stat-info">
+          <div class="stat-value text-danger">${cur}${report.totalPaidOut.toLocaleString()}</div>
+          <div class="stat-label">Total Paid Out (Purchases)</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(99,102,241,0.15)"><i class="fa-solid fa-scale-balanced" style="color:#6366f1"></i></div>
+        <div class="stat-info">
+          <div class="stat-value" style="color:${report.netCashFlow >= 0 ? 'var(--success)' : 'var(--danger)'}">${cur}${report.netCashFlow.toLocaleString()}</div>
+          <div class="stat-label">Net Cash Flow</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2 gap-16 mb-24">
+      <div class="card">
+        <div class="font-bold mb-16"><i class="fa-solid fa-chart-pie mr-8" style="color:var(--primary)"></i>Collections Mix (Sales)</div>
+        ${report.collections.length === 0 ? `<div class="empty-state" style="padding:30px 0"><i class="fa-solid fa-chart-pie"></i><p>No collections in this range</p></div>` : `<div style="height:260px"><canvas id="collectionsPieChart"></canvas></div>`}
+      </div>
+      <div class="card">
+        <div class="font-bold mb-16"><i class="fa-solid fa-chart-pie mr-8" style="color:var(--danger)"></i>Payments Mix (Purchases)</div>
+        ${report.paymentsOut.length === 0 ? `<div class="empty-state" style="padding:30px 0"><i class="fa-solid fa-chart-pie"></i><p>No supplier payments in this range</p></div>` : `<div style="height:260px"><canvas id="paymentsOutPieChart"></canvas></div>`}
+      </div>
+    </div>
+
+    <div class="grid-2 gap-16">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div class="font-bold">Collections by Method (Sales)</div>
+          ${canExportPay ? tableExportButtonsHtml('payment-collections') : ''}
+        </div>
+        <div class="table-wrap">
+          <table class="responsive-table">
+            <thead><tr><th>Method</th><th>Transactions</th><th>Total Collected</th><th>Share</th></tr></thead>
+            <tbody id="collectionsBody">${collectionsRows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div class="font-bold">Payments by Method (Purchases)</div>
+          ${canExportPay ? tableExportButtonsHtml('payment-out') : ''}
+        </div>
+        <div class="table-wrap">
+          <table class="responsive-table">
+            <thead><tr><th>Method</th><th>Payments</th><th>Total Paid</th><th>Share</th></tr></thead>
+            <tbody id="paymentsOutBody">${paymentsOutRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  wireTableExport('payment-collections', document.getElementById('collectionsBody').closest('table'), 'Collections by Method', () => collectionsRows);
+  wireTableExport('payment-out', document.getElementById('paymentsOutBody').closest('table'), 'Payments by Method', () => paymentsOutRows);
+
+  const donutColors = ['#818cf8', '#34d399', '#fbbf24', '#f87171', '#60a5fa', '#a78bfa', '#f472b6', '#22d3ee'];
+  const buildDonut = (canvasId, rows, cur) => {
+    const canvasEl = document.getElementById(canvasId);
+    if (!canvasEl || rows.length === 0) return;
+    new Chart(canvasEl, {
+      type: 'doughnut',
+      data: {
+        labels: rows.map(r => r.method),
+        datasets: [{
+          data: rows.map(r => r.total),
+          backgroundColor: rows.map((_, i) => donutColors[i % donutColors.length]),
+          borderColor: 'transparent',
+          hoverOffset: 8,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '65%',
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: { color: '#94a3b8', boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: 'circle' }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(17, 24, 39, 0.92)',
+            padding: 12,
+            cornerRadius: 8,
+            callbacks: {
+              label: (item) => `${item.label}: ${cur}${item.parsed.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            }
+          }
+        }
+      }
+    });
+  };
+  buildDonut('collectionsPieChart', report.collections, cur);
+  buildDonut('paymentsOutPieChart', report.paymentsOut, cur);
 }
 
 async function renderPurchaseReport(container, cur) {
