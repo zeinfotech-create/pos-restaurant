@@ -28,6 +28,12 @@ export async function renderPurchases(container, subPage) {
   async function renderRows() {
     const canManageInventory = await hasPermission('inventory:manage');
     let rawPurchases = await getPurchases(branchId);
+    // "Status" here (Completed/Returned) reflects fulfillment — it's set
+    // once at creation and never revisited for payment — so a purchase
+    // that's still owed money looked identical to a fully-settled one at a
+    // glance. This computes a separate Payment badge per row (Paid/Partial/
+    // Unpaid) fetched once for the whole list rather than per-row.
+    const returnedTotals = await getPurchaseReturnedTotals();
     let filtered = await applySessionFilter(rawPurchases, 'date');
     if (searchQ) {
       filtered = filtered.filter(p =>
@@ -119,7 +125,13 @@ export async function renderPurchases(container, subPage) {
     }
 
     tbody.innerHTML = paginatedPurchases.length === 0 ? `<tr><td colspan="8" style="text-align:center;padding:40px;opacity:0.5">No matching purchases found</td></tr>` :
-      paginatedPurchases.map(p => `
+      paginatedPurchases.map(p => {
+        const netTotal = Math.max(0, (p.total || 0) - (returnedTotals[p.id] || 0));
+        const outstanding = Math.max(0, netTotal - (p.amountPaid || 0));
+        const paid = p.amountPaid || 0;
+        const paymentLabel = outstanding <= 0.01 ? 'Paid' : (paid > 0.01 ? 'Partial' : 'Unpaid');
+        const paymentBadgeClass = outstanding <= 0.01 ? 'badge-success' : (paid > 0.01 ? 'badge-warning' : 'badge-danger');
+        return `
         <tr class="${selectedIds.has(String(p.id)) ? 'selected' : ''}" data-id="${p.id}">
           <td class="th-checkbox" data-label="Select">
             <input type="checkbox" class="row-checkbox purchase-select" data-id="${p.id}" ${selectedIds.has(String(p.id)) ? 'checked' : ''} />
@@ -129,7 +141,10 @@ export async function renderPurchases(container, subPage) {
           <td data-label="Invoice #" class="font-mono text-sm">${escapeHtml(p.supplierInvoiceNo || 'N/A')}</td>
           <td data-label="Supplier">${escapeHtml(p.supplierName) || 'Unknown Supplier'}</td>
           <td data-label="Total Amount" class="font-bold">\u20B9${p.total.toFixed(2)}</td>
-          <td data-label="Status"><span class="badge ${p.status === 'Completed' ? 'badge-success' : 'badge-warning'}">${p.status}</span></td>
+          <td data-label="Status">
+            <span class="badge ${p.status === 'Completed' ? 'badge-success' : 'badge-warning'}">${p.status}</span>
+            <span class="badge ${paymentBadgeClass} ml-4" title="${outstanding > 0.01 ? `Outstanding: \u20B9${outstanding.toFixed(2)}` : 'Fully paid'}">${paymentLabel}</span>
+          </td>
           <td>
             <div style="display:flex;gap:4px">
               <button class="btn btn-ghost btn-sm view-btn" data-id="${p.id}"><i class="fa-solid fa-eye"></i> View</button>
@@ -139,7 +154,8 @@ export async function renderPurchases(container, subPage) {
             </div>
           </td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
 
     // Pagination controls
     const pagArea = document.getElementById('paginationAreaPurchases');
@@ -1323,8 +1339,9 @@ async function viewPurchaseDetails(purchase) {
       ` : ''}
     `,
     footer: `
-      <button class="btn btn-ghost" id="printVoucherBtn"><i class="fa-solid fa-print mr-4"></i> Print Voucher</button>
       <button class="btn btn-primary" onclick="closeModal()">Close Details</button>
+      <button class="btn btn-danger" id="purchaseReturnBtn"><i class="fa-solid fa-rotate-left mr-4"></i> Return</button>
+      <button class="btn btn-ghost" id="printVoucherBtn"><i class="fa-solid fa-print mr-4"></i> Print Voucher</button>
     `
   });
 
@@ -1355,6 +1372,17 @@ async function viewPurchaseDetails(purchase) {
 
   document.getElementById('recordPaymentBtn')?.addEventListener('click', async () => {
     await openSupplierPaymentModal(purchase.id, settings.currency || '₹', async () => {
+      const { navigate } = await import('../router.js');
+      await navigate('purchases');
+    });
+  });
+
+  // Reuses Reports.js's own Purchase Return flow (split-refund rows,
+  // "Original Purchase Payment" breakdown) instead of a second copy of it
+  // here — same modal Reports > Purchases' list row already opens.
+  document.getElementById('purchaseReturnBtn')?.addEventListener('click', async () => {
+    const { openPurchaseReturnModal } = await import('./Reports.js');
+    await openPurchaseReturnModal(purchase, settings.currency || '₹', async () => {
       const { navigate } = await import('../router.js');
       await navigate('purchases');
     });

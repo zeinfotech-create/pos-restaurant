@@ -828,7 +828,7 @@ async function renderPurchaseReport(container, cur) {
     tbody.querySelectorAll('.purchase-return-btn').forEach(btn => {
       btn.onclick = async () => {
         const pur = purchases.find(p => p.id === btn.dataset.id);
-        if (pur) await openPurchaseReturnModal(pur, cur);
+        if (pur) await openPurchaseReturnModal(pur, cur, () => renderPurchaseReport(container, cur));
       };
     });
 
@@ -1292,7 +1292,13 @@ async function renderOutstandingReport(container, cur) {
   wireTableExport('outstanding-purchase', outstandingPurchaseTableEl, 'Purchase Outstanding by Supplier', () => suppliers.map(purchaseOutstandingRowHtml).join(''));
 }
 
-async function openPurchaseReturnModal(purchase, cur) {
+// Exported so Purchases.js's own Purchase Details view can open this same
+// return flow directly too, instead of only being reachable from Reports >
+// Purchases' list row. Every caller must supply its own onSuccess refresh —
+// this function has no `container` of its own to fall back to (a previous
+// default here referenced one that was never actually in scope, which
+// would have thrown as soon as a return was ever confirmed).
+export async function openPurchaseReturnModal(purchase, cur, onSuccess) {
   const returns = await getReturns();
   const allReturns = returns.filter(r => r.purchaseId === purchase.id);
   const returnedQtyMap = {};
@@ -1312,27 +1318,11 @@ async function openPurchaseReturnModal(purchase, cur) {
     returnedItems = [{ name: 'Adjustment/Full Return', id: purchase.id, price: purchase.total, qty: 1, returnQty: 0, availableQty: 1 - alreadyReturned, alreadyReturned }];
   }
 
-  let refundMethod = 'Cash';
-
-  function renderRows() {
-    return returnedItems.map((item, idx) => `
-      <div class="payment-row" style="margin-bottom:12px; display:flex; align-items:center; gap:12px; background:var(--bg-elevated); padding:12px; border-radius:8px ${item.availableQty <= 0 ? 'opacity:0.5' : ''}">
-        <div style="flex:1">
-          <div class="font-bold">${item.emoji || '📦'} ${escapeHtml(item.name)}</div>
-          <div style="font-size:11px; opacity:0.6">
-            Original: ${item.qty} | 
-            <span class="text-danger">Returned: ${item.alreadyReturned}</span> | 
-            <span class="text-success">Available: ${item.availableQty}</span>
-          </div>
-        </div>
-        <div style="width:120px">
-          <input type="number" class="form-input return-qty-input" data-idx="${idx}" 
-            value="${item.returnQty}" min="0" max="${item.availableQty}" 
-            ${item.availableQty <= 0 ? 'disabled' : ''} />
-        </div>
-      </div>
-    `).join('');
-  }
+  // Same payment-methods source Purchases.js's own purchase form and
+  // supplier-payment settle modal use, so the refund options offered here
+  // match everywhere else a supplier payment gets recorded.
+  const settings = await getSettings();
+  const refundMethods = settings.paymentMethods?.length ? settings.paymentMethods : ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Cheque'];
 
   // Purchase.total is tax-inclusive (subtotal + subtotal*taxRate/100, a
   // single order-level rate — see Purchases.js's completePurchaseBtn), so a
@@ -1343,9 +1333,130 @@ async function openPurchaseReturnModal(purchase, cur) {
   // credited back by the tax portion.
   const taxRate = parseFloat(purchase.taxRate) || 0;
   const withTax = (base) => base * (1 + taxRate / 100);
+  const getTotalReturn = () => parseFloat(returnedItems.reduce((sum, item) => sum + withTax(item.returnQty * (item.price || item.cost || 0)), 0).toFixed(2));
+
+  // Split refund rows — same pattern (row 0 auto-tracking the live Total
+  // Return Value, "Add Split" picking up the true remainder) Orders.js's
+  // sales-return refund and Purchases.js's supplier-payment settle modal
+  // already use, so this behaves identically to both instead of being its
+  // own one-method-only flow.
+  let refundRows = [{ method: refundMethods[0] || 'Cash', amount: 0 }];
+
+  function renderRows() {
+    return returnedItems.map((item, idx) => `
+      <div class="payment-row" style="margin-bottom:12px; display:flex; align-items:center; gap:12px; background:var(--bg-elevated); padding:12px; border-radius:8px ${item.availableQty <= 0 ? 'opacity:0.5' : ''}">
+        <div style="flex:1">
+          <div class="font-bold">${item.emoji || '📦'} ${escapeHtml(item.name)}</div>
+          <div style="font-size:11px; opacity:0.6">
+            Original: ${item.qty} |
+            <span class="text-danger">Returned: ${item.alreadyReturned}</span> |
+            <span class="text-success">Available: ${item.availableQty}</span>
+          </div>
+        </div>
+        <div style="width:120px">
+          <input type="number" class="form-input return-qty-input" data-idx="${idx}"
+            value="${item.returnQty}" min="0" max="${item.availableQty}"
+            ${item.availableQty <= 0 ? 'disabled' : ''} />
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function renderRefundRows() {
+    return refundRows.map((r, idx) => `
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+        <select class="refund-row-method" data-idx="${idx}" style="flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-elevated); color:var(--text-main);">
+          ${refundMethods.map(m => `<option value="${escapeHtml(m)}" ${r.method === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+        </select>
+        <input type="number" class="form-input refund-row-amount" data-idx="${idx}" value="${(parseFloat(r.amount) || 0).toFixed(2)}" style="width:110px; text-align:right" />
+        ${refundRows.length > 1 ? `<button type="button" class="refund-row-remove btn btn-ghost" data-idx="${idx}" style="color:var(--danger); padding:6px 10px"><i class="fa-solid fa-xmark"></i></button>` : `<div style="width:38px"></div>`}
+      </div>
+    `).join('');
+  }
+
+  // The LAST row is the one that auto-balances (not row 0) — edit an
+  // earlier row (e.g. type ₹19.18 into Cash out of a ₹29.18 total) and the
+  // last row (UPI) picks up the true remainder live, matching how splitting
+  // a bill normally works. Only updates that one input's value directly
+  // (never a full modal rebuild) so this can run on every keystroke
+  // elsewhere without stealing focus from whatever field is being typed
+  // into, or making the whole modal flicker/feel like it reopened.
+  function getAutoRowIndex() { return refundRows.length - 1; }
+
+  function recalcAutoRow() {
+    const totalReturn = getTotalReturn();
+    const autoIdx = getAutoRowIndex();
+    const othersSum = refundRows.reduce((s, r, i) => i === autoIdx ? s : s + (parseFloat(r.amount) || 0), 0);
+    refundRows[autoIdx].amount = Math.max(0, parseFloat((totalReturn - othersSum).toFixed(2)));
+
+    const autoInput = document.querySelector(`.refund-row-amount[data-idx="${autoIdx}"]`);
+    if (autoInput && document.activeElement !== autoInput) autoInput.value = refundRows[autoIdx].amount.toFixed(2);
+
+    const refundSum = refundRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+    const balanced = Math.abs(refundSum - totalReturn) < 0.01;
+    const note = document.getElementById('refundBalanceNote');
+    if (note) {
+      note.textContent = `${cur}${refundSum.toFixed(2)} / ${cur}${totalReturn.toFixed(2)}`;
+      note.style.color = balanced ? 'var(--success)' : 'var(--danger)';
+    }
+    const totalEl = document.getElementById('totalReturnAmountVal');
+    if (totalEl) totalEl.textContent = `${cur}${totalReturn.toFixed(2)}`;
+  }
+
+  // Wires the method/amount/remove controls for whatever rows are CURRENTLY
+  // in the DOM — called once after the initial render, and again after any
+  // change that rebuilds #refundRowsArea's own innerHTML (add/remove a row).
+  function wireRefundRowControls() {
+    document.querySelectorAll('.refund-row-method').forEach(sel => {
+      sel.onchange = (e) => { refundRows[parseInt(e.target.dataset.idx, 10)].method = e.target.value; };
+    });
+    document.querySelectorAll('.refund-row-amount').forEach(inp => {
+      inp.oninput = (e) => {
+        const idx = parseInt(e.target.dataset.idx, 10);
+        refundRows[idx].amount = parseFloat(e.target.value) || 0;
+        // Editing the auto row itself shouldn't recompute itself out from
+        // under the user's own typing — just refresh the totals/note.
+        if (idx === getAutoRowIndex()) {
+          const totalReturn = getTotalReturn();
+          const refundSum = refundRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+          const balanced = Math.abs(refundSum - totalReturn) < 0.01;
+          const note = document.getElementById('refundBalanceNote');
+          if (note) {
+            note.textContent = `${cur}${refundSum.toFixed(2)} / ${cur}${totalReturn.toFixed(2)}`;
+            note.style.color = balanced ? 'var(--success)' : 'var(--danger)';
+          }
+        } else {
+          recalcAutoRow();
+        }
+      };
+    });
+    document.querySelectorAll('.refund-row-remove').forEach(btn => {
+      btn.onclick = () => {
+        if (refundRows.length > 1) {
+          refundRows.splice(parseInt(btn.dataset.idx, 10), 1);
+          rerenderRefundRowsArea();
+        }
+      };
+    });
+  }
+
+  function rerenderRefundRowsArea() {
+    const area = document.getElementById('refundRowsArea');
+    if (area) area.innerHTML = renderRefundRows();
+    wireRefundRowControls();
+    recalcAutoRow();
+  }
 
   function updateModal() {
-    const totalReturn = returnedItems.reduce((sum, item) => sum + withTax(item.returnQty * (item.price || item.cost || 0)), 0);
+    // Safe to call before the modal DOM exists — recalcAutoRow()'s own
+    // element lookups are all null-guarded, so this just settles
+    // refundRows' state (the sole starting row defaults to the full total)
+    // for the very first render below.
+    recalcAutoRow();
+    const totalReturn = getTotalReturn();
+    const refundSum = refundRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+    const refundBalanced = Math.abs(refundSum - totalReturn) < 0.01;
+
     const body = `
       <div style="padding:10px">
         <div class="mb-16 text-muted" style="font-size:13px">Select quantities to return to supplier. Stock will be automatically deducted.</div>
@@ -1353,78 +1464,116 @@ async function openPurchaseReturnModal(purchase, cur) {
 
         <div style="background:var(--bg-elevated); padding:12px; border-radius:8px; margin-top:16px; border:1px dashed var(--border)">
           <div style="font-size:11px; font-weight:bold; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px">Original Purchase Payment</div>
-          <div style="display:flex; justify-content:space-between; font-size:13px">
-            <span>Method</span>
-            <span class="font-bold">${cur}${purchase.total.toFixed(2)}</span>
-          </div>
+          ${(purchase.paymentHistory && purchase.paymentHistory.length > 0) ? purchase.paymentHistory.map(h => `
+            <div style="display:flex; justify-content:space-between; font-size:13px; padding:2px 0;">
+              <span>${escapeHtml(h.method || 'Cash')}</span>
+              <span class="font-bold">${cur}${(h.amount || 0).toFixed(2)}</span>
+            </div>
+          `).join('') : `
+            <div style="display:flex; justify-content:space-between; font-size:13px;">
+              <span>${escapeHtml(purchase.paymentMethod || 'N/A')}</span>
+              <span class="font-bold">${cur}${(purchase.amountPaid ?? purchase.total).toFixed(2)}</span>
+            </div>
+          `}
+          ${(purchase.amountPaid || 0) < (purchase.total || 0) - 0.01 ? `
+            <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); margin-top:6px; padding-top:6px; border-top:1px dashed var(--border);">
+              <span>Still Outstanding (Credit)</span>
+              <span>${cur}${(purchase.total - (purchase.amountPaid || 0)).toFixed(2)}</span>
+            </div>
+          ` : ''}
         </div>
 
-        <div class="grid-2 mt-16">
-          <div class="form-group">
-            <label class="form-label">Return Method (Adjustment)</label>
-            <select class="form-select" id="purchaseRefundMethodSelect">
-              <option value="Cash" ${refundMethod === 'Cash' ? 'selected' : ''}>Cash</option>
-              <option value="Card" ${refundMethod === 'Card' ? 'selected' : ''}>Card</option>
-              <option value="UPI" ${refundMethod === 'UPI' ? 'selected' : ''}>UPI</option>
-              <option value="Credit" ${refundMethod === 'Credit' ? 'selected' : ''}>Supplier Credit</option>
-            </select>
+        <div class="form-group mt-16">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <label class="form-label" style="margin:0;">Refund Method${refundRows.length > 1 ? 's' : ''} (Adjustment)</label>
+            <span id="refundBalanceNote" style="font-size:12px; font-weight:700; color:${refundBalanced ? 'var(--success)' : 'var(--danger)'}">${cur}${refundSum.toFixed(2)} / ${cur}${totalReturn.toFixed(2)}</span>
           </div>
-          <div class="form-group">
-            <label class="form-label">Return Reason / Note</label>
-            <input type="text" class="form-input" id="returnReason" placeholder="e.g. Expired, Wrong item" />
-          </div>
+          <div id="refundRowsArea">${renderRefundRows()}</div>
+          <button type="button" class="btn btn-ghost btn-sm" id="refundAddSplitBtn" style="border:1px dashed var(--border);"><i class="fa-solid fa-plus mr-4"></i> Add Split</button>
+        </div>
+
+        <div class="form-group mt-16">
+          <label class="form-label">Return Reason / Note</label>
+          <input type="text" class="form-input" id="returnReason" placeholder="e.g. Expired, Wrong item" />
         </div>
 
         <div class="mt-20 p-16" style="background:rgba(239,68,68,0.05); border-radius:12px; border:1px solid rgba(239,68,68,0.1)">
           <div style="display:flex; justify-content:space-between; align-items:center">
             <span class="font-bold">Total Return Value</span>
-            <span class="font-bold text-danger" style="font-size:20px">${cur}${totalReturn.toFixed(2)}</span>
+            <span class="font-bold text-danger" id="totalReturnAmountVal" style="font-size:20px">${cur}${totalReturn.toFixed(2)}</span>
           </div>
         </div>
       </div>
     `;
 
-    import('../components/Modal.js').then(Modal => {
-      Modal.openModal({
-        title: `Purchase Return - ${purchase.id}`,
-        body: body,
-        footer: `
-          <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-          <button class="btn btn-danger" id="confirmPurchaseReturnBtn">Confirm Return to Supplier</button>
-        `
+    openModal({
+      title: `Purchase Return - ${purchase.id}`,
+      body: body,
+      footer: `
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-danger" id="confirmPurchaseReturnBtn">Confirm Return to Supplier</button>
+      `
+    });
+
+    setTimeout(() => {
+      // Item quantity edits only ever need the auto-balancing refund row
+      // and the two total displays refreshed — never the whole modal
+      // (which used to call updateModal() → openModal() again on every
+      // keystroke, tearing down and rebuilding the entire modal each time).
+      document.querySelectorAll('.return-qty-input').forEach(input => {
+        input.oninput = (e) => {
+          const idx = e.target.dataset.idx;
+          const val = parseInt(e.target.value) || 0;
+          const max = parseInt(e.target.max);
+          returnedItems[idx].returnQty = Math.min(val, max);
+          recalcAutoRow();
+        };
       });
 
-      setTimeout(() => {
-        document.querySelectorAll('.return-qty-input').forEach(input => {
-          input.oninput = (e) => {
-            const idx = e.target.dataset.idx;
-            const val = parseInt(e.target.value) || 0;
-            const max = parseInt(e.target.max);
-            returnedItems[idx].returnQty = Math.min(val, max);
-            const totalReturn = returnedItems.reduce((sum, item) => sum + withTax(item.returnQty * (item.price || item.cost || 0)), 0);
-            const totalEl = document.querySelector('.text-danger[style*="font-size:20px"]');
-            if (totalEl) totalEl.innerText = `${cur}${totalReturn.toFixed(2)}`;
-          };
-        });
+      wireRefundRowControls();
 
-        document.getElementById('purchaseRefundMethodSelect').onchange = (e) => {
-          refundMethod = e.target.value;
+      const addSplitBtn = document.getElementById('refundAddSplitBtn');
+      if (addSplitBtn) {
+        addSplitBtn.onclick = () => {
+          const used = refundRows.map(r => r.method);
+          const nextMethod = refundMethods.find(m => !used.includes(m)) || refundMethods[0] || 'Cash';
+          // The new row becomes the last (auto) row — rerenderRefundRowsArea()'s
+          // own recalcAutoRow() call fills in its real amount right after,
+          // so it doesn't need computing here.
+          refundRows.push({ method: nextMethod, amount: 0 });
+          rerenderRefundRowsArea();
         };
+      }
 
-        document.getElementById('confirmPurchaseReturnBtn').onclick = async () => {
-          const itemsToReturn = returnedItems.filter(i => i.returnQty > 0).map(i => ({
-            ...i,
-            qty: i.returnQty
-          }));
+      document.getElementById('confirmPurchaseReturnBtn').onclick = async () => {
+        const confirmBtn = document.getElementById('confirmPurchaseReturnBtn');
+        if (confirmBtn.disabled) return;
 
-          if (itemsToReturn.length === 0) {
-            showToast('Please select at least one item to return.', 'warning');
-            return;
-          }
+        const itemsToReturn = returnedItems.filter(i => i.returnQty > 0).map(i => ({ ...i, qty: i.returnQty }));
+        if (itemsToReturn.length === 0) {
+          showToast('Please select at least one item to return.', 'warning');
+          return;
+        }
 
-          const totalReturn = itemsToReturn.reduce((sum, item) => sum + withTax(item.qty * (item.price || item.cost || 0)), 0);
-          const reason = document.getElementById('returnReason').value || 'Not specified';
+        const totalReturn = getTotalReturn();
+        const validRefundRows = refundRows
+          .filter(r => r.method && parseFloat(r.amount) > 0.001)
+          .map(r => ({ method: r.method, amount: parseFloat((parseFloat(r.amount) || 0).toFixed(2)) }));
+        const refundSum = parseFloat(validRefundRows.reduce((s, r) => s + r.amount, 0).toFixed(2));
+        if (Math.abs(refundSum - totalReturn) > 0.01) {
+          showToast(`Refund split (${cur}${refundSum.toFixed(2)}) doesn't match the Total Return Value (${cur}${totalReturn.toFixed(2)}) — adjust the amounts.`, 'warning');
+          return;
+        }
 
+        const reason = document.getElementById('returnReason').value || 'Not specified';
+        // refundMethod stays a single string for older report/receipt code
+        // that only ever expected one — 'Split' whenever there's more than
+        // one row, same convention order.paymentMethod already uses.
+        // payments (the new structured array) is the real per-method record.
+        const refundMethod = validRefundRows.length === 1 ? validRefundRows[0].method : (validRefundRows.length > 1 ? 'Split' : (refundMethods[0] || 'Cash'));
+
+        confirmBtn.disabled = true;
+        try {
           const db = await import('../db.js');
           await db.saveReturn({
             purchaseId: purchase.id,
@@ -1435,20 +1584,20 @@ async function openPurchaseReturnModal(purchase, cur) {
             branchId: purchase.branchId,
             supplierName: purchase.supplierName,
             supplierId: purchase.supplierId,
-            refundMethod: refundMethod
+            refundMethod: refundMethod,
+            payments: validRefundRows
           });
-          Modal.closeModal();
+          closeModal();
           showToast('Purchase return processed successfully!', 'success');
-          await renderPurchaseReport(container, cur);
-        };
-      }, 0);
-    });
+          if (onSuccess) await onSuccess();
+        } catch (err) {
+          confirmBtn.disabled = false;
+          showToast(err.message || 'Failed to process return.', 'error');
+        }
+      };
+    }, 0);
   }
 
-  // updateModal() was only ever defined above, never actually called — the
-  // "Return" button in Reports > Purchases did all its setup (returnedItems,
-  // refundMethod, renderRows) and then silently did nothing, since the one
-  // function that actually opens the modal never ran.
   updateModal();
 }
 
