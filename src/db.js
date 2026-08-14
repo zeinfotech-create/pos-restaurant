@@ -2590,6 +2590,63 @@ export async function getPurchasesTrend(branchId = null, startDate = null, endDa
   return { granularity, data };
 }
 
+// Same date-range-aware, adaptive-granularity approach as getPurchasesTrend()
+// above, but for Reports.js's "Profitability Analysis" chart — sales and
+// purchases are bucketed into the SAME bucket objects (keyed identically)
+// so there's no risk of the two ever misaligning by array position the way
+// two independently-built trend lists could. Profit is derived per bucket
+// from those same two numbers, not tracked separately.
+export async function getSalesVsPurchasesTrend(branchId = null, startDate = null, endDate = null) {
+  const allOrders = await getOrders(branchId, startDate, endDate);
+  const orders = allOrders.filter(o => o.status !== 'cancelled');
+  const allReturns = await getReturns(branchId, startDate, endDate);
+  const salesReturns = allReturns.filter(r => r.type === 'sales');
+  const purchases = await getPurchases(branchId, startDate, endDate);
+  const purchaseReturnedTotals = await getPurchaseReturnedTotals();
+
+  if (orders.length === 0 && salesReturns.length === 0 && purchases.length === 0) {
+    return { granularity: 'monthly', data: [] };
+  }
+
+  const allTimes = [
+    ...orders.map(o => new Date(o.date).getTime()),
+    ...salesReturns.map(r => new Date(r.date).getTime()),
+    ...purchases.map(p => new Date(p.date).getTime())
+  ];
+  const spanStartMs = startDate ? parseLocalDate(startDate).getTime() : Math.min(...allTimes);
+  const spanEndMs = endDate ? parseLocalDate(endDate).getTime() : Math.max(...allTimes);
+  const spanDays = Math.max(1, (spanEndMs - spanStartMs) / 86400000);
+  const granularity = spanDays <= 31 ? 'daily' : 'monthly';
+
+  const buckets = {};
+  const bucketFor = (dateStr) => {
+    const d = new Date(dateStr);
+    const key = granularity === 'daily' ? localDateOnly(dateStr) : d.toLocaleString('en', { month: 'short', year: 'numeric' });
+    if (!buckets[key]) {
+      buckets[key] = {
+        label: granularity === 'daily' ? d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : key,
+        sales: 0,
+        purchases: 0,
+        sortKey: granularity === 'daily' ? key : d.getTime()
+      };
+    }
+    return buckets[key];
+  };
+
+  orders.forEach(o => { bucketFor(o.date).sales += (o.total || 0); });
+  salesReturns.forEach(r => { bucketFor(r.date).sales -= (r.total || 0); });
+  purchases.forEach(p => {
+    const netCost = Math.max(0, (p.total || 0) - (purchaseReturnedTotals[p.id] || 0));
+    bucketFor(p.date).purchases += netCost;
+  });
+
+  const data = Object.values(buckets)
+    .sort((a, b) => (a.sortKey < b.sortKey ? -1 : (a.sortKey > b.sortKey ? 1 : 0)))
+    .map(({ label, sales, purchases }) => ({ label, sales, purchases, profit: sales - purchases }));
+
+  return { granularity, data };
+}
+
 export const DEFAULT_LOW_STOCK_THRESHOLD = 10;
 
 /**

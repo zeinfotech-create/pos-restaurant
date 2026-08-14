@@ -1,4 +1,4 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getMonthlySales, getSuppliers, getPurchases, getPurchasesMonthly, getPurchasesTrend, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getSuppliers, getPurchases, getPurchasesTrend, getSalesVsPurchasesTrend, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
@@ -696,26 +696,58 @@ async function renderCategorySalesReport(container, cur) {
 }
 
 async function renderSalesAnalysis(container, cur) {
-  const salesTrend = await getMonthlySales(currentBranchFilter);
-  const purchaseTrend = await getPurchasesMonthly(currentBranchFilter);
+  // getSalesVsPurchasesTrend() builds Sales AND Purchases into the SAME
+  // bucket objects (keyed identically) — the old version pulled them from
+  // two independent trend lists and matched them up by raw array position,
+  // which silently misaligned whenever the two had a different set of
+  // months present. It's also date-range/branch aware now (adapts to
+  // daily buckets for a narrow selection, monthly for a wide one — same
+  // logic as Purchases.js's own trend chart), where this used to always
+  // show an all-time view regardless of the picker at the top of the page.
+  const trend = await getSalesVsPurchasesTrend(currentBranchFilter, currentStartDate, currentEndDate);
+  const merged = trend.data;
+
+  const totalRevenue = merged.reduce((s, m) => s + m.sales, 0);
+  const totalCost = merged.reduce((s, m) => s + m.purchases, 0);
+  const totalProfit = totalRevenue - totalCost;
+  const marginPct = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
   container.innerHTML = `
     <div class="card mb-24">
-      <div class="font-bold mb-16"><i class="fa-solid fa-chart-area mr-8"></i> Profitability Analysis (Sales vs Purchases)</div>
+      <div class="mb-16">
+        <div class="font-bold"><i class="fa-solid fa-chart-area mr-8"></i> Profitability Analysis (Sales vs Purchases)</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+          ${trend.granularity === 'daily'
+            ? 'Bucketed by day — the selected range is narrow enough that a month-by-month view would collapse to a single bar.'
+            : 'Bucketed by month — matches the date range and branch selected above.'}
+        </div>
+      </div>
       <div style="height:350px"><canvas id="analysisChart"></canvas></div>
     </div>
 
-    <div class="grid-2 gap-16">
+    <div class="grid-4 gap-16">
       <div class="stat-card">
         <div class="stat-info">
-          <div class="stat-label">Total Lifetime Revenue</div>
-          <div class="stat-value text-success">${cur}${salesTrend.reduce((s, m) => s + m.total, 0).toLocaleString()}</div>
+          <div class="stat-label">Total Revenue</div>
+          <div class="stat-value text-success">${cur}${totalRevenue.toLocaleString()}</div>
         </div>
       </div>
       <div class="stat-card">
         <div class="stat-info">
           <div class="stat-label">Total Purchase Cost</div>
-          <div class="stat-value text-danger">${cur}${purchaseTrend.reduce((s, m) => s + m.total, 0).toLocaleString()}</div>
+          <div class="stat-value text-danger">${cur}${totalCost.toLocaleString()}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-info">
+          <div class="stat-label">Total Profit</div>
+          <div class="stat-value" style="color:${totalProfit >= 0 ? 'var(--success)' : 'var(--danger)'}">${cur}${totalProfit.toLocaleString()}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-info">
+          <div class="stat-label">Overall Margin</div>
+          <div class="stat-value" style="color:${marginPct >= 0 ? 'var(--success)' : 'var(--danger)'}">${marginPct.toFixed(1)}%</div>
         </div>
       </div>
     </div>
@@ -723,28 +755,96 @@ async function renderSalesAnalysis(container, cur) {
 
   const ctx = document.getElementById('analysisChart');
   if (ctx) {
+    // Grouping this as N separate bar datasets (whether on a category axis
+    // or, the last attempt, a linear one with hand-placed x per point) always
+    // ran into the same wall: Chart.js computes ONE bar width for the whole
+    // chart from the smallest gap it finds anywhere, so a tightly-packed
+    // 3-bar day and a spread-out 2-bar day can never both look gap-free at
+    // once — whichever cluster isn't the tightest ends up with daylight
+    // between its bars.
+    //
+    // Flattened to a SINGLE bar dataset instead — one flat sequence of bars
+    // (colored per metric), one bar per (day, metric-that-actually-has-a-
+    // value) pair, nothing else. On a single dataset there's no cross-
+    // dataset alignment to fight: Chart.js just spaces equal-width bars
+    // evenly along one category axis, so adjacent bars always sit the same
+    // distance apart — including two real bars on a day missing its third
+    // metric, which now sit right next to each other because there's
+    // nothing else in that day's group to begin with.
+    const barDefsAll = [
+      { key: 'sales', label: 'Sales Revenue', color: 'rgba(16, 185, 129, 0.8)', hover: 'rgba(16, 185, 129, 0.95)' },
+      { key: 'purchases', label: 'Purchase Cost', color: 'rgba(239, 68, 68, 0.8)', hover: 'rgba(239, 68, 68, 0.95)' },
+      { key: 'profit', label: 'Profit', color: 'rgba(99, 102, 241, 0.8)', hover: 'rgba(99, 102, 241, 0.95)' },
+    ];
+
+    const bars = []; // { y, color, hover, metricLabel, dayLabel, margin }
+    const tickLabels = [];
+    merged.forEach(m => {
+      const active = barDefsAll.filter(d => Math.abs(m[d.key]) > 0.001);
+      const midPos = Math.floor((active.length - 1) / 2); // day label centered under the middle bar of its own group
+      const marginPct = m.sales > 0 ? ((m.profit / m.sales) * 100).toFixed(1) : '0.0';
+      active.forEach((d, i) => {
+        bars.push({ y: m[d.key], color: d.color, hover: d.hover, metricLabel: d.label, dayLabel: m.label, margin: marginPct });
+        tickLabels.push(i === midPos ? m.label : '');
+      });
+    });
+
     new Chart(ctx, {
-      type: 'line',
+      type: 'bar',
       data: {
-        labels: salesTrend.map(s => s.label),
-        datasets: [
-          {
-            label: 'Sales Revenue',
-            data: salesTrend.map(s => s.total),
-            borderColor: '#10b981',
-            tension: 0.3,
-            fill: false
-          },
-          {
-            label: 'Purchase Cost',
-            data: purchaseTrend.map(p => p.total),
-            borderColor: '#ef4444',
-            tension: 0.3,
-            fill: false
-          }
-        ]
+        labels: tickLabels,
+        datasets: [{
+          data: bars.map(b => b.y),
+          backgroundColor: bars.map(b => b.color),
+          hoverBackgroundColor: bars.map(b => b.hover),
+          borderRadius: 4,
+          borderSkipped: false,
+          categoryPercentage: 0.88,
+          barPercentage: 0.9,
+        }]
       },
-      options: { responsive: true, maintainAspectRatio: false }
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        // Only one dataset now, so Chart.js's default legend (one entry
+        // per dataset) has nothing useful to show on its own — built by
+        // hand instead, one static swatch per metric colour. Click
+        // toggling doesn't map to anything meaningful on a single flat
+        // bar list, so it's disabled rather than doing nothing silently.
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            align: 'end',
+            onClick: () => {},
+            labels: {
+              color: '#94a3b8', boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: 'circle',
+              generateLabels: () => barDefsAll.map(d => ({ text: d.label, fillStyle: d.color, strokeStyle: d.color, pointStyle: 'circle' }))
+            }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(17, 24, 39, 0.92)',
+            padding: 12,
+            cornerRadius: 8,
+            titleFont: { weight: '700' },
+            callbacks: {
+              title: (items) => bars[items[0].dataIndex]?.dayLabel || '',
+              label: (item) => {
+                const b = bars[item.dataIndex];
+                return `${b.metricLabel}: ${cur}${b.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+              },
+              afterLabel: (item) => `Margin: ${bars[item.dataIndex]?.margin}%`
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: '#94a3b8', autoSkip: false, maxRotation: 0 } },
+          y: {
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            ticks: { color: '#94a3b8', callback: (v) => `${cur}${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}` }
+          },
+        },
+      }
     });
   }
 }
