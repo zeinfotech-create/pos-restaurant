@@ -2097,11 +2097,11 @@ export async function renderQuickPOS(container) {
       if (!inlinePayments) inlinePayments = [{ method: defaultPaymentMethod, amount: cartTotal }];
       const usedMethods = inlinePayments.map(p => p.method);
       const nextMethod = paymentMethodsList.find(m => !usedMethods.includes(m)) || paymentMethodsList[0] || 'Cash';
-      // Pre-fill the new row with however much is still outstanding
-      // (Order Total − what's already entered in the other rows) instead
-      // of starting it at 0 — so adding a split row for "whatever's left"
-      // balances the split immediately, without the cashier having to
-      // work out and type the remainder themselves.
+      // The expected flow: edit row 1 down to whatever's actually being
+      // paid via that method, THEN click Add Split — the new row should
+      // pick up the true remainder, not half of whatever row 1 currently
+      // holds. Reverted back to this subtraction after a halving attempt
+      // that ignored manual edits already made to existing rows.
       const alreadyEntered = inlinePayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
       const { total: liveTotal } = getCartTotals();
       const remaining = Math.max(0, parseFloat((liveTotal - alreadyEntered).toFixed(2)));

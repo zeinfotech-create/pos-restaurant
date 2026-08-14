@@ -787,6 +787,12 @@ async function openReturnModal(order, cur) {
             const used = refundRows.map(r => r.method);
             const nextMethod = refundMethods.find(m => !used.includes(m)) || refundMethods[0] || 'Cash';
             const totalReturn = returnedItems.reduce((sum, item) => sum + (item.returnQty * getRefundPerItem(item)), 0);
+            // The expected flow: edit row 1 down to whatever's actually
+            // being refunded via that method, THEN click Add Split — the
+            // new row should pick up the true remainder, not half of
+            // whatever row 1 currently holds. Reverted back to this
+            // subtraction after a halving attempt that ignored manual
+            // edits already made to existing rows.
             const already = refundRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
             const remaining = Math.max(0, parseFloat((totalReturn - already).toFixed(2)));
             refundRows.push({ method: nextMethod, amount: remaining });
@@ -1001,6 +1007,12 @@ export async function payOrder(order, cur, onSuccess = null) {
           addBtn.onclick = () => {
             const used = rows.map(r => r.method);
             const nextMethod = methodsList.find(m => !used.includes(m)) || methodsList[0] || 'Cash';
+            // The expected flow: edit row 1 down to whatever's actually
+            // being paid via that method, THEN click Add Split — the new
+            // row should pick up the true remainder, not half of whatever
+            // row 1 currently holds. Reverted back to this subtraction
+            // after a halving attempt that ignored manual edits already
+            // made to existing rows.
             const already = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
             const remaining = Math.max(0, parseFloat((balance - already).toFixed(2)));
             rows.push({ method: nextMethod, amount: remaining });

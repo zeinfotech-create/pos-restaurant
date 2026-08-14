@@ -904,9 +904,186 @@ export async function recordSupplierPayment(purchaseId, amount, method = null) {
   });
 }
 
+// Split-payment settle modal — same row-based pattern (Add Split, per-row
+// method+amount, live balance indicator) Orders.js's payOrder() already
+// uses for the sales side, adapted for a supplier payment. Exported so both
+// viewPurchaseDetails() below and Reports.js's Outstanding report can open
+// the same modal instead of each hand-rolling their own payment UI. Unlike
+// payOrder() (which requires the split to exactly cover the FULL remaining
+// balance), this allows any amount up to the outstanding — recordSupplierPayment()
+// already supported partial single-method payments before this existed, and
+// this shouldn't take that flexibility away, only add splitting on top of it.
+export async function openSupplierPaymentModal(purchaseId, cur, onSuccess = null) {
+  const [freshPurchases, settings, returnedTotals] = await Promise.all([
+    getPurchases(), getSettings(), getPurchaseReturnedTotals()
+  ]);
+  const freshPurchase = freshPurchases.find(p => p.id === purchaseId);
+  if (!freshPurchase) { showToast('Purchase record not found', 'error'); return; }
+
+  const netTotal = Math.max(0, freshPurchase.total - (returnedTotals[freshPurchase.id] || 0));
+  const outstanding = Math.max(0, netTotal - (freshPurchase.amountPaid || 0));
+  if (outstanding <= 0.01) { showToast('This purchase is already fully paid', 'info'); return; }
+
+  const payMethods = settings.paymentMethods?.length ? settings.paymentMethods : ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Cheque'];
+  let rows = [{ method: payMethods[0] || 'Cash', amount: outstanding }];
+
+  function renderContent() {
+    const sum = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+    const overLimit = sum > outstanding + 0.01;
+    return `
+      <div style="padding:16px">
+        <div class="mb-16" style="background:var(--bg-elevated); padding:16px; border-radius:12px; border:1px solid var(--border)">
+          <div style="font-size:11px; text-transform:uppercase; font-weight:800; color:var(--text-muted); margin-bottom:10px">${escapeHtml(freshPurchase.supplierName || 'Supplier')}</div>
+          <div style="display:flex; justify-content:space-between; gap:16px;">
+            <div>
+              <div style="font-size:10px; text-transform:uppercase; font-weight:700; color:var(--text-muted)">Total Purchase</div>
+              <div style="font-size:16px; font-weight:800; color:var(--text-main)">${cur}${netTotal.toFixed(2)}</div>
+            </div>
+            <div>
+              <div style="font-size:10px; text-transform:uppercase; font-weight:700; color:var(--text-muted)">Already Paid</div>
+              <div style="font-size:16px; font-weight:800; color:var(--success)">${cur}${(freshPurchase.amountPaid || 0).toFixed(2)}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:10px; text-transform:uppercase; font-weight:700; color:var(--text-muted)">Outstanding</div>
+              <div style="font-size:24px; font-weight:900; color:var(--danger)">${cur}${outstanding.toFixed(2)}</div>
+            </div>
+          </div>
+          ${(freshPurchase.paymentHistory && freshPurchase.paymentHistory.length > 0) ? `
+            <div style="border-top:1px dashed var(--border); padding-top:10px; margin-top:12px;">
+              <div style="font-size:10px; text-transform:uppercase; font-weight:700; color:var(--text-muted); margin-bottom:6px;">Payment History</div>
+              <div style="display:flex; flex-direction:column; gap:4px; max-height:110px; overflow-y:auto;">
+                ${freshPurchase.paymentHistory.map(h => `
+                  <div style="display:flex; justify-content:space-between; font-size:12px;">
+                    <span>${escapeHtml(h.method || 'Cash')} <span style="color:var(--text-muted); font-size:10px;">— ${h.date ? new Date(h.date).toLocaleDateString() : ''}</span></span>
+                    <span style="font-weight:700; color:var(--success)">${cur}${(h.amount || 0).toFixed(2)}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ((freshPurchase.amountPaid || 0) > 0 ? `
+            <div style="border-top:1px dashed var(--border); padding-top:10px; margin-top:12px; font-size:11px; color:var(--text-muted); font-style:italic;">
+              ${cur}${freshPurchase.amountPaid.toFixed(2)} was recorded before per-payment method tracking existed — a detailed breakdown isn't available for that part.
+            </div>
+          ` : '')}
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Payment Method${rows.length > 1 ? 's' : ''}</label>
+          <div id="supplierPayRows" style="display:flex; flex-direction:column; gap:8px">
+            ${rows.map((r, idx) => `
+              <div style="display:flex; align-items:center; gap:8px">
+                <select class="supplier-pay-method" data-idx="${idx}" style="flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-elevated); color:var(--text-main);">
+                  ${payMethods.map(m => `<option value="${escapeHtml(m)}" ${r.method === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+                </select>
+                <input type="number" class="supplier-pay-amount form-input" data-idx="${idx}" value="${(parseFloat(r.amount) || 0).toFixed(2)}" style="width:120px; text-align:right" />
+                ${rows.length > 1 ? `<button type="button" class="supplier-pay-remove btn btn-ghost" data-idx="${idx}" style="color:var(--danger); padding:6px 10px"><i class="fa-solid fa-xmark"></i></button>` : `<div style="width:38px"></div>`}
+              </div>
+            `).join('')}
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px">
+            <button type="button" class="btn btn-ghost btn-sm" id="supplierAddSplit"><i class="fa-solid fa-plus mr-4"></i> Add Split</button>
+            <span id="supplierPayBalanceNote" style="font-weight:700; color:${overLimit ? 'var(--danger)' : 'var(--success)'}">${cur}${sum.toFixed(2)} / ${cur}${outstanding.toFixed(2)}</span>
+          </div>
+          ${overLimit ? `<p class="form-help-text" style="color:var(--danger)">Split total can't exceed the outstanding balance.</p>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  openModal({
+    title: `Settle Supplier Payment`,
+    body: renderContent(),
+    footer: `
+      <button class="btn btn-ghost" id="supplierPayCancelBtn">Cancel</button>
+      <button class="btn btn-success" id="supplierPayConfirmBtn"><i class="fa-solid fa-money-bill-wave mr-4"></i> Confirm Payment</button>
+    `
+  });
+
+  setTimeout(() => {
+    const attach = () => {
+      const refresh = () => {
+        const modalBody = document.querySelector('.modal-body');
+        if (modalBody) modalBody.innerHTML = renderContent();
+        setTimeout(attach, 0);
+      };
+      document.querySelectorAll('.supplier-pay-method').forEach(sel => {
+        sel.onchange = (e) => { rows[parseInt(e.target.dataset.idx, 10)].method = e.target.value; };
+      });
+      document.querySelectorAll('.supplier-pay-amount').forEach(inp => {
+        inp.oninput = (e) => {
+          rows[parseInt(e.target.dataset.idx, 10)].amount = parseFloat(e.target.value) || 0;
+          const sum = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+          const overLimit = sum > outstanding + 0.01;
+          const note = document.getElementById('supplierPayBalanceNote');
+          if (note) {
+            note.textContent = `${cur}${sum.toFixed(2)} / ${cur}${outstanding.toFixed(2)}`;
+            note.style.color = overLimit ? 'var(--danger)' : 'var(--success)';
+          }
+        };
+      });
+      document.querySelectorAll('.supplier-pay-remove').forEach(btn => {
+        btn.onclick = () => {
+          if (rows.length > 1) { rows.splice(parseInt(btn.dataset.idx, 10), 1); refresh(); }
+        };
+      });
+      const addBtn = document.getElementById('supplierAddSplit');
+      if (addBtn) {
+        addBtn.onclick = () => {
+          const used = rows.map(r => r.method);
+          const nextMethod = payMethods.find(m => !used.includes(m)) || payMethods[0] || 'Cash';
+          // The expected flow: edit row 1 down to whatever's actually being
+          // paid via that method (e.g. ₹20 Cash out of a ₹70 balance), THEN
+          // click Add Split — the new row should pick up the true remainder
+          // (₹50), not half of whatever row 1 currently holds. Reverted
+          // back to this subtraction after a halving attempt that ignored
+          // manual edits already made to existing rows.
+          const already = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+          const remaining = Math.max(0, parseFloat((outstanding - already).toFixed(2)));
+          rows.push({ method: nextMethod, amount: remaining });
+          refresh();
+        };
+      }
+      const cancelBtn = document.getElementById('supplierPayCancelBtn');
+      if (cancelBtn) cancelBtn.onclick = closeModal;
+      const confirmBtn = document.getElementById('supplierPayConfirmBtn');
+      if (confirmBtn) confirmBtn.onclick = process;
+    };
+
+    const process = async () => {
+      const validRows = rows.filter(r => r.method && parseFloat(r.amount) > 0.001);
+      const sum = parseFloat(validRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0).toFixed(2));
+      if (sum <= 0) { showToast('Enter at least one payment amount', 'error'); return; }
+      if (sum > outstanding + 0.01) {
+        showToast(`Total (${cur}${sum.toFixed(2)}) can't exceed the outstanding balance (${cur}${outstanding.toFixed(2)})`, 'warning');
+        return;
+      }
+
+      const btn = document.getElementById('supplierPayConfirmBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
+      try {
+        // Applied one at a time, in order — recordSupplierPayment() re-reads
+        // the purchase fresh on every call, so each row's own cap-check
+        // sees the balance already reduced by the rows applied before it.
+        for (const row of validRows) {
+          await recordSupplierPayment(purchaseId, parseFloat(row.amount.toFixed(2)), row.method);
+        }
+        closeModal();
+        showToast('Payment settled successfully!', 'success');
+        if (onSuccess) onSuccess();
+      } catch (err) {
+        showToast('Error: ' + err.message, 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-money-bill-wave mr-4"></i> Confirm Payment';
+      }
+    };
+
+    attach();
+  }, 0);
+}
+
 async function viewPurchaseDetails(purchase) {
   const settings = await getSettings();
-  const payMethods = settings.paymentMethods?.length ? settings.paymentMethods : ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Cheque'];
   const amountPaid = purchase.amountPaid || 0;
   // A purchase return reduces what's actually owed to the supplier, but
   // (matching the same convention sales returns use against order.total)
@@ -984,15 +1161,12 @@ async function viewPurchaseDetails(purchase) {
         </table>
       </div>
       ${outstanding > 0 ? `
-        <div style="margin-top:16px; padding:16px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border)">
-          <label class="form-label">Record a Payment to Supplier</label>
-          <div style="display:flex; gap:8px">
-            <select id="recordPaymentMethod" style="width:140px; padding:6px 8px; border:1px solid var(--border); border-radius:8px; background:var(--bg-elevated); color:var(--text-main);">
-              ${payMethods.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')}
-            </select>
-            <input class="form-input" type="number" id="recordPaymentAmount" placeholder="0.00" min="0" max="${outstanding}" style="flex:1" />
-            <button class="btn btn-primary" id="recordPaymentBtn">Add Payment</button>
+        <div style="margin-top:16px; padding:16px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div class="form-label" style="margin-bottom:2px">Record a Payment to Supplier</div>
+            <div style="font-size:12px; color:var(--text-muted);">Pay in full or split across multiple methods.</div>
           </div>
+          <button class="btn btn-primary" id="recordPaymentBtn"><i class="fa-solid fa-money-bill-wave mr-4"></i> Record Payment</button>
         </div>
       ` : ''}
     `,
@@ -1027,26 +1201,11 @@ async function viewPurchaseDetails(purchase) {
     }
   });
 
-  const recordPaymentBtn = document.getElementById('recordPaymentBtn');
-  recordPaymentBtn?.addEventListener('click', async () => {
-    if (recordPaymentBtn.disabled) return;
-    const input = document.getElementById('recordPaymentAmount');
-    const methodSelect = document.getElementById('recordPaymentMethod');
-    const amount = parseFloat(input.value) || 0;
-    if (amount <= 0) { showToast('Enter a valid payment amount', 'error'); return; }
-
-    recordPaymentBtn.disabled = true;
-    try {
-      await recordSupplierPayment(purchase.id, amount, methodSelect?.value);
-    } catch (err) {
-      recordPaymentBtn.disabled = false;
-      showToast(err.message || 'Failed to record payment.', 'error');
-      return;
-    }
-    showToast('Payment recorded', 'success');
-    closeModal();
-    const { navigate } = await import('../router.js');
-    await navigate('purchases');
+  document.getElementById('recordPaymentBtn')?.addEventListener('click', async () => {
+    await openSupplierPaymentModal(purchase.id, settings.currency || '₹', async () => {
+      const { navigate } = await import('../router.js');
+      await navigate('purchases');
+    });
   });
 }
 

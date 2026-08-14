@@ -967,12 +967,6 @@ async function renderVehicleDeliveryReport(container, cur) {
 }
 
 async function renderOutstandingReport(container, cur) {
-  // Same fallback list Purchases.js's own purchase-creation form and
-  // "Record a Payment" section use, so the method choices offered here
-  // match everywhere else a supplier payment gets recorded.
-  const settings = await getSettings();
-  const payMethods = settings.paymentMethods?.length ? settings.paymentMethods : ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Cheque'];
-
   // Purchase side: money the shop owes suppliers
   const suppliers = await getSupplierOutstandingReport(currentBranchFilter, currentStartDate, currentEndDate);
   const totalPurchaseOutstanding = suppliers.reduce((s, x) => s + x.outstanding, 0);
@@ -1244,13 +1238,7 @@ async function renderOutstandingReport(container, cur) {
                         <td data-label="Outstanding" class="font-bold text-danger">${cur}${p.outstanding.toFixed(2)}</td>
                         <td>
                           ${p.outstanding > 0.01 ? `
-                            <div style="display:flex; gap:6px; align-items:center;">
-                              <select class="outstanding-pay-method" data-id="${p.id}" style="width:110px; padding:4px 6px; font-size:12px; border:1px solid var(--border); border-radius:6px; background:var(--bg-elevated); color:var(--text-main);">
-                                ${payMethods.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')}
-                              </select>
-                              <input type="number" class="form-input outstanding-pay-amount" data-id="${p.id}" value="${p.outstanding.toFixed(2)}" min="0.01" max="${p.outstanding.toFixed(2)}" style="width:90px; padding:4px 6px; font-size:12px;" />
-                              <button class="btn btn-success btn-sm outstanding-pay-btn" data-id="${p.id}"><i class="fa-solid fa-money-bill-wave"></i> Pay</button>
-                            </div>
+                            <button class="btn btn-success btn-sm outstanding-pay-btn" data-id="${p.id}"><i class="fa-solid fa-money-bill-wave"></i> Pay</button>
                           ` : '<span class="text-muted" style="font-size:11px;">Settled</span>'}
                         </td>
                       </tr>
@@ -1266,30 +1254,14 @@ async function renderOutstandingReport(container, cur) {
             page: res.page, totalPages: res.totalPages, onChange: (p) => { modalPage = p; renderPurchasesModal(); }
           });
 
-          // recordSupplierPayment() (Purchases.js) is the same fresh-read +
-          // overpay-guard logic viewPurchaseDetails()'s own "Record a
-          // Payment" button uses — reused here so a supplier balance can be
-          // cleared right from the Outstanding report, no navigation away.
+          // openSupplierPaymentModal() (Purchases.js) is the same split-pay
+          // UI viewPurchaseDetails()'s own "Record Payment" button opens —
+          // reused here so a supplier balance can be cleared (in full or
+          // split across methods) right from the Outstanding report.
           document.querySelectorAll('.outstanding-pay-btn').forEach(pbtn => {
             pbtn.onclick = async () => {
-              const amountInput = document.querySelector(`.outstanding-pay-amount[data-id="${pbtn.dataset.id}"]`);
-              const methodSelect = document.querySelector(`.outstanding-pay-method[data-id="${pbtn.dataset.id}"]`);
-              const amount = parseFloat(amountInput?.value) || 0;
-              if (amount <= 0) { showToast('Enter a valid payment amount', 'error'); return; }
-              pbtn.disabled = true;
-              const original = pbtn.innerHTML;
-              pbtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-              try {
-                const { recordSupplierPayment } = await import('./Purchases.js');
-                await recordSupplierPayment(pbtn.dataset.id, amount, methodSelect?.value);
-                showToast('Payment recorded', 'success');
-                closeModal();
-                await renderOutstandingReport(container, cur);
-              } catch (err) {
-                showToast(err.message || 'Failed to record payment.', 'error');
-                pbtn.disabled = false;
-                pbtn.innerHTML = original;
-              }
+              const { openSupplierPaymentModal } = await import('./Purchases.js');
+              await openSupplierPaymentModal(pbtn.dataset.id, cur, () => renderOutstandingReport(container, cur));
             };
           });
         }
