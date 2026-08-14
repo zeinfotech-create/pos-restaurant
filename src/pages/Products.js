@@ -920,7 +920,7 @@ async function openProductForm(product, container, cur) {
         <div class="form-grid">
           <div class="form-group mb-0">
             <label class="form-label">Tax Configuration</label>
-            <div style="display:flex; gap:8px">
+            <div id="pTaxRateRow" style="display:flex; gap:8px">
               <select class="form-select" id="pTaxType" style="flex:1">
                 <option value="exclusive" ${(product?.taxType || 'inclusive') === 'exclusive' ? 'selected' : ''}>Exclusive (+)</option>
                 <option value="inclusive" ${(product?.taxType || 'inclusive') === 'inclusive' ? 'selected' : ''}>Inclusive</option>
@@ -951,6 +951,10 @@ async function openProductForm(product, container, cur) {
                 return `<select class="form-select" id="pTaxRate" style="width:100px" ${allRates.length ? '' : 'disabled'}>${options}</select>`;
               })()}
             </div>
+            <label style="display:flex; align-items:center; gap:6px; margin-top:8px; cursor:pointer; font-size:12px; font-weight:600; color:var(--text-muted);">
+              <input type="checkbox" id="pNoTaxToggle" ${(product && Number(product.taxRate) === 0) ? 'checked' : ''} style="width:14px; height:14px; cursor:pointer;" />
+              No Tax / Exempt <span style="font-weight:400; opacity:0.8;">(e.g. fresh produce, GST-exempt items)</span>
+            </label>
           </div>
           <div class="form-group mb-0">
               <label class="form-label">HSN / SAC Code</label>
@@ -1165,6 +1169,59 @@ async function openProductForm(product, container, cur) {
     hsnInput.addEventListener('blur', () => {
       setTimeout(closeHsnSuggestions, 150);
     });
+  }
+
+  // "No Tax / Exempt" — forces taxRate to 0 and hides the whole Tax
+  // Type/Rate row rather than trying to visually "disable" the selects:
+  // every <select class="form-select"> in this app gets hijacked into a
+  // custom dropdown by premiumSelect.js (a separate .premium-select-wrapper
+  // element inserted as a sibling, not the native <select> itself), which
+  // doesn't consult the native `disabled` attribute at all — a disabled
+  // native select would still show as a clickable, changeable custom
+  // dropdown. Hiding the shared parent row sidesteps that entirely, and the
+  // save handler below just reads pTaxRate's value as always, so it still
+  // reads back exactly 0 without needing its own special case.
+  {
+    const noTaxToggle = document.getElementById('pNoTaxToggle');
+    const taxRateRow = document.getElementById('pTaxRateRow');
+    const taxRateSelect = document.getElementById('pTaxRate');
+
+    const setZeroRate = () => {
+      let option = [...taxRateSelect.options].find(o => parseFloat(o.value) === 0);
+      if (!option) {
+        option = document.createElement('option');
+        option.value = '0';
+        option.textContent = '0%';
+        taxRateSelect.insertBefore(option, taxRateSelect.firstChild);
+      }
+      taxRateSelect.value = '0';
+      taxRateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    if (noTaxToggle.checked) {
+      setZeroRate();
+      taxRateRow.style.display = 'none';
+    }
+
+    noTaxToggle.onchange = () => {
+      if (noTaxToggle.checked) {
+        // Remembered so switching it back off restores what was picked
+        // before, instead of leaving the product stuck at 0%.
+        taxRateRow.dataset.prevRate = taxRateSelect.value;
+        setZeroRate();
+        taxRateRow.style.display = 'none';
+      } else {
+        taxRateRow.style.display = 'flex';
+        const prevRate = taxRateRow.dataset.prevRate;
+        if (prevRate && prevRate !== '0') {
+          const opt = [...taxRateSelect.options].find(o => o.value === prevRate);
+          if (opt) {
+            taxRateSelect.value = prevRate;
+            taxRateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+      }
+    };
   }
 
   // Emoji picker
