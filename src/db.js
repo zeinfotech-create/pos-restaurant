@@ -2718,7 +2718,19 @@ export async function getShifts() {
 export async function getCurrentShift(branchId, registerId = null) {
   const shifts = await getShifts();
   const rid = registerId || await getCurrentRegisterId();
-  const shift = shifts.find(s => s.branchId === branchId && (rid ? s.registerId === rid : true) && s.status === 'Open') || null;
+  // A falsy `rid` (no specific register — e.g. a branch with none
+  // configured, where Login.js sets registerId to null and skips the
+  // register-picker step entirely) used to match ANY open shift for the
+  // branch, regardless of which register it actually belonged to — via
+  // the `(rid ? s.registerId === rid : true)` fallback below. That's how
+  // an unrelated (or stale, from a since-deleted register) open shift
+  // elsewhere on the same branch could get picked up and reported as "this
+  // branch's register is already open" for a branch that never had one.
+  // isRegisterOpen() already handles the genuine "no registers at all"
+  // case explicitly before ever calling this — this only needs to match
+  // the exact register id (including two real nulls matching each other,
+  // for any shift genuinely opened with no register concept).
+  const shift = shifts.find(s => s.branchId === branchId && s.registerId === rid && s.status === 'Open') || null;
   return shift;
 }
 
@@ -3202,6 +3214,17 @@ export async function verifyLocalUser(username, password) {
   const candidates = all.filter(u => u.email === username || u.username === username);
   for (const user of candidates) {
     if (await verifyPassword(password, user.password)) {
+      // Deactivated (Users page > toggle off) accounts must never actually
+      // authenticate — this was previously only enforced by hiding the
+      // toggle in the Users UI, never by the credential check itself, so a
+      // disabled account could still log in as long as the password was
+      // still known. This is the local/standalone login path, checked
+      // FIRST for every Electron install (see syncEngine.verifyCredentials)
+      // — the WebSocket hub path already had this same check, this one
+      // never did.
+      if (user.isActive === false) {
+        return { success: false, message: 'This account has been deactivated. Contact your admin.' };
+      }
       // Migrate a legacy plaintext record to a hash now that it's proven correct.
       if (typeof user.password === 'string' && !user.password.startsWith('sha256:')) {
         user.password = await hashPassword(password);

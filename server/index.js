@@ -474,6 +474,15 @@ const server = http.createServer(async (req, res) => {
                     return res.end(JSON.stringify({ success: false, message: 'ACCOUNT SUSPENDED' }));
                 }
 
+                // MIRROR: pos_verify_credentials's own isActive check (this HTTP
+                // fallback path never had it — a deactivated account could still
+                // log in through here even though the WebSocket path already
+                // correctly blocked it).
+                if (user.isActive === false) {
+                    res.writeHead(403, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ success: false, message: 'Account deactivated. Please contact administrator.' }));
+                }
+
                 let branches = (await DBManager.find(Branch, 'branches', { licenseKey: user.licenseKey })).map(b => {
                     const obj = b;
                     return { ...obj, id: obj.branchId || obj._id?.toString() };
