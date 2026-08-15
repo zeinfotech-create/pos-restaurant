@@ -80,9 +80,17 @@ export async function navigate(page) {
         // NOTHING works until a real activation key is verified — no trial grace
         // period for the desktop build. Gated on being logged in so Logout can
         // always reach Login instead of bouncing straight back here.
+        //
+        // 'customer-display' is exempt too — it opens in its own window() with
+        // a completely fresh JS context, so syncEngine.isLifetimeActivated
+        // starts false there regardless of the main window's real activation
+        // status until its own async re-verification finishes. Even with that
+        // race fixed, this window has no business enforcing activation at all:
+        // it's a read-only mirror of the main window's cart, and a real
+        // customer standing at the counter should never see a license screen.
         if (isAlreadySetUp) {
             const { syncEngine } = await import('./services/syncEngine.js');
-            const activationExemptPages = ['login', 'onboarding', 'activation'];
+            const activationExemptPages = ['login', 'onboarding', 'activation', 'customer-display'];
             const loggedInUser = await getCurrentUser();
             if (loggedInUser && !syncEngine.isLifetimeActivated && !activationExemptPages.includes(mainPage)) {
                 console.log('[Router] Electron: Not activated yet. Forcing Activation gate.');

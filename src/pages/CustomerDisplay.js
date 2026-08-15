@@ -1,42 +1,6 @@
 import { getSettings } from '../db.js';
 import { store } from '../store.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
-import QRCode from 'qrcode';
-
-function buildBillText(settings, cur, cart) {
-  const { items, subtotal, discount, tax, total } = cart;
-  const lines = [];
-  lines.push(settings.storeName || 'Store');
-  lines.push(new Date().toLocaleString());
-  lines.push('-'.repeat(28));
-  items.forEach(item => {
-    const lineTotal = (item.qty * item.price).toFixed(2);
-    lines.push(`${item.name}${item.variantName ? ` (${item.variantName})` : ''}`);
-    lines.push(`  ${item.qty} x ${cur}${item.price.toFixed(2)} = ${cur}${lineTotal}`);
-  });
-  lines.push('-'.repeat(28));
-  lines.push(`Subtotal: ${cur}${subtotal.toFixed(2)}`);
-  if (discount > 0) lines.push(`Discount: -${cur}${discount.toFixed(2)}`);
-  lines.push(`Tax: ${cur}${tax.toFixed(2)}`);
-  lines.push(`TOTAL: ${cur}${total.toFixed(2)}`);
-  lines.push('-'.repeat(28));
-  lines.push(settings.receiptFooter || 'Thank you for your visit!');
-  return lines.join('\n');
-}
-
-// Direct merchant UPI collection — no gateway, no fees, no verification.
-// The cashier confirms payment was received the same way they would for
-// any other UPI QR sticker at a shop counter.
-function buildUpiLink(settings, total) {
-  const params = new URLSearchParams({
-    pa: settings.upiId,
-    pn: settings.storeName || 'Store',
-    am: total.toFixed(2),
-    cu: 'INR',
-    tn: `Payment to ${settings.storeName || 'Store'}`
-  });
-  return `upi://pay?${params.toString()}`;
-}
 
 let channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('pos_customer_display') : null;
 let currentCart = { items: [], subtotal: 0, tax: 0, discount: 0, total: 0 };
@@ -54,7 +18,15 @@ export async function renderCustomerDisplay(container) {
   let clockInterval = null;
   function updateUI(data) {
     currentCart = data || currentCart;
-    const { items, total, subtotal, discount, tax } = currentCart;
+    const { items, total, subtotal, customer, itemDiscount, itemTax, orderDiscount, orderTax } = currentCart;
+    const totalItems = items ? items.length : 0;
+    const totalQty = items ? items.reduce((s, i) => s + (parseFloat(i.qty) || 0), 0) : 0;
+    // A customer doesn't care whether a discount/tax came from the item
+    // itself or an order-level adjustment — that split is a cashier-side
+    // detail. One combined "you're saving" figure and one combined tax
+    // line is what's actually useful to read at a glance here.
+    const totalDiscount = (itemDiscount || 0) + (orderDiscount || 0);
+    const totalTax = (itemTax || 0) + (orderTax || 0);
 
     if (clockInterval) {
       clearInterval(clockInterval);
@@ -104,28 +76,32 @@ export async function renderCustomerDisplay(container) {
         <!-- Summary Sidebar -->
         <div class="cd-sidebar">
           <div class="cd-summary-card">
-            <h2 class="cd-summary-title">Order Summary</h2>
-            <div class="cd-summary-rows">
-              <div class="cd-row"><span>Subtotal</span><span>${cur}${subtotal.toFixed(2)}</span></div>
-              ${discount > 0 ? `<div class="cd-row text-accent"><span>Discount</span><span>-${cur}${discount.toFixed(2)}</span></div>` : ''}
-              <div class="cd-row"><span>Tax</span><span>${cur}${tax.toFixed(2)}</span></div>
+            <div class="cd-summary-head">
+              <h2 class="cd-summary-title">Order Summary</h2>
+              <span class="cd-summary-caption">${totalItems} item${totalItems === 1 ? '' : 's'} &middot; ${Number.isInteger(totalQty) ? totalQty : totalQty.toFixed(3)} qty</span>
             </div>
+            <div class="cd-summary-rows">
+              <div class="cd-row cd-row-subtotal"><span>Subtotal</span><span>${cur}${subtotal.toFixed(2)}</span></div>
+              ${totalTax > 0 ? `<div class="cd-row"><span>Tax</span><span>${cur}${totalTax.toFixed(2)}</span></div>` : ''}
+            </div>
+            ${totalDiscount > 0 ? `
+            <div class="cd-savings-strip">
+              <i class="fa-solid fa-tags"></i>
+              <span>You're saving <b>${cur}${totalDiscount.toFixed(2)}</b> on this order!</span>
+            </div>
+            ` : ''}
             <div class="cd-total-section">
               <div class="cd-total-label">Amount to Pay</div>
-              <div class="cd-total-value">${cur}${total.toFixed(2)}</div>
+              <div class="cd-total-badge">
+                <div class="cd-total-value">${cur}${total.toFixed(2)}</div>
+              </div>
             </div>
+            ${settings.enableLoyalty !== false && customer ? `
             <div class="cd-footer-promo">
-              <i class="fa-solid fa-star text-warning"></i> 
+              <i class="fa-solid fa-star text-warning"></i>
               Earn ${Math.floor(total / 10)} points on this order!
             </div>
-          </div>
-          
-          <!-- Branding Area -->
-          <div class="cd-branding">
-            <div class="cd-qr-placeholder">
-              <canvas id="cdQrCanvas"></canvas>
-              <span>${settings.upiId ? 'Scan to Pay via UPI' : 'Scan for Digital Bill'}</span>
-            </div>
+            ` : ''}
           </div>
         </div>
       </div>
@@ -141,18 +117,6 @@ export async function renderCustomerDisplay(container) {
       clockInterval = setInterval(updateTime, 1000);
     }
 
-    // Render the QR — a direct merchant UPI payment link when a UPI ID is
-    // configured, otherwise falls back to a plain-text bill summary. Both
-    // work fully offline; UPI needs no gateway, no fees, no verification.
-    const qrCanvas = document.getElementById('cdQrCanvas');
-    if (qrCanvas) {
-      const qrContent = (settings.upiId && total > 0)
-        ? buildUpiLink(settings, total)
-        : buildBillText(settings, cur, currentCart);
-      QRCode.toCanvas(qrCanvas, qrContent, { width: 120, margin: 1 }, (err) => {
-        if (err) console.error('[CustomerDisplay] QR generation failed:', err);
-      });
-    }
   }
 
   // Initial Render (Empty State)
@@ -194,9 +158,10 @@ export async function renderCustomerDisplay(container) {
       .welcome-message { font-size: 20px; color: var(--text-secondary); opacity: 0.8; }
       
       .customer-display-layout {
-        display: grid; grid-template-columns: 1fr 400px; height: 100vh; background: var(--bg-main);
+        display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+        height: 100vh; width: 100vw; max-width: 100vw; overflow: hidden; background: var(--bg-main);
       }
-      .cd-main { display: flex; flex-direction: column; padding: 40px; border-right: 1px solid var(--border); }
+      .cd-main { display: flex; flex-direction: column; padding: 40px; border-right: 1px solid var(--border); min-width: 0; }
       .cd-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
       .cd-store-info { display: flex; align-items: center; gap: 16px; }
       .cd-logo-small { 
@@ -207,9 +172,9 @@ export async function renderCustomerDisplay(container) {
       .cd-store-name { font-size: 24px; font-weight: 700; color: var(--text-main); }
       .cd-time { font-size: 20px; font-weight: 500; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
       
-      .cd-cart-grid { 
-        flex: 1; overflow-y: auto; padding-right: 20px;
-        display: grid; grid-template-columns: repeat(6, 1fr);
+      .cd-cart-grid {
+        flex: 1; overflow-y: auto; overflow-x: hidden; padding-right: 20px; min-width: 0;
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
         gap: 16px; align-content: start;
       }
       .cd-cart-item {
@@ -232,30 +197,52 @@ export async function renderCustomerDisplay(container) {
       .cd-item-meta { font-size: 13px; color: var(--text-secondary); opacity: 0.8; }
       .cd-item-total { font-size: 18px; font-weight: 800; color: var(--accent); }
       
-      .cd-sidebar { padding: 40px; display: flex; flex-direction: column; gap: 24px; background: var(--bg-elevated); }
+      .cd-sidebar { padding: 40px; display: flex; flex-direction: column; gap: 24px; background: var(--bg-elevated); min-width: 0; overflow: hidden; }
       .cd-summary-card {
         padding: 32px; background: var(--bg-main); border-radius: 24px; border: 1px solid var(--border);
         box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        min-width: 0; overflow: hidden;
       }
-      .cd-summary-title { font-size: 20px; font-weight: 700; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
-      .cd-summary-rows { display: flex; flex-direction: column; gap: 12px; margin-bottom: 32px; }
-      .cd-row { display: flex; justify-content: space-between; font-size: 18px; color: var(--text-secondary); }
-      
+      .cd-summary-head { margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 14px; }
+      .cd-summary-title { font-size: 20px; font-weight: 700; }
+      .cd-summary-caption { font-size: 13px; font-weight: 600; color: var(--text-secondary); opacity: 0.75; }
+
+      .cd-summary-rows { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+      .cd-row {
+        display: flex; justify-content: space-between; align-items: center; gap: 8px;
+        font-size: 15px; color: var(--text-secondary); min-width: 0;
+        padding: 8px 4px; border-radius: 8px;
+      }
+      .cd-row span:first-child { white-space: nowrap; }
+      .cd-row span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; font-variant-numeric: tabular-nums; }
+      .cd-row-subtotal { font-weight: 700; color: var(--text-main); font-size: 16px; }
+
+      .cd-savings-strip {
+        display: flex; align-items: center; gap: 10px; margin: 16px 0;
+        padding: 12px 14px; border-radius: 14px;
+        background: linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(16,185,129,0.05) 100%);
+        border: 1px solid rgba(16,185,129,0.25);
+        color: var(--success); font-size: 14px; font-weight: 600;
+      }
+      .cd-savings-strip i { font-size: 16px; flex-shrink: 0; }
+      .cd-savings-strip b { font-weight: 800; }
+
       .cd-total-section {
-        padding-top: 24px; border-top: 2px dashed var(--border); text-align: center;
+        padding-top: 20px; border-top: 2px dashed var(--border); text-align: center; min-width: 0;
       }
-      .cd-total-label { font-size: 16px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
-      .cd-total-value { font-size: 60px; font-weight: 800; color: var(--primary); line-height: 1; }
-      
+      .cd-total-label { font-size: 13px; font-weight: 700; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1.5px; }
+      .cd-total-badge {
+        padding: 20px 12px; border-radius: 18px; min-width: 0;
+        background: linear-gradient(135deg, var(--primary) 0%, #7c3aed 100%);
+        box-shadow: 0 14px 28px -10px rgba(79, 70, 229, 0.55);
+      }
+      .cd-total-value {
+        font-size: clamp(26px, 4.2vw, 42px); font-weight: 800; color: #fff; line-height: 1;
+        white-space: nowrap;
+      }
+
       .cd-footer-promo { margin-top: 24px; text-align: center; font-size: 14px; padding: 12px; background: rgba(245,158,11,0.08); border-radius: 12px; color: var(--warning-dark); }
-      
-      .cd-branding { flex: 1; display: flex; align-items: flex-end; justify-content: center; }
-      .cd-qr-placeholder {
-        text-align: center; padding: 16px; background: white; border-radius: 16px; border: 1px solid #ddd;
-        display: flex; flex-direction: column; align-items: center; gap: 8px; color: #333;
-      }
-      .cd-qr-placeholder span { font-size: 12px; font-weight: 600; }
-      
+
       .animate-slide-in { animation: slideIn 0.3s ease-out forwards; }
       @keyframes slideIn {
         from { opacity: 0; transform: translateY(20px); }

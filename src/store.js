@@ -384,7 +384,11 @@ function renderCartEvent() {
             type: 'UPDATE_CART',
             payload: {
                 ...getCartTotals(),
-                items: store.cart
+                items: store.cart,
+                // Lets Customer Display show the "Earn X points" banner only
+                // for a real, actually-selected customer — not on every walk-in
+                // sale regardless of who's checking out.
+                customer: store.selectedCustomer || null
             }
         });
     }
