@@ -872,15 +872,19 @@ export async function renderCart(cur) {
           <div class="cart-item-inline-edit" id="inline-edit-${item.cartId}" style="display:none;padding:12px;background:var(--bg-elevated);border-top:1px solid var(--border);animation:fadeIn 0.15s ease">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
               <div>
+                <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;display:block">Quantity</label>
+                <input class="form-input" id="ie-qty-${item.cartId}" type="number" min="0.001" step="0.001" value="${item.qty}" style="height:32px;font-size:13px" />
+              </div>
+              <div>
                 <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;display:block">Price (${cur})</label>
-                <input class="form-input" id="ie-price-${item.cartId}" type="number" min="0" step="0.01" value="${item.price}" 
+                <input class="form-input" id="ie-price-${item.cartId}" type="number" min="0" step="0.01" value="${item.price}"
                   ${!canCustomPrice ? 'disabled style="opacity:0.6; cursor:not-allowed"' : ''}
                   style="height:32px;font-size:13px" />
               </div>
               <div>
                 <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;display:block">Unit</label>
                 <input class="form-input" id="ie-unit-${item.cartId}" type="text" list="ie-unit-list-${item.cartId}" value="${item.unit || 'pcs'}" style="height:32px;font-size:13px" />
-                <datalist id="ie-unit-list-${item.cartId}">${['pcs','kg','g','L','ml','pack','box'].map(u => `<option value="${u}">`).join('')}</datalist>
+                <datalist id="ie-unit-list-${item.cartId}">${(settings.unitsOfMeasure?.length ? settings.unitsOfMeasure : ['pcs','kg','g','ltr','dz','box']).map(u => `<option value="${escapeHtml(u)}">`).join('')}</datalist>
               </div>
               <div>
                 <label style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;display:block">Discount</label>
@@ -1074,12 +1078,34 @@ export async function renderCart(cur) {
 
   // Inline edit save
   panel.querySelectorAll('.ie-save-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const cartId = btn.dataset.id;
       const item = store.cart.find(i => i.cartId === cartId);
       if (!item) return;
+      const qty = parseFloat(document.getElementById(`ie-qty-${cartId}`)?.value);
+      if (isNaN(qty) || qty <= 0) {
+        showToast('Quantity must be greater than 0', 'error');
+        return;
+      }
       const price = parseFloat(document.getElementById(`ie-price-${cartId}`)?.value) || 0;
       const unit = document.getElementById(`ie-unit-${cartId}`)?.value.trim() || 'pcs';
+
+      // Same stock-limit rule the +/- stepper (updateQty in store.js) already
+      // enforces — typing a value straight into this field bypassed it
+      // entirely (updateCartItem() just assigns whatever it's given), so a
+      // shop could quietly sell more than what's actually on the shelf.
+      const unitLower = unit.toLowerCase();
+      const isWeighed = unitLower === 'kg' || unitLower === 'g' || unitLower === 'kilogram' || unitLower === 'gram';
+      if (!isWeighed && qty > item.originalStock) {
+        const liveProduct = (await getProducts()).find(p => String(p.id) === String(item.id));
+        const allowNegative = liveProduct ? liveProduct.allowNegativeStock : item.allowNegativeStock;
+        if (!allowNegative) {
+          showToast(`Limit reached: ${item.originalStock} in stock`, 'warning');
+          return;
+        }
+        showToast(`${item.name} is out of stock — selling anyway`, 'warning');
+      }
+
       const discRaw = parseFloat(document.getElementById(`ie-discount-${cartId}`)?.value) || 0;
       const taxRate = parseFloat(document.getElementById(`ie-tax-${cartId}`)?.value) || 0;
       const discType = item._discountType || 'flat';
@@ -1093,7 +1119,7 @@ export async function renderCart(cur) {
         // must be reset to 'flat' here too \u2014 otherwise it stays stuck at whatever the product's
         // original default was (e.g. 'pct'), causing this already-converted number to be
         // mistakenly re-interpreted as a percentage everywhere else that reads itemDiscountType.
-        price, unit, itemDiscount, itemDiscountType: 'flat', taxRate, taxType,
+        qty, price, unit, itemDiscount, itemDiscountType: 'flat', taxRate, taxType,
         _discountRaw: discRaw, _discountType: discType
       });
       showToast('Item updated', 'success');
