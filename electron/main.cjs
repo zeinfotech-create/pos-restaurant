@@ -12,6 +12,25 @@ const net = require('net');
 const crypto = require('crypto');
 const { machineIdSync } = require('node-machine-id');
 const LICENSE_PUBLIC_KEY = require('./licensePublicKey.cjs');
+const { parseScaleLine } = require('./scaleParser.cjs');
+
+// Weight Scale (RS-232/USB-Serial) bridge — native module, loaded lazily
+// and wrapped in try/catch. `serialport`'s bindings are N-API (ABI-stable
+// across Node/Electron versions) so this should load fine in the packaged
+// app without a separate electron-rebuild step, but a machine missing the
+// right prebuilt binary for its OS/arch should still fail soft: Weight
+// Scale just reports "not available" instead of crashing the whole app on
+// startup for stores that don't even use a scale.
+let SerialPort = null;
+let ReadlineParser = null;
+let scaleLoadError = null;
+try {
+  ({ SerialPort } = require('serialport'));
+  ({ ReadlineParser } = require('@serialport/parser-readline'));
+} catch (e) {
+  scaleLoadError = e.message;
+  console.error('[WeightScale] serialport module failed to load:', e.message);
+}
 
 
 // ─── CI / Headless GPU fix ────────────────────────────────
@@ -28,6 +47,7 @@ let mainWindow = null;
 let serverProcess = null;
 let mongodProcess = null;
 let tray = null;
+let scalePort = null; // currently-open weight scale SerialPort instance, if any
 
 // Secret shared with the local hub server so its onboarding-only endpoints
 // (standalone-reset/standalone-register) can tell a real request from this
@@ -494,6 +514,9 @@ app.on('before-quit', () => {
   if (serverProcess) { serverProcess.kill('SIGTERM'); serverProcess = null; }
   if (mongodProcess) { mongodProcess.kill('SIGTERM'); mongodProcess = null; }
   if (tray) tray.destroy();
+  // Release the COM port so it isn't left locked for the next launch (or
+  // for another app) if the store owner quits without disconnecting first.
+  if (scalePort && scalePort.isOpen) { try { scalePort.close(); } catch (_) { /* already closing */ } }
 });
 
 // ─── IPC Handlers ─────────────────────────────────────────
@@ -813,6 +836,71 @@ ipcMain.handle('print-receipt-network', async (event, html, opts = {}) => {
   } catch (e) {
     if (hiddenWin && !hiddenWin.isDestroyed()) hiddenWin.destroy();
     console.error('[Print] print-receipt-network failed:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+// ─── Weight Scale (RS-232/USB-Serial) Bridge ────────────────────────────
+// Optional hardware integration for shops that weigh loose items (fruit,
+// veg, bulk grains/dals) at the counter — Settings > Printing > Weight
+// Scale. Runs in "continuous output" mode: once connected, the scale just
+// keeps streaming lines of weight data on its own (no request/poll needed,
+// matching how virtually every retail scale indicator ships configured),
+// and every parsed reading is pushed to the renderer as a 'scale:weight'
+// event so POS/Quick POS can show the live number.
+ipcMain.handle('scale:list-ports', async () => {
+  if (!SerialPort) return { error: scaleLoadError || 'Weight scale module not available on this machine.' };
+  try {
+    const ports = await SerialPort.list();
+    return { ports: ports.map(p => ({ path: p.path, manufacturer: p.manufacturer || '' })) };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('scale:connect', async (event, { path: portPath, baudRate } = {}) => {
+  if (!SerialPort) return { success: false, error: scaleLoadError || 'Weight scale module not available on this machine.' };
+  if (!portPath) return { success: false, error: 'No COM port selected.' };
+  const win = windowForEvent(event);
+  try {
+    // Reconnecting (e.g. after changing the port in Settings) should
+    // cleanly replace whatever was open before, not leak the old handle.
+    if (scalePort && scalePort.isOpen) {
+      await new Promise(resolve => scalePort.close(resolve));
+    }
+
+    scalePort = new SerialPort({ path: portPath, baudRate: parseInt(baudRate, 10) || 9600, autoOpen: false });
+    const parser = scalePort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+
+    parser.on('data', (line) => {
+      const weight = parseScaleLine(line);
+      if (weight !== null && win && !win.isDestroyed()) win.webContents.send('scale:weight', weight);
+    });
+    scalePort.on('error', (err) => {
+      console.error('[WeightScale] port error:', err.message);
+      if (win && !win.isDestroyed()) win.webContents.send('scale:error', err.message);
+    });
+    scalePort.on('close', () => {
+      if (win && !win.isDestroyed()) win.webContents.send('scale:status', 'disconnected');
+    });
+
+    await new Promise((resolve, reject) => scalePort.open((err) => (err ? reject(err) : resolve())));
+    return { success: true };
+  } catch (e) {
+    console.error('[WeightScale] connect failed:', e.message);
+    scalePort = null;
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('scale:disconnect', async () => {
+  try {
+    if (scalePort && scalePort.isOpen) {
+      await new Promise(resolve => scalePort.close(resolve));
+    }
+    scalePort = null;
+    return { success: true };
+  } catch (e) {
     return { success: false, error: e.message };
   }
 });

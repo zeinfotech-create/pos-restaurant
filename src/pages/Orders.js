@@ -577,7 +577,7 @@ async function openReturnModal(order, cur) {
               ${!item.isReturnable ? '<span class="badge badge-danger ml-8" style="font-size:9px">Non-Returnable</span>' : ''}
             </div>
             <div style="font-size:11px; opacity:0.6">
-              Original: ${item.qty} | 
+              Original: ${item.qty}${settings.enableUnitOfMeasure !== false ? ` ${escapeHtml(item.unit || 'pcs')}` : ''} |
               <span class="text-danger">Returned: ${item.alreadyReturned}</span> | 
               <span class="text-success">Available: ${item.isReturnable ? item.availableQty : 0}</span>
             </div>

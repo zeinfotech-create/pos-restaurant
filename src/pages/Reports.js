@@ -1633,7 +1633,7 @@ export async function openPurchaseReturnModal(purchase, cur, onSuccess) {
         <div style="flex:1">
           <div class="font-bold">${item.emoji || '📦'} ${escapeHtml(item.name)}</div>
           <div style="font-size:11px; opacity:0.6">
-            Original: ${item.qty} |
+            Original: ${item.qty}${settings.enableUnitOfMeasure !== false ? ` ${escapeHtml(item.unit || 'pcs')}` : ''} |
             <span class="text-danger">Returned: ${item.alreadyReturned}</span> |
             <span class="text-success">Available: ${item.availableQty}</span>
           </div>

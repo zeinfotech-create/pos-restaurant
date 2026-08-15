@@ -296,6 +296,7 @@ export async function renderProducts(container) {
 }
 
 async function renderTable(container, cur) {
+  const tableSettings = await getSettings();
   let productsRaw = await getProducts(store.branch?.id);
   
   let filteredProducts = productsRaw.sort((a,b) => {
@@ -423,7 +424,7 @@ async function renderTable(container, cur) {
             <td data-label="Price" class="font-bold text-accent">${priceDisplay}</td>
             <td data-label="Stock">
               <div style="display:flex; align-items:center; gap:6px;">
-                ${stockDisplay}
+                ${stockDisplay}${!hasVariants && tableSettings.enableUnitOfMeasure !== false ? ` ${escapeHtml(p.unit || 'pcs')}` : ''}
                 ${branchStockTips}
               </div>
             </td>
@@ -624,8 +625,8 @@ function convertToCSV(data) {
   if (data.length === 0) return "";
   
   // Columns matched to ImportWizard's expected fields for a seamless export -> re-import cycle
-  const headers = ['Name', 'Variant Name', 'SKU', 'Barcode', 'Category', 'SubCategory', 'Price', 'Cost Price', 'MRP', 'Stock', 'Min Stock', 'HSN Code', 'Tax Rate (%)', 'Emoji', 'Expiry Date', 'Manufacturing Date'];
-  
+  const headers = ['Name', 'Variant Name', 'SKU', 'Barcode', 'Category', 'SubCategory', 'Price', 'Cost Price', 'MRP', 'Stock', 'Min Stock', 'Unit', 'HSN Code', 'Tax Rate (%)', 'Emoji', 'Expiry Date', 'Manufacturing Date'];
+
   const rows = [];
   data.forEach(p => {
     const name = `"${(p.name || '').replace(/"/g, '""')}"`;
@@ -633,6 +634,7 @@ function convertToCSV(data) {
     const barcode = `"${(p.barcode || '').replace(/"/g, '""')}"`;
     const category = `"${(p.category || '').replace(/"/g, '""')}"`;
     const subCat = `"${(p.subCategory || '').replace(/"/g, '""')}"`;
+    const unit = `"${(p.unit || 'pcs').replace(/"/g, '""')}"`;
     const hsn = `"${(p.hsnCode || '').replace(/"/g, '""')}"`;
     const tax = p.taxRate !== undefined && p.taxRate !== null ? p.taxRate : '';
     const emoji = `"${(p.emoji || '📦').replace(/"/g, '""')}"`;
@@ -648,8 +650,8 @@ function convertToCSV(data) {
         const vCost = v.costPrice !== undefined && v.costPrice !== null ? v.costPrice : '';
         const vStock = v.stock || 0;
         const vMin = v.minStock !== undefined && v.minStock !== null ? v.minStock : '';
-        
-        rows.push([name, vName, sku, barcode, category, subCat, vPrice, vCost, mrp, vStock, vMin, hsn, tax, emoji, exp, mfg].join(','));
+
+        rows.push([name, vName, sku, barcode, category, subCat, vPrice, vCost, mrp, vStock, vMin, unit, hsn, tax, emoji, exp, mfg].join(','));
       });
     } else {
       // Standalone product
@@ -659,7 +661,7 @@ function convertToCSV(data) {
       const vStock = p.stock || 0;
       const vMin = p.minStock !== undefined && p.minStock !== null ? p.minStock : '';
 
-      rows.push([name, vName, sku, barcode, category, subCat, vPrice, vCost, mrp, vStock, vMin, hsn, tax, emoji, exp, mfg].join(','));
+      rows.push([name, vName, sku, barcode, category, subCat, vPrice, vCost, mrp, vStock, vMin, unit, hsn, tax, emoji, exp, mfg].join(','));
     }
   });
 
@@ -885,6 +887,17 @@ async function openProductForm(product, container, cur) {
                 <input class="form-input" id="pMinStock" type="number" placeholder="5" value="${product?.minStock ?? 5}" min="0" style="padding-left:36px" />
               </div>
             </div>
+            ${settings.enableUnitOfMeasure !== false ? `
+            <div class="form-group mb-0">
+              <label class="form-label">Unit</label>
+              <select class="form-input" id="pUnit">
+                ${(settings.unitsOfMeasure && settings.unitsOfMeasure.length ? settings.unitsOfMeasure : ['pcs', 'kg', 'g', 'ltr', 'dz', 'box']).map(u =>
+                  `<option value="${escapeHtml(u)}" ${(product?.unit || 'pcs') === u ? 'selected' : ''}>${escapeHtml(u)}${u.toLowerCase() === 'kg' ? ' ⚖️' : ''}</option>`
+                ).join('')}
+              </select>
+              <p class="form-help-text">"kg" pulls this product's quantity straight from a connected Weight Scale in POS (Settings &gt; Weight Scale). Manage the full list in Settings &gt; General.</p>
+            </div>
+            ` : ''}
           </div>
         `)}
       </div>
@@ -1362,6 +1375,7 @@ async function openProductForm(product, container, cur) {
         const mrp = parseFloat(document.getElementById('pMRP')?.value) || 0;
         const expiryDate = document.getElementById('pExpiryDate')?.value || '';
         const manufacturingDate = document.getElementById('pManufacturingDate')?.value || '';
+        const unit = document.getElementById('pUnit')?.value || 'pcs';
 
         // Manufacturing Date is optional even when Expiry Date is set (many products only ever
         // show an expiry date on the pack) — but if BOTH are given, expiry must be strictly
@@ -1376,7 +1390,7 @@ async function openProductForm(product, container, cur) {
 
         const payload = {
           ...product, name: name_val, sku, barcode, price: finalPrice, costPrice: finalCost, stock: finalStock, minStock: finalMinStock, category, subCategory, emoji,
-          image, variants: finalVariants, hsnCode, taxType, taxRate, itemDiscount, itemDiscountType, isReturnable, allowNegativeStock, mrp, expiryDate, manufacturingDate,
+          image, variants: finalVariants, hsnCode, taxType, taxRate, itemDiscount, itemDiscountType, isReturnable, allowNegativeStock, mrp, expiryDate, manufacturingDate, unit,
           location: { floor, row, rack }
         };
 

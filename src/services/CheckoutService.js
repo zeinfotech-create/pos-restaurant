@@ -777,7 +777,8 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
       category: i.category || 'Uncategorized',
       isInstant: i.isInstant || false,
       preparedQty: i.preparedQty || 0,
-      finalTax: parseFloat(finalTax.toFixed(2))
+      finalTax: parseFloat(finalTax.toFixed(2)),
+      unit: i.unit || 'pcs'
     };
   });
 
@@ -1243,7 +1244,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
                 <td style="padding:6px">${idx + 1}</td>
                 <td style="padding:6px; font-weight:600">${escapeHtml(i.name)}</td>
                 ${hasHsn ? `<td style="padding:6px">${escapeHtml(i.hsnCode || '')}</td>` : ''}
-                <td style="text-align:center; padding:6px">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}</td>
+                <td style="text-align:center; padding:6px">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}${settings.enableUnitOfMeasure !== false ? ` ${escapeHtml(i.unit || 'pcs')}` : ''}</td>
                 <td style="text-align:right; padding:6px">
                   <div>${cur}${itemPrice.toFixed(2)}</div>
                   ${unitBaseRate !== null ? `<div style="font-size:9px; opacity:0.6; font-weight:400">${cur}${unitBaseRate.toFixed(2)}</div>` : ''}
@@ -1487,7 +1488,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
             <div style="font-weight:600">${escapeHtml(i.name)}</div>
             ${subLines ? `<div style="font-size:9px; opacity:0.65">${subLines}</div>` : ''}
           </td>
-          <td style="text-align:center; vertical-align:top; padding:4px 0">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}</td>
+          <td style="text-align:center; vertical-align:top; padding:4px 0">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}${settings.enableUnitOfMeasure !== false ? ` ${escapeHtml(i.unit || 'pcs')}` : ''}</td>
           <td style="text-align:right; vertical-align:top; padding:4px 0">
             <div>${cur}${itemPrice.toFixed(2)}</div>
             ${unitBaseRate !== null ? `<div style="font-size:9px; opacity:0.6; font-weight:400">${cur}${unitBaseRate.toFixed(2)}</div>` : ''}

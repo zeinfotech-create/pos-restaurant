@@ -232,6 +232,12 @@ export async function renderSettings(container) {
           <span class="settings-nav-icon" style="background:rgba(59,130,246,0.12);color:#3b82f6"><i class="fa-solid fa-print"></i></span>
           <span>Printing</span>
         </button>
+        ${s.enableUnitOfMeasure !== false ? `
+        <button class="settings-nav-item ${activeSettingsTab === 'weightscale' ? 'active' : ''}" data-tab="weightscale">
+          <span class="settings-nav-icon" style="background:rgba(16,185,129,0.12);color:#10b981"><i class="fa-solid fa-weight-scale"></i></span>
+          <span>Weight Scale</span>
+        </button>
+        ` : ''}
         <!--
         <button class="settings-nav-item ${activeSettingsTab === 'industry' ? 'active' : ''}" data-tab="industry">
           <span class="settings-nav-icon" style="background:rgba(16,185,129,0.12);color:#10b981"><i class="fa-solid fa-screwdriver-wrench"></i></span>
@@ -540,6 +546,29 @@ export async function renderSettings(container) {
                   <p style="font-size:11px; color:var(--text-muted); margin-top:8px">Each staff member can still be given their own rate on the Staff Management page (overrides this default). Revenue = full sale amount; Profit = sale amount minus each item's cost price, so it never rewards a big-ticket sale that was actually sold at a thin or negative margin.</p>
                 </div>
               </div>
+              <div class="form-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border)">
+                <label class="flex items-center gap-12 cursor-pointer">
+                  <input type="checkbox" id="sEnableUnitOfMeasure" ${s.enableUnitOfMeasure !== false ? 'checked' : ''} style="width:20px;height:20px" />
+                  <div>
+                    <div class="font-bold">Enable Unit of Measure</div>
+                    <p style="font-size:12px;opacity:0.6">Shows the "Sold by Weight (kg)" option on Products, unit labels on Products/POS/receipts, and the Weight Scale hardware tab. Turn off if you only ever sell fixed-count items.</p>
+                  </div>
+                </label>
+                ${s.enableUnitOfMeasure !== false ? `
+                <div id="unitsOfMeasureConfig" style="margin-top:12px; padding:12px; background:var(--bg-elevated); border-radius:10px; border:1px solid var(--border)">
+                  <label class="form-label">Configured Units of Measurement</label>
+                  <div id="unitsContainer" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px">
+                    <!-- rendered dynamically -->
+                  </div>
+                  <div style="display:flex; gap:8px">
+                    <input class="form-input" id="newUnitInput" type="text" placeholder="e.g. Packet" style="width:160px" />
+                    <button type="button" class="btn btn-secondary btn-sm" id="addUnitBtn"><i class="fa-solid fa-plus mr-4"></i> Add Unit</button>
+                  </div>
+                  <p class="form-help-text" style="margin-top:8px">These become the choices in every Product's Unit dropdown. "kg" is reserved — a product set to exactly that unit is the one that pulls its quantity from a connected Weight Scale in POS.</p>
+                  <input type="hidden" id="sUnitsOfMeasure" value='${JSON.stringify(s.unitsOfMeasure || ['pcs', 'kg', 'g', 'ltr', 'dz', 'box'])}' />
+                </div>
+                ` : ''}
+              </div>
             </div>
           </div>
 
@@ -714,6 +743,48 @@ export async function renderSettings(container) {
           </div>
         </div>
         </div>
+        </div>
+
+        <!-- Weight Scale Tab Content -->
+        <div class="settings-tab-content ${activeSettingsTab === 'weightscale' && s.enableUnitOfMeasure !== false ? 'active' : ''}" id="tab-weightscale">
+          <div class="card" style="max-width:620px">
+            <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-weight-scale" style="color:#10b981"></i> Weight Scale</div>
+            <p class="form-help-text" style="margin-top:-8px; margin-bottom:16px">For shops that weigh loose items at the counter (fruit, veg, bulk grains) — connects to an RS-232/USB-Serial weighing scale indicator. Only available in the desktop app.</p>
+
+            <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+              <input type="checkbox" id="sWeightScaleEnabled" ${s.weightScaleEnabled ? 'checked' : ''} />
+              <label class="form-label" style="margin:0" for="sWeightScaleEnabled">Enable Weight Scale</label>
+            </div>
+
+            <div id="sWeightScaleFields" style="${s.weightScaleEnabled ? '' : 'display:none'}; border-top:1px dashed var(--border); padding-top:16px; margin-top:4px">
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">COM Port</label>
+                  <div style="display:flex; gap:8px">
+                    <select class="form-input" id="sWeightScalePort" style="flex:1">
+                      <option value="">${s.weightScalePort ? escapeHtml(s.weightScalePort) : 'Select a COM port…'}</option>
+                    </select>
+                    <button type="button" class="btn btn-ghost" id="scanScalePortsBtn" title="Re-scan for connected devices" style="flex-shrink:0; width:42px; padding:0"><i class="fa-solid fa-rotate"></i></button>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Baud Rate</label>
+                  <select class="form-input" id="sWeightScaleBaudRate">
+                    ${[2400, 4800, 9600, 19200, 38400].map(b => `<option value="${b}" ${(s.weightScaleBaudRate || 9600) == b ? 'selected' : ''}>${b} baud</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:12px; margin-top:14px">
+                <button type="button" class="btn btn-primary btn-sm" id="testScaleBtn"><i class="fa-solid fa-plug mr-6"></i> Test Connection</button>
+                <span id="scaleTestResult" style="font-size:13px; color:var(--text-muted)"></span>
+              </div>
+
+              <p class="form-help-text" style="margin-top:14px">Once connected, any Product with its Unit set to "Sold by Weight (kg)" pulls its quantity straight from the scale in POS — see Products &gt; Add/Edit Product.</p>
+            </div>
+
+            ${renderTabSaveContainer('saveWeightScaleBtn', 'Weight Scale')}
+          </div>
         </div>
 
         <!-- Industry Tab Content
@@ -976,10 +1047,10 @@ export async function renderSettings(container) {
     const input = document.getElementById('newPaymentMethodInput');
     const val = input.value.trim();
     if (!val) return showToast('Enter a valid method name', 'warning');
-    
+
     let methods = [];
     try { methods = JSON.parse(document.getElementById('sPaymentMethods').value); } catch(e) {}
-    
+
     // Case insensitive exists check
     if (!methods.some(m => m.toLowerCase() === val.toLowerCase())) {
       methods.push(val);
@@ -992,6 +1063,56 @@ export async function renderSettings(container) {
   });
 
   await renderPaymentMethods();
+
+  // Units of Measurement UI Management — same add/remove pill pattern as
+  // Payment Methods above, feeding Products' own Unit dropdown.
+  async function renderUnitsOfMeasure() {
+    const uContainer = document.getElementById('unitsContainer');
+    if (!uContainer) return;
+
+    let units = [];
+    try {
+      units = JSON.parse(document.getElementById('sUnitsOfMeasure').value || '[]');
+    } catch (e) {
+      units = [];
+    }
+
+    uContainer.innerHTML = units.map(u => `
+      <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:6px 12px; border-radius:8px; display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600">
+        ${escapeHtml(u)}${u.toLowerCase() === 'kg' ? ' <span title="Reserved for the Weight Scale">⚖️</span>' : ''}
+        <button type="button" class="remove-unit-btn" data-unit="${escapeHtml(u)}" style="background:none; border:none; color:var(--danger); cursor:pointer; padding:2px"><i class="fa-solid fa-circle-xmark"></i></button>
+      </div>
+    `).join('');
+
+    uContainer.querySelectorAll('.remove-unit-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const unit = e.currentTarget.dataset.unit;
+        units = units.filter(u => u !== unit);
+        document.getElementById('sUnitsOfMeasure').value = JSON.stringify(units);
+        await renderUnitsOfMeasure();
+      });
+    });
+  }
+
+  document.getElementById('addUnitBtn')?.addEventListener('click', async () => {
+    const input = document.getElementById('newUnitInput');
+    const val = input.value.trim();
+    if (!val) return showToast('Enter a valid unit name', 'warning');
+
+    let units = [];
+    try { units = JSON.parse(document.getElementById('sUnitsOfMeasure').value); } catch (e) {}
+
+    if (!units.some(u => u.toLowerCase() === val.toLowerCase())) {
+      units.push(val);
+      document.getElementById('sUnitsOfMeasure').value = JSON.stringify(units);
+      input.value = '';
+      await renderUnitsOfMeasure();
+    } else {
+      showToast('Unit already exists', 'info');
+    }
+  });
+
+  await renderUnitsOfMeasure();
   const contents = container.querySelectorAll('.settings-tab-content');
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
@@ -1127,6 +1248,11 @@ export async function renderSettings(container) {
       availableTaxes: JSON.parse(container.querySelector('#sAvailableTaxes').value || '[]'),
       taxRate: parseFloat(container.querySelector('#sTaxRate').value) || 0,
       paymentMethods: JSON.parse(container.querySelector('#sPaymentMethods')?.value || '[]'),
+      // The whole block (and this hidden input) doesn't exist in the DOM
+      // while Enable Unit of Measure is off — fall back to the existing
+      // saved list instead of '[]', so toggling the feature off and saving
+      // General settings doesn't silently wipe out the configured units.
+      unitsOfMeasure: container.querySelector('#sUnitsOfMeasure') ? JSON.parse(container.querySelector('#sUnitsOfMeasure').value || '[]') : (s.unitsOfMeasure || []),
       theme: container.querySelector('#sThemeValue')?.value || s.theme,
       enableRegisterRoutine: container.querySelector('#sEnableRegister')?.checked !== false,
       roundOffEnabled: container.querySelector('#sRoundOffEnabled')?.checked || false,
@@ -1140,7 +1266,8 @@ export async function renderSettings(container) {
       loyaltyPlatinumThreshold: parseFloat(container.querySelector('#sLoyaltyPlatinumThreshold')?.value) || 15000,
       enableStaffEarnings: container.querySelector('#sEnableStaffEarnings')?.checked !== false,
       staffCommissionBasis: container.querySelector('#sStaffCommissionBasis')?.value || 'profit',
-      staffDefaultCommission: parseFloat(container.querySelector('#sStaffDefaultCommission')?.value) || 0
+      staffDefaultCommission: parseFloat(container.querySelector('#sStaffDefaultCommission')?.value) || 0,
+      enableUnitOfMeasure: container.querySelector('#sEnableUnitOfMeasure')?.checked !== false
     });
 
     // Keep the current branch's own record in sync with what was just saved
@@ -1172,6 +1299,16 @@ export async function renderSettings(container) {
       if (typeof window.renderSidebar === 'function') await window.renderSidebar();
       if (typeof window.renderTopbar === 'function') await window.renderTopbar();
     }
+
+    // reloadSettings() (inside handleSave) only updates store.settings in
+    // memory — it doesn't touch this page's own DOM, which was built once
+    // from whatever `s` was at the last render. Settings whose value
+    // changes what's even shown here (like Enable Unit of Measure hiding/
+    // showing the whole Weight Scale nav tab) need a real re-render to
+    // take effect immediately instead of only after the next full page
+    // load. activeSettingsTab is a module-level variable, so this keeps
+    // the owner right where they were (General tab) instead of resetting.
+    await renderSettings(container);
   });
 
   // 1b. Printing Settings
@@ -1205,6 +1342,15 @@ export async function renderSettings(container) {
     });
   });
 
+  // 1c. Weight Scale Settings
+  container.querySelector('#saveWeightScaleBtn')?.addEventListener('click', async () => {
+    await handleSave('Weight Scale', {
+      weightScaleEnabled: container.querySelector('#sWeightScaleEnabled')?.checked || false,
+      weightScalePort: container.querySelector('#sWeightScalePort')?.value || '',
+      weightScaleBaudRate: parseInt(container.querySelector('#sWeightScaleBaudRate')?.value, 10) || 9600
+    });
+  });
+
   // Toggle between "System Printer" and "Network Printer (IP)" field groups
   container.querySelector('#sPrintConnectionType')?.addEventListener('change', (e) => {
     const isNetwork = e.target.value === 'network';
@@ -1219,6 +1365,69 @@ export async function renderSettings(container) {
   container.querySelector('#sShowReceiptTitle')?.addEventListener('change', (e) => {
     const titleInput = container.querySelector('#sReceiptTitle');
     if (titleInput) titleInput.disabled = !e.target.checked;
+  });
+
+  // Weight Scale — show/hide the port/baud/test fields with the Enable
+  // toggle, populate the COM port dropdown from a live scan, and let the
+  // owner confirm the connection actually works before saving.
+  container.querySelector('#sWeightScaleEnabled')?.addEventListener('change', (e) => {
+    const fields = container.querySelector('#sWeightScaleFields');
+    if (fields) fields.style.display = e.target.checked ? '' : 'none';
+    // Scan as soon as it's turned on — don't make the owner also hunt down
+    // the refresh button just to see whether their scale shows up at all.
+    if (e.target.checked) scanScalePorts();
+  });
+
+  async function scanScalePorts() {
+    const portSelect = container.querySelector('#sWeightScalePort');
+    if (!portSelect) return;
+    const { listScalePorts } = await import('../services/WeightScaleService.js');
+    const savedPort = s.weightScalePort || '';
+    const result = await listScalePorts();
+    portSelect.innerHTML = '';
+    if (result.error) {
+      portSelect.innerHTML = `<option value="">${escapeHtml(result.error)}</option>`;
+      return;
+    }
+    if (!result.ports || result.ports.length === 0) {
+      portSelect.innerHTML = '<option value="">No serial ports found — plug in the scale and rescan</option>';
+      return;
+    }
+    result.ports.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.path;
+      opt.textContent = p.manufacturer ? `${p.path} — ${p.manufacturer}` : p.path;
+      if (p.path === savedPort) opt.selected = true;
+      portSelect.appendChild(opt);
+    });
+  }
+  container.querySelector('#scanScalePortsBtn')?.addEventListener('click', scanScalePorts);
+  if (s.weightScaleEnabled) scanScalePorts();
+
+  container.querySelector('#testScaleBtn')?.addEventListener('click', async () => {
+    const resultEl = container.querySelector('#scaleTestResult');
+    const port = container.querySelector('#sWeightScalePort')?.value;
+    const baudRate = container.querySelector('#sWeightScaleBaudRate')?.value;
+    if (!port) { if (resultEl) { resultEl.textContent = 'Select a COM port first.'; resultEl.style.color = 'var(--danger)'; } return; }
+
+    const { connectScale, onWeight, onError } = await import('../services/WeightScaleService.js');
+    if (resultEl) { resultEl.textContent = 'Connecting…'; resultEl.style.color = 'var(--text-muted)'; }
+    const connectResult = await connectScale(port, baudRate);
+    if (!connectResult.success) {
+      if (resultEl) { resultEl.textContent = connectResult.error || 'Failed to connect.'; resultEl.style.color = 'var(--danger)'; }
+      return;
+    }
+
+    if (resultEl) { resultEl.textContent = 'Connected — waiting for a reading… (put something on the scale)'; resultEl.style.color = 'var(--text-muted)'; }
+    const unsubWeight = onWeight((kg) => {
+      if (resultEl) { resultEl.textContent = `✓ Reading live: ${kg.toFixed(3)} kg`; resultEl.style.color = 'var(--success)'; }
+    });
+    const unsubError = onError((msg) => {
+      if (resultEl) { resultEl.textContent = msg; resultEl.style.color = 'var(--danger)'; }
+    });
+    // Only meant as a one-off "does this actually work" check — don't leave
+    // the listeners (or the open port) hanging around after the tab closes.
+    setTimeout(() => { unsubWeight(); unsubError(); }, 15000);
   });
 
   // Populate the printer dropdown from the OS (Electron-only — a plain

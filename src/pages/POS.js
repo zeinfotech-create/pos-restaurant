@@ -5,6 +5,7 @@ import { openCustomerForm } from '../components/CustomerForm.js';
 import { openCheckout } from '../services/CheckoutService.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
+import { connectScale, isConnected as isScaleConnected, getLatestWeight } from '../services/WeightScaleService.js';
 // ... rest of imports
 
 let searchQuery = '';
@@ -117,6 +118,14 @@ export async function renderPOS(container) {
   const settings = await getSettings();
   const features = await getBusinessFeatures();
   const cur = settings.currency;
+
+  // Connect to the weight scale once per session (not on every re-render of
+  // this page) if it's configured in Settings — fire-and-forget, a store
+  // without a scale attached just never sets weightScaleEnabled and this
+  // is a no-op.
+  if (settings.weightScaleEnabled && settings.weightScalePort && !isScaleConnected()) {
+    connectScale(settings.weightScalePort, settings.weightScaleBaudRate).catch(() => {});
+  }
 
   if (!store.selectedCustomer) store.selectedCustomer = null;
 
@@ -337,7 +346,20 @@ export async function renderPOS(container) {
 }
 
 function handleProductAddition(product, variant = null) {
-  addToCart(product, variant);
+  // Weight-sold items (unit: 'kg' — fruit, veg, bulk grains) use whatever
+  // the connected scale last read instead of the usual qty-of-1 default.
+  // Falls straight through to the normal behavior if there's no scale
+  // configured, it's not connected yet, or nothing's on the scale pan —
+  // getLatestWeight() is just null in every one of those cases.
+  let qty = 1;
+  if (!variant && product.unit === 'kg') {
+    const weight = getLatestWeight();
+    if (weight && weight > 0) {
+      qty = weight;
+      showToast(`Weight captured: ${weight.toFixed(3)} kg`, 'info');
+    }
+  }
+  addToCart(product, variant, qty);
 }
 
 async function renderCategories() {
@@ -584,14 +606,15 @@ async function renderProductGrid(append = false) {
         <div class="product-name" style="${isOutOfStock ? 'opacity:0.6' : ''}">${escapeHtml(p.name)}</div>
         <div class="product-price">
           ${p.itemDiscount > 0 ? `<span style="text-decoration:line-through; font-size:0.85em; opacity:0.5; margin-right:4px;">\u20B9${p.price.toFixed(2)}</span>` : ''}
-          \u20B9${finalPrice.toFixed(2)}
+          \u20B9${finalPrice.toFixed(2)}${settings.enableUnitOfMeasure !== false && p.unit && p.unit !== 'pcs' ? `<span style="font-size:0.7em; opacity:0.6">/${p.unit}</span>` : ''}
+          ${settings.enableUnitOfMeasure !== false && p.unit === 'kg' && isScaleConnected() ? `<span style="font-size:0.75em; margin-left:2px" title="Uses the connected Weight Scale">\u2696\uFE0F</span>` : ''}
         </div>
         ${p.itemDiscount > 0 ? `<div style="position:absolute; top:6px; right:6px; background:var(--danger); color:white; font-size:9px; padding:2px 5px; border-radius:4px; font-weight:900; z-index:10; box-shadow:0 2px 4px rgba(239,68,68,0.2); animation: pulse 2.5s infinite">${isPctDiscount ? p.itemDiscount + '%' : '\u20B9' + p.itemDiscount} OFF</div>` : ''}
-        
+
         <div class="product-stock ${available <= 5 && !hasVariants ? 'text-danger' : ''}">
-          ${hasVariants ? 
-            `<span style="color:var(--primary); font-weight:800; background:rgba(99,102,241,0.1); padding:2px 6px; border-radius:4px;"><i class="fa-solid fa-layer-group mr-4"></i> ${p.variants.length} Options</span>` : 
-            (available > 0 ? `${parseFloat(available.toFixed(3))} in stock` : '<span style="color:var(--danger)">Out of stock</span>')
+          ${hasVariants ?
+            `<span style="color:var(--primary); font-weight:800; background:rgba(99,102,241,0.1); padding:2px 6px; border-radius:4px;"><i class="fa-solid fa-layer-group mr-4"></i> ${p.variants.length} Options</span>` :
+            (available > 0 ? `${parseFloat(available.toFixed(3))} ${settings.enableUnitOfMeasure !== false ? (p.unit || 'pcs') : ''} in stock` : '<span style="color:var(--danger)">Out of stock</span>')
           }
         </div>
       </div>
@@ -826,7 +849,7 @@ export async function renderCart(cur) {
             </div>
             <div class="qty-controls">
               <button class="qty-btn qty-minus-btn cart-minus-btn" data-id="${item.cartId}" data-delta="-1" style="width:22px; height:22px; font-size:12px">−</button>
-              <span class="qty-value" style="font-size:13px; min-width:20px">${item.qty}</span>
+              <span class="qty-value" style="font-size:13px; min-width:20px">${item.qty}${settings.enableUnitOfMeasure !== false ? ` ${escapeHtml(item.unit || 'pcs')}` : ''}</span>
               <button class="qty-btn qty-plus-btn cart-plus-btn" data-id="${item.cartId}" data-delta="1" style="width:22px; height:22px; font-size:12px">+</button>
             </div>
             <div class="cart-item-total" style="font-weight:700; font-size:13px; color:var(--accent); min-width:60px; text-align:right">

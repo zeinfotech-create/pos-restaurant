@@ -30,7 +30,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Type is "Network (IP)"
   printReceiptNetwork: (html, opts) => ipcRenderer.invoke('print-receipt-network', html, opts),
   // Silent PDF export — saves straight to the Downloads folder, no print dialog
-  exportReportPdfSilent: (payload) => ipcRenderer.invoke('export-pdf-silent', payload)
+  exportReportPdfSilent: (payload) => ipcRenderer.invoke('export-pdf-silent', payload),
+  // Weight Scale (RS-232/USB-Serial) bridge — Settings > Printing > Weight Scale
+  listScalePorts: () => ipcRenderer.invoke('scale:list-ports'),
+  connectScale: (config) => ipcRenderer.invoke('scale:connect', config),
+  disconnectScale: () => ipcRenderer.invoke('scale:disconnect'),
+  onScaleWeight: (callback) => {
+    const handler = (_, weight) => callback(weight);
+    ipcRenderer.on('scale:weight', handler);
+    return () => ipcRenderer.removeListener('scale:weight', handler);
+  },
+  onScaleError: (callback) => {
+    const handler = (_, msg) => callback(msg);
+    ipcRenderer.on('scale:error', handler);
+    return () => ipcRenderer.removeListener('scale:error', handler);
+  },
+  onScaleStatus: (callback) => {
+    const handler = (_, status) => callback(status);
+    ipcRenderer.on('scale:status', handler);
+    return () => ipcRenderer.removeListener('scale:status', handler);
+  }
 
 });
 

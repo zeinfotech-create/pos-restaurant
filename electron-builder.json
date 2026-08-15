@@ -4,7 +4,9 @@
   "copyright": "Copyright © 2025 ZeInfoTech",
   "asar": true,
   "asarUnpack": [
-    "**/server/**/*"
+    "**/server/**/*",
+    "**/node_modules/@serialport/**/*",
+    "**/node_modules/serialport/**/*"
   ],
   "compression": "store",
 

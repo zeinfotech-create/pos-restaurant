@@ -36,6 +36,10 @@ const TARGET_FIELDS = [
   { key: 'mrp', label: 'MRP', type: 'number' },
   { key: 'stock', label: 'Opening Stock', required: true, type: 'number' },
   { key: 'minStock', label: 'Min Stock Alert', type: 'number' },
+  // 'kg' is the one value that matters functionally — it's what makes a
+  // product eligible to pull its cart quantity from a connected Weight
+  // Scale in POS (see Products.js's own Unit dropdown for the full list).
+  { key: 'unit', label: 'Unit (pcs/kg/g/ltr/dz/box)' },
   { key: 'hsnCode', label: 'HSN Code' },
   { key: 'taxRate', label: 'Tax Rate (%)', type: 'number' },
   // 'inclusive'/'exclusive' — same values Products.js's own Tax Type
@@ -67,6 +71,7 @@ const FIELD_SYNONYMS = {
   mrp: ['mrp', 'retail price', 'list price'],
   stock: ['stock', 'qty', 'quantity', 'opening stock', 'on hand stock'],
   minStock: ['min stock', 'minimum stock', 'reorder level', 'low stock alert'],
+  unit: ['unit', 'uom', 'unit of measure'],
   hsnCode: ['hsn', 'hsn code'],
   taxRate: ['tax', 'tax rate', 'gst', 'gst percent'],
   taxType: ['tax type', 'gst type', 'inclusive exclusive', 'tax inclusive exclusive'],
@@ -753,6 +758,18 @@ async function buildPreview() {
         const v = val.toLowerCase();
         if (v.startsWith('pct') || v.startsWith('perc') || v.includes('%')) val = 'pct';
         else if (v.startsWith('flat') || v.startsWith('amount') || v.startsWith('fixed')) val = 'flat';
+      }
+      // Units are whatever the store configured in Settings > General >
+      // Configured Units of Measurement — free text, not a fixed enum — so
+      // the import just keeps the cell's value as typed EXCEPT for "kg",
+      // which is the one reserved value the Weight Scale integration
+      // actually checks for. "Kilogram"/"Kilo"/"KGS" all still land on the
+      // canonical 'kg' rather than creating near-duplicate unit labels.
+      // Anything else (a custom unit like "Packet", or a blank column)
+      // falls through to the product-creation default ('pcs').
+      if (f.key === 'unit' && val) {
+        const v = val.toLowerCase();
+        if (v.startsWith('kg') || v.startsWith('kilo')) val = 'kg';
       }
       data[f.key] = val;
     });

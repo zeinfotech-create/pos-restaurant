@@ -85,7 +85,7 @@ We maintain an aggressive testing standard covering both internal business logic
 ### 1. Unit & Component Verification (Vitest)
 Powered by **Vitest** under a simulated `jsdom` browser environment:
 *   Tests critical calculations like **Cart Operations**, **Coupon Stacking**, and **Tax Splits**.
-*   Mocks the IPC-bridge (`window.electronAPI`) to verify hardware integrations like Weight Scales and Credit Terminals.
+*   Unit-tests the Weight Scale serial-output parser directly (Toledo/CAS continuous-output framing and plain generic numeric lines) — no mocked IPC bridge needed since the parsing logic lives in its own dependency-free module.
 *   Tests UI components (Toasts, Modals, Customer Registration Forms) to ensure strict DOM interaction integrity.
 *   Run the unit suite via:
     ```bash

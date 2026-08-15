@@ -403,12 +403,22 @@ const DEFAULT_SETTINGS = {
   printConnectionType: 'system', // options: 'system' (OS-installed printer), 'network' (raw ESC-POS over TCP to an IP)
   printerIp: '',
   printerPort: 9100, // standard raw/JetDirect port thermal printers listen on
+  weightScaleEnabled: false, // RS-232/USB-Serial weighing scale bridge — Settings > Printing > Weight Scale
+  weightScalePort: '', // e.g. 'COM3' — populated from a live port scan in Settings, never hand-typed
+  weightScaleBaudRate: 9600, // matches the near-universal default baud rate for retail scale indicators (Toledo/CAS and most generic ones)
   receiptTheme: 'theme1', // options: 'theme1', 'theme2'
   showReceiptTitle: true,
   receiptTitle: 'TAX INVOICE',
   showStoreName: true,
   theme: 'theme-light-zoom', // "Sapphire" — default for fresh installs
   enableRegisterRoutine: true,
+  enableUnitOfMeasure: true, // master switch — Products' Unit dropdown, unit labels everywhere, and the Weight Scale tab all hide when this is off
+  // Settings > General > "Configured Units of Measurement" — same add/remove
+  // pill UI as Payment Methods. 'kg' is the one reserved value: whichever
+  // product has that exact unit is what pulls its quantity from a
+  // connected Weight Scale in POS. The rest are just labels — add/remove
+  // freely to match how this store actually talks about stock.
+  unitsOfMeasure: ['pcs', 'kg', 'g', 'ltr', 'dz', 'box'],
   paymentMethods: [],
   businessType: 'Restaurant', // options: 'Restaurant', 'General', 'Bakery', 'Saloon'
   masterPin: '0000',
@@ -518,35 +528,35 @@ export async function hasPermission(action) {
 }
 
 const DEFAULT_PRODUCTS = [
-  { id: 101, name: 'Coffee', emoji: '☕', price: 80, category: 'Beverages', stock: 100 },
-  { id: 102, name: 'Tea', emoji: '🍵', price: 40, category: 'Beverages', stock: 100 },
-  { id: 103, name: 'Burger', emoji: '🍔', price: 150, category: 'Food', stock: 50 },
-  { id: 104, name: 'Pizza', emoji: '🍕', price: 250, category: 'Food', stock: 30 },
-  { id: 105, name: 'Water', emoji: '💧', price: 20, category: 'Beverages', stock: 500 },
+  { id: 101, name: 'Coffee', emoji: '☕', price: 80, category: 'Beverages', stock: 100, unit: 'pcs' },
+  { id: 102, name: 'Tea', emoji: '🍵', price: 40, category: 'Beverages', stock: 100, unit: 'pcs' },
+  { id: 103, name: 'Burger', emoji: '🍔', price: 150, category: 'Food', stock: 50, unit: 'pcs' },
+  { id: 104, name: 'Pizza', emoji: '🍕', price: 250, category: 'Food', stock: 30, unit: 'pcs' },
+  { id: 105, name: 'Water', emoji: '💧', price: 20, category: 'Beverages', stock: 500, unit: 'pcs' },
 ];
 
 const SALOON_PRODUCTS = [
-  { id: 201, name: 'Men\'s Haircut', emoji: '💇‍♂️', price: 350, category: 'Hair', stock: 999 },
-  { id: 202, name: 'Women\'s Styling', emoji: '💇‍♀️', price: 850, category: 'Hair', stock: 999 },
-  { id: 203, name: 'Beard Trim', emoji: '🧔', price: 150, category: 'Grooming', stock: 999 },
-  { id: 204, name: 'Facial Ritual', emoji: '🧖', price: 1200, category: 'Spa', stock: 999 },
-  { id: 205, name: 'Hair Color', emoji: '🎨', price: 1500, category: 'Hair', stock: 999 },
+  { id: 201, name: 'Men\'s Haircut', emoji: '💇‍♂️', price: 350, category: 'Hair', stock: 999, unit: 'pcs' },
+  { id: 202, name: 'Women\'s Styling', emoji: '💇‍♀️', price: 850, category: 'Hair', stock: 999, unit: 'pcs' },
+  { id: 203, name: 'Beard Trim', emoji: '🧔', price: 150, category: 'Grooming', stock: 999, unit: 'pcs' },
+  { id: 204, name: 'Facial Ritual', emoji: '🧖', price: 1200, category: 'Spa', stock: 999, unit: 'pcs' },
+  { id: 205, name: 'Hair Color', emoji: '🎨', price: 1500, category: 'Hair', stock: 999, unit: 'pcs' },
 ];
 
 const BAKERY_PRODUCTS = [
-  { id: 301, name: 'Fresh Bread', emoji: '🍞', price: 45, category: 'Bread', stock: 50 },
-  { id: 302, name: 'Chocolate Croissant', emoji: '🥐', price: 120, category: 'Pastry', stock: 30 },
-  { id: 303, name: 'Strawberry Cake', emoji: '🍰', price: 850, category: 'Cakes', stock: 10 },
-  { id: 304, name: 'Cookie Box', emoji: '🍪', price: 250, category: 'Cookies', stock: 40 },
-  { id: 305, name: 'Bagel', emoji: '🥯', price: 55, category: 'Bread', stock: 25 },
+  { id: 301, name: 'Fresh Bread', emoji: '🍞', price: 45, category: 'Bread', stock: 50, unit: 'pcs' },
+  { id: 302, name: 'Chocolate Croissant', emoji: '🥐', price: 120, category: 'Pastry', stock: 30, unit: 'pcs' },
+  { id: 303, name: 'Strawberry Cake', emoji: '🍰', price: 850, category: 'Cakes', stock: 10, unit: 'pcs' },
+  { id: 304, name: 'Cookie Box', emoji: '🍪', price: 250, category: 'Cookies', stock: 40, unit: 'pcs' },
+  { id: 305, name: 'Bagel', emoji: '🥯', price: 55, category: 'Bread', stock: 25, unit: 'pcs' },
 ];
 
 const GENERAL_PRODUCTS = [
-  { id: 401, name: 'Toothpaste', emoji: '🪥', price: 95, category: 'Personal Care', stock: 100 },
-  { id: 402, name: 'Shampoo', emoji: '🧴', price: 180, category: 'Personal Care', stock: 50 },
-  { id: 403, name: 'Milk 1L', emoji: '🥛', price: 65, category: 'Grocery', stock: 200 },
-  { id: 404, name: 'Egg Box (6)', emoji: '🥚', price: 48, category: 'Grocery', stock: 150 },
-  { id: 405, name: 'Detergent', emoji: '🧼', price: 210, category: 'Household', stock: 80 },
+  { id: 401, name: 'Toothpaste', emoji: '🪥', price: 95, category: 'Personal Care', stock: 100, unit: 'pcs' },
+  { id: 402, name: 'Shampoo', emoji: '🧴', price: 180, category: 'Personal Care', stock: 50, unit: 'pcs' },
+  { id: 403, name: 'Milk 1L', emoji: '🥛', price: 65, category: 'Grocery', stock: 200, unit: 'pcs' },
+  { id: 404, name: 'Egg Box (6)', emoji: '🥚', price: 48, category: 'Grocery', stock: 150, unit: 'pcs' },
+  { id: 405, name: 'Detergent', emoji: '🧼', price: 210, category: 'Household', stock: 80, unit: 'pcs' },
 ];
 
 export const SUPERMARKET_PRODUCTS = [
@@ -819,6 +829,12 @@ export async function addProduct(product) {
     const cb = await getCurrentBranch();
     product.branchId = cb?.id || 'b1';
   }
+  // Always write an explicit unit — never leave it undefined. Every
+  // creation path (manual Add Product, bulk import, onboarding's
+  // industry-seed catalogs) should end up with a real 'pcs'/'kg' value
+  // in the record itself, not an implicit fallback computed later at
+  // display time.
+  if (!product.unit) product.unit = 'pcs';
   await updateData('products', product);
   return product;
 }
@@ -1764,6 +1780,9 @@ export async function saveSettings(settings) {
       printConnectionType: dataToSave.printConnectionType || globalRecord.printConnectionType,
       printerIp: dataToSave.printerIp || globalRecord.printerIp,
       printerPort: dataToSave.printerPort ?? globalRecord.printerPort,
+      weightScaleEnabled: dataToSave.weightScaleEnabled ?? globalRecord.weightScaleEnabled,
+      weightScalePort: dataToSave.weightScalePort ?? globalRecord.weightScalePort,
+      weightScaleBaudRate: dataToSave.weightScaleBaudRate ?? globalRecord.weightScaleBaudRate,
       receiptTheme: dataToSave.receiptTheme || globalRecord.receiptTheme,
       showReceiptTitle: dataToSave.showReceiptTitle ?? globalRecord.showReceiptTitle,
       receiptTitle: dataToSave.receiptTitle || globalRecord.receiptTitle,
