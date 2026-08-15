@@ -79,7 +79,9 @@ describe('CustomerForm component', () => {
       phone: '9876543210',
       email: '',
       birthday: '',
-      image: ''
+      image: '',
+      stateCode: '',
+      gstin: ''
     });
 
     expect(showToast).toHaveBeenCalledWith('Customer saved!', 'success');
