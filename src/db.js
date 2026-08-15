@@ -391,6 +391,7 @@ const DEFAULT_SETTINGS = {
   availableTaxes: [],
   taxRate: 5,
   receiptFooter: 'Thank you for shopping with us!',
+  showPoweredByOnReceipt: true, // "Powered by ZeInfoTech POS · zeinfotech.com" line at the bottom of every printed receipt/invoice
   paperSize: 'thermal-80', // options: 'thermal-58', 'thermal-80', 'a5', 'a4'
   printCopies: 1,
   showPrintPreview: true,
@@ -1752,6 +1753,7 @@ export async function saveSettings(settings) {
       storeAddress: dataToSave.storeAddress || globalRecord.storeAddress,
       receiptHeader: dataToSave.receiptHeader || globalRecord.receiptHeader,
       receiptFooter: dataToSave.receiptFooter || globalRecord.receiptFooter,
+      showPoweredByOnReceipt: dataToSave.showPoweredByOnReceipt ?? globalRecord.showPoweredByOnReceipt,
       paperSize: dataToSave.paperSize || globalRecord.paperSize,
       printCopies: dataToSave.printCopies ?? globalRecord.printCopies,
       showPrintPreview: dataToSave.showPrintPreview ?? globalRecord.showPrintPreview,

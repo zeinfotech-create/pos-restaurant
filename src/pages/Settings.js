@@ -668,6 +668,10 @@ export async function renderSettings(container) {
                 <p class="form-help-text">Shown below the total on receipts, tax invoices, and anywhere else the footer is printed.</p>
               </div>
               <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
+                <input type="checkbox" id="sShowPoweredBy" ${s.showPoweredByOnReceipt !== false ? 'checked' : ''} />
+                <label class="form-label" style="margin:0" for="sShowPoweredBy">Show "Powered by ZeInfoTech POS · zeinfotech.com" on receipt</label>
+              </div>
+              <div class="form-group" style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px">
                 <input type="checkbox" id="sShowSignatureLine" ${s.showSignatureLine ? 'checked' : ''} />
                 <label class="form-label" style="margin:0" for="sShowSignatureLine">Show signature line on receipt</label>
               </div>
@@ -1178,6 +1182,7 @@ export async function renderSettings(container) {
       printBarcodeOnReceipt: container.querySelector('#sPrintBarcodeOnReceipt')?.checked || false,
       receiptHeader: container.querySelector('#sReceiptHeader')?.value.trim() || '',
       receiptFooter: container.querySelector('#sReceiptFooter')?.value.trim() || '',
+      showPoweredByOnReceipt: container.querySelector('#sShowPoweredBy')?.checked !== false,
       paperSize: container.querySelector('#sPaperSize')?.value || 'thermal-80',
       printCopies: Math.min(5, Math.max(1, parseInt(container.querySelector('#sPrintCopies')?.value, 10) || 1)),
       showPrintPreview: container.querySelector('#sShowPrintPreview')?.checked !== false,
@@ -1293,6 +1298,7 @@ export async function renderSettings(container) {
         printBarcodeOnReceipt: container.querySelector('#sPrintBarcodeOnReceipt')?.checked || false,
         receiptHeader: container.querySelector('#sReceiptHeader')?.value || '',
         receiptFooter: container.querySelector('#sReceiptFooter')?.value || '',
+        showPoweredByOnReceipt: container.querySelector('#sShowPoweredBy')?.checked !== false,
         showSignatureLine: container.querySelector('#sShowSignatureLine')?.checked || false,
         signatureImage: container.querySelector('#sSignatureImageBase64')?.value || s.signatureImage,
         showTermsOnReceipt: container.querySelector('#sShowTermsOnReceipt')?.checked || false,
@@ -1322,7 +1328,7 @@ export async function renderSettings(container) {
         if (receiptEl) { receiptEl.style.maxWidth = targetWidth; receiptEl.style.width = targetWidth; }
       }
     };
-    container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms, input[name="sReceiptTheme"], #sShowReceiptTitle, #sReceiptTitle, #sShowStoreName, #sStoreName, #sStoreNameSubtitle, #sStoreAddress, #sStorePhone, #sStoreAltPhone, #sStoreEmail, #sStoreFax, #sGstNumber, #sShowCustomerOnReceipt, #sShowDeliveryOnReceipt, #sShowTaxOnReceipt, #sShowDiscountOnReceipt').forEach(el => {
+    container.querySelectorAll('#sPaperSize, #sShowLogoOnReceipt, #sPrintBarcodeOnReceipt, #sReceiptHeader, #sReceiptFooter, #sShowPoweredBy, #sShowSignatureLine, #sShowTermsOnReceipt, #sReceiptTerms, input[name="sReceiptTheme"], #sShowReceiptTitle, #sReceiptTitle, #sShowStoreName, #sStoreName, #sStoreNameSubtitle, #sStoreAddress, #sStorePhone, #sStoreAltPhone, #sStoreEmail, #sStoreFax, #sGstNumber, #sShowCustomerOnReceipt, #sShowDeliveryOnReceipt, #sShowTaxOnReceipt, #sShowDiscountOnReceipt').forEach(el => {
       el.addEventListener('input', updateLivePreview);
       el.addEventListener('change', updateLivePreview);
     });

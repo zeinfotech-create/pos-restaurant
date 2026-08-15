@@ -1323,6 +1323,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
         </div>
       ` : ''}
       ${settings.receiptFooter ? `<div style="text-align:center; font-size:12px; opacity:0.75; margin-top:14px; padding-top:12px">${escapeHtml(settings.receiptFooter)}</div>` : ''}
+      ${settings.showPoweredByOnReceipt !== false ? `<div style="text-align:center; font-size:10px; opacity:0.5; margin-top:8px">Powered by ZeInfoTech POS &middot; zeinfotech.com</div>` : ''}
     </div>
   `;
 }
@@ -1629,6 +1630,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         </div>
       ` : ''}
       ${settings.receiptFooter ? `<div class="receipt-footer" style="margin-top:12px; padding-top:8px">${escapeHtml(settings.receiptFooter)}</div>` : ''}
+      ${settings.showPoweredByOnReceipt !== false ? `<div style="text-align:center; font-size:9px; opacity:0.5; margin-top:6px">Powered by ZeInfoTech POS &middot; zeinfotech.com</div>` : ''}
     </div>
   `;
 }
