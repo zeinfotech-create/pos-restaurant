@@ -411,7 +411,7 @@ class SyncEngine {
                         'daily_stats', 'inventory_logs',
                         'categories', 'sub_categories', 'credit_history', 'loyalty_history',
                         'login_activity', 'import_tracker', 'import_history',
-                        'backup_history', 'license_status'
+                        'backup_history', 'license_status', 'stock_transfers'
                     ];
                     for (const store of tenantStores) {
                         await clearStore(store);
@@ -1196,7 +1196,8 @@ class SyncEngine {
             { label: 'Appointments', store: 'appointments', key: KEYS.APPOINTMENTS },
             { label: 'Staff Incentives', store: 'staff_incentives', key: KEYS.STAFF_INCENTIVES },
             { label: 'Backup History', store: 'backup_history', key: KEYS.BACKUP_HISTORY },
-            { label: 'Import History', store: 'import_history', key: KEYS.IMPORT_HISTORY }
+            { label: 'Import History', store: 'import_history', key: KEYS.IMPORT_HISTORY },
+            { label: 'Stock Transfers', store: 'stock_transfers', key: KEYS.STOCK_TRANSFERS }
         ];
 
         // Load tombstones once — skip pushing records that were deleted locally

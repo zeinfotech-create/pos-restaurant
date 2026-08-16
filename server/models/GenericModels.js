@@ -24,4 +24,11 @@ module.exports = {
     // but never surfaced to the cashier. Saved fine locally, just never
     // reached the shared hub for other devices/reports to see.
     StaffIncentive: createGenericModel('StaffIncentive'),
+    // Stock Transfers (multi-branch) — a transfer record belongs to BOTH
+    // the source and destination branch, unlike every other branchId-scoped
+    // model here, so it's deliberately excluded from ModelMap's
+    // branchScopedStores filtering in index.js (see that list) — every
+    // device pulls every transfer for the license, client-side code decides
+    // whether it involves the branch it cares about.
+    StockTransfer: createGenericModel('StockTransfer'),
 };

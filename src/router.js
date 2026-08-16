@@ -23,6 +23,7 @@ import { renderCustomerDisplay } from './pages/CustomerDisplay.js';
 import { renderQuickPOS } from './pages/QuickPOS.js';
 import { renderCatalog } from './pages/Catalog.js';
 import { renderActivation } from './pages/Activation.js';
+import { renderStockTransfer } from './pages/StockTransfer.js';
 
 const routes = {
     dashboard: renderDashboard,
@@ -46,6 +47,7 @@ const routes = {
     categories: renderCategories,
     catalog: renderCatalog,
     activation: renderActivation,
+    'stock-transfer': renderStockTransfer,
 };
 
 let currentPage = 'dashboard';
@@ -258,7 +260,8 @@ export async function navigate(page) {
         'inventory-log': 'Stock History Audit',
         categories: 'Categories',
         'quick-pos': 'Quick POS (Supermarket Mode)',
-        catalog: 'Product Catalog'
+        catalog: 'Product Catalog',
+        'stock-transfer': 'Stock Transfer'
     };
     const titleEl = document.getElementById('topbar-current-page') || document.querySelector('.topbar-title');
     if (titleEl) titleEl.textContent = titles[page] || titles[mainPage] || mainPage;

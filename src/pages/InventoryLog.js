@@ -20,6 +20,7 @@ const LOG_ITEMS_PER_PAGE = 8;
 function categorizeReason(reason) {
   const r = (reason || '').toLowerCase();
   if (r.startsWith('stock adjustment')) return 'Adjustment';
+  if (r.includes('stock transfer')) return 'Transfer';
   if (r.includes('purchase')) return 'Purchase';
   if (r.includes('return')) return 'Return';
   if (r === 'sale' || r.startsWith('sale')) return 'Sale';
@@ -45,6 +46,7 @@ function getReasonBadgeStyle(category, reason) {
     case 'Purchase': return { bg: 'rgba(16,185,129,0.12)', color: '#10b981' };
     case 'Return': return { bg: 'rgba(59,130,246,0.12)', color: 'var(--info)' };
     case 'Sale': return { bg: 'rgba(79,70,229,0.12)', color: 'var(--primary)' };
+    case 'Transfer': return { bg: 'rgba(20,184,166,0.12)', color: '#14b8a6' };
     default: return null;
   }
 }
@@ -210,7 +212,7 @@ export async function renderInventoryLog(container) {
           <div class="filter-group">
             <label class="filter-label">Reason</label>
             <select class="form-input" id="logReasonSelect" style="height:48px">
-              ${['All', 'Sale', 'Purchase', 'Return', 'Adjustment', 'Other'].map(r => `<option value="${r}" ${logReasonFilter === r ? 'selected' : ''}>${r === 'All' ? 'All Reasons' : r}</option>`).join('')}
+              ${['All', 'Sale', 'Purchase', 'Transfer', 'Return', 'Adjustment', 'Other'].map(r => `<option value="${r}" ${logReasonFilter === r ? 'selected' : ''}>${r === 'All' ? 'All Reasons' : r}</option>`).join('')}
             </select>
           </div>
         </div>

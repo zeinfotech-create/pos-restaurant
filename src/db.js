@@ -6,7 +6,7 @@ const DB_NAME = 'zepos_db';
 // at on a real device (IndexedDB versions only ever go up, never down —
 // opening with a lower version than what's already on disk throws immediately
 // and the whole app fails to initialize, before onboarding can even render).
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 class DbService {
   constructor() {
@@ -379,6 +379,7 @@ export const KEYS = {
   SUB_CATEGORIES: 'pos_sub_categories',
   CREDIT_HISTORY: 'pos_credit_history',
   LOGIN_ACTIVITY: 'pos_login_activity',
+  STOCK_TRANSFERS: 'pos_stock_transfers',
   // Tombstones: track deleted record IDs so pos_full_state won't resurrect them
   DELETED_TOMBSTONES: 'pos_deleted_tombstones'
 };
@@ -493,6 +494,7 @@ export async function hasPermission(action) {
       'categories': 'products:view',
       'inventory': 'inventory:view',
       'purchases': 'inventory:view',
+      'stock-transfer': 'inventory:manage',
       'orders': 'orders:view',
       'customers': 'customers:view',
       'suppliers': 'products:view',
@@ -520,7 +522,7 @@ export async function hasPermission(action) {
 
   // Legacy fallback for users created before ACL feature (No permissions array)
   console.warn(`[RBAC] Legacy user fallback for: ${user.name}`);
-  const restrictedModules = ['reports', 'users', 'staff', 'settings', 'branches', 'purchases'];
+  const restrictedModules = ['reports', 'users', 'staff', 'settings', 'branches', 'purchases', 'stock-transfer'];
   if (restrictedModules.includes(module)) return false;
   
   // Allow basic navigation for legacy
@@ -2369,6 +2371,212 @@ export async function receivePurchase(purchaseId, receivedByName = '') {
   return { purchase, costChanges };
 }
 
+// ============================================================
+// Stock Transfers (Multi-Branch)
+// ============================================================
+// Same 2-step shape as the Purchases workflow above, except stock moves in
+// TWO different places instead of one, at two different times:
+//   1. saveStockTransfer() — goods physically leave the SOURCE branch right
+//      now (this is the "I've packed the truck" moment): its stock is
+//      decremented immediately and an 'OUT' log written there. Status
+//      starts 'Pending'.
+//   2. completeStockTransfer() — the DESTINATION branch confirms the goods
+//      actually arrived; only then is its stock credited (auto-creating its
+//      own product record there, cloned by SKU, the first time that SKU is
+//      ever transferred to a branch that never stocked it before) and an
+//      'IN' log written there. Status becomes 'Completed'.
+// cancelStockTransfer() reverses step 1 for a transfer still 'Pending' —
+// e.g. the truck never left — mirroring deletePurchase()'s "only safe to
+// undo before the stock change reached anywhere else" guard.
+//
+// A transfer record belongs to BOTH branches it touches (unlike every other
+// branch-scoped store here, which only ever belongs to one), so it's kept
+// out of the sync hub's branchScopedStores list server-side — every device
+// gets every transfer for the business, and getStockTransfers() below does
+// the "does this involve MY branch" filtering client-side instead.
+
+export async function getStockTransfers(branchId = null, startDate = null, endDate = null) {
+  const list = await db.getAll(KEYS.STOCK_TRANSFERS) || [];
+  return list.filter(x => {
+    const isBranchMatch = !branchId || x.fromBranchId === branchId || x.toBranchId === branchId;
+    // See getInventoryLogs()/getPurchases() above — compare date-only so
+    // today's timestamped transfers aren't wrongly excluded when endDate is today.
+    const dateOnly = localDateOnly(x.date);
+    const isDateMatch = (!startDate || dateOnly >= startDate) && (!endDate || dateOnly <= endDate);
+    return isBranchMatch && isDateMatch;
+  });
+}
+
+export async function saveStockTransfer(transfer) {
+  if (!transfer.fromBranchId || !transfer.toBranchId) {
+    throw new Error('Both a source and destination branch are required.');
+  }
+  if (transfer.fromBranchId === transfer.toBranchId) {
+    throw new Error('Source and destination branch must be different.');
+  }
+  if (!transfer.items || transfer.items.length === 0) {
+    throw new Error('Add at least one product to transfer.');
+  }
+
+  transfer.id = transfer.id || ('TRF-' + Date.now());
+  transfer.date = transfer.date || new Date().toISOString();
+  transfer.status = 'Pending';
+  transfer.createdAt = new Date().toISOString();
+
+  // Decrement the SOURCE branch's stock right away — the whole point of a
+  // transfer is that this stock is no longer sellable/available at the
+  // source the instant it's dispatched, whether or not the destination has
+  // confirmed receipt yet.
+  const sourceProducts = await getProducts(transfer.fromBranchId);
+  for (const item of transfer.items) {
+    const p = sourceProducts.find(x => String(x.id) === String(item.id));
+    if (!p) throw new Error(`"${item.name}" not found at the source branch.`);
+
+    let oldStock;
+    if (item.variantName && p.variants) {
+      const v = p.variants.find(v => v.name === item.variantName);
+      if (!v) throw new Error(`Variant "${item.variantName}" of "${item.name}" not found at the source branch.`);
+      oldStock = Number(v.stock) || 0;
+      if (item.qty > oldStock && !p.allowNegativeStock) {
+        throw new Error(`Not enough stock of "${item.name}" (${item.variantName}) at the source branch — only ${oldStock} available.`);
+      }
+      v.stock = oldStock - item.qty;
+      p.stock = p.variants.reduce((s, vr) => s + (Number(vr.stock) || 0), 0);
+    } else {
+      oldStock = Number(p.stock) || 0;
+      if (item.qty > oldStock && !p.allowNegativeStock) {
+        throw new Error(`Not enough stock of "${item.name}" at the source branch — only ${oldStock} available.`);
+      }
+      p.stock = oldStock - item.qty;
+    }
+    await updateProduct(p);
+    await logInventoryChange(p.id, item.variantName || null, 'OUT', item.qty, 'Stock Transfer (Dispatched)', transfer.fromBranchId, transfer.id, oldStock, oldStock - item.qty, transfer.createdBy);
+  }
+
+  await updateData('stock_transfers', transfer);
+  return transfer;
+}
+
+// Finds the destination branch's product for a given SKU, or creates it
+// fresh the very first time that SKU is transferred into a branch that has
+// never stocked it before. Built from the CATALOG SNAPSHOT captured on the
+// transfer item at dispatch time (tax type/rate, item discount, category,
+// sub-category, HSN code, MRP, cost, returnable/negative-stock flags) —
+// not a live re-read of the source product — so tax/discount/category
+// carry over correctly and predictably even if the source product was
+// later edited or deleted before this transfer was received. `location`
+// (floor/row/rack) is deliberately NOT copied — that's the source branch's
+// own shelf coordinates, meaningless at a different building; the
+// destination branch sets its own once the stock is physically shelved.
+// `addProduct()` handles id generation and the shared product-count
+// license limit, same as any other new product would.
+async function findOrCreateDestinationProduct(item, toBranchId) {
+  const destProducts = await getProducts(toBranchId);
+  let dest = item.sku ? destProducts.find(p => p.sku === item.sku) : null;
+  if (dest) return dest;
+
+  const clone = {
+    name: item.productName || item.name,
+    sku: item.sku || '',
+    price: item.price || 0,
+    costPrice: item.costPrice || 0,
+    stock: 0,
+    minStock: 0,
+    category: item.category || '',
+    subCategory: item.subCategory || '',
+    emoji: item.emoji || '',
+    image: item.image || '',
+    hsnCode: item.hsnCode || '',
+    taxType: item.taxType || 'exclusive',
+    taxRate: item.taxRate ?? 0,
+    itemDiscount: item.itemDiscount ?? 0,
+    itemDiscountType: item.itemDiscountType || 'flat',
+    isReturnable: item.isReturnable !== false,
+    allowNegativeStock: !!item.allowNegativeStock,
+    mrp: item.mrp || 0,
+    unit: item.unit || 'pcs',
+    branchId: toBranchId,
+    variants: item.variantName ? [{ name: item.variantName, price: item.price || 0, costPrice: item.costPrice || 0, stock: 0 }] : [],
+  };
+  return await addProduct(clone);
+}
+
+export async function completeStockTransfer(transferId, receivedByName = '') {
+  const transfer = await getDataById('stock_transfers', transferId);
+  if (!transfer) throw new Error('Transfer not found');
+  if (transfer.status !== 'Pending') {
+    throw new Error('This transfer has already been ' + transfer.status.toLowerCase() + '.');
+  }
+
+  for (const item of transfer.items) {
+    const dest = await findOrCreateDestinationProduct(item, transfer.toBranchId);
+
+    let oldStock;
+    if (item.variantName && dest.variants) {
+      let v = dest.variants.find(v => v.name === item.variantName);
+      if (!v) {
+        // Variant didn't exist yet on the destination's (already-existing)
+        // product record — e.g. a new size/color added at the source after
+        // the destination first stocked this SKU. Add it in from the
+        // item's own snapshot rather than failing the whole receive over
+        // one missing variant.
+        v = { name: item.variantName, stock: 0, price: item.price || 0, costPrice: item.costPrice || 0 };
+        dest.variants = [...(dest.variants || []), v];
+      }
+      oldStock = Number(v.stock) || 0;
+      v.stock = oldStock + item.qty;
+      dest.stock = dest.variants.reduce((s, vr) => s + (Number(vr.stock) || 0), 0);
+    } else {
+      oldStock = Number(dest.stock) || 0;
+      dest.stock = oldStock + item.qty;
+    }
+    await updateProduct(dest);
+    await logInventoryChange(dest.id, item.variantName || null, 'IN', item.qty, 'Stock Transfer (Received)', transfer.toBranchId, transfer.id, oldStock, oldStock + item.qty, receivedByName);
+  }
+
+  transfer.status = 'Completed';
+  transfer.receivedAt = new Date().toISOString();
+  transfer.receivedBy = receivedByName || '';
+  await updateData('stock_transfers', transfer);
+  return transfer;
+}
+
+export async function cancelStockTransfer(transferId, cancelledByName = '', reason = '') {
+  const transfer = await getDataById('stock_transfers', transferId);
+  if (!transfer) throw new Error('Transfer not found');
+  if (transfer.status !== 'Pending') {
+    throw new Error('Only a Pending transfer can be cancelled — this one has already been ' + transfer.status.toLowerCase() + '.');
+  }
+
+  // Restore whatever was decremented from the source branch at dispatch time.
+  const sourceProducts = await getProducts(transfer.fromBranchId);
+  for (const item of transfer.items) {
+    const p = sourceProducts.find(x => String(x.id) === String(item.id));
+    if (!p) continue; // product deleted since dispatch — nothing left to restock
+
+    let oldStock;
+    if (item.variantName && p.variants) {
+      const v = p.variants.find(v => v.name === item.variantName);
+      if (!v) continue;
+      oldStock = Number(v.stock) || 0;
+      v.stock = oldStock + item.qty;
+      p.stock = p.variants.reduce((s, vr) => s + (Number(vr.stock) || 0), 0);
+    } else {
+      oldStock = Number(p.stock) || 0;
+      p.stock = oldStock + item.qty;
+    }
+    await updateProduct(p);
+    await logInventoryChange(p.id, item.variantName || null, 'IN', item.qty, 'Stock Transfer Cancelled (Restocked)', transfer.fromBranchId, transfer.id, oldStock, oldStock + item.qty, cancelledByName);
+  }
+
+  transfer.status = 'Cancelled';
+  transfer.cancelledAt = new Date().toISOString();
+  transfer.cancelledBy = cancelledByName || '';
+  transfer.cancelReason = reason || '';
+  await updateData('stock_transfers', transfer);
+  return transfer;
+}
+
 // Analytics helpers (Modified for branch filtering if needed)
 export async function getTodaySales(branchId = null, startDate = null, endDate = null) {
   const today = new Date().toDateString();
@@ -3630,7 +3838,7 @@ export async function updateData(store, data, isSilent = false) {
     // never get an isSynced field set at all. Both are worth syncing: a
     // multi-branch owner reviewing "who imported what, when" or "was a
     // backup taken" shouldn't have to check that specific device.
-    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history'];
+    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers'];
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable
@@ -3653,7 +3861,7 @@ export async function updateData(store, data, isSilent = false) {
         // syncAllLocalData()'s own retry list, which did nothing since that
         // retry filters on isSynced !== true — a record already wrongly
         // marked true there is invisible to it too).
-        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives'];
+        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers'];
         if (syncStores.includes(store.toLowerCase())) {
           data.isSynced = false;
         } else {

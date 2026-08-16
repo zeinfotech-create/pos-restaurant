@@ -112,6 +112,9 @@ async function renderSidebar() {
       ${perms.inventoryManage ? `
         <button class="nav-item ${getCurrentPage().startsWith('purchases') ? 'active' : ''}" data-page="purchases"><i class="fa-solid fa-truck-ramp-box"></i> <span>Purchases</span></button>
       ` : ''}
+      ${perms.inventoryManage ? `
+        <button class="nav-item ${getCurrentPage().startsWith('stock-transfer') ? 'active' : ''}" data-page="stock-transfer"><i class="fa-solid fa-truck-fast"></i> <span>Stock Transfer</span></button>
+      ` : ''}
       <button class="nav-item ${getCurrentPage().startsWith('customers') ? 'active' : ''}" data-page="customers"><i class="fa-solid fa-users"></i> <span>Customers</span></button>
       <button class="nav-item ${getCurrentPage().startsWith('suppliers') ? 'active' : ''}" data-page="suppliers"><i class="fa-solid fa-handshake"></i> <span>Suppliers</span></button>
       ${perms.staff && settings.enableStaffEarnings !== false ? `<button class="nav-item ${getCurrentPage().startsWith('staff') ? 'active' : ''}" data-page="staff"><i class="fa-solid fa-user-tie"></i> <span>Staff Management</span></button>` : ''}
@@ -477,7 +480,7 @@ function getPageTitle(page) {
     orders: 'Orders', reports: 'Reports', settings: 'Settings',
     purchases: 'Purchases', customers: 'Customers', suppliers: 'Suppliers',
     users: 'User Roles', branches: 'Branches', staff: 'Staff',
-    register: 'Register',
+    register: 'Register', 'stock-transfer': 'Stock Transfer',
   };
   const mainPage = (page || 'dashboard').split('/')[0];
   return titles[mainPage] || mainPage;

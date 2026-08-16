@@ -92,7 +92,7 @@ const UpgradeKey = require('./models/UpgradeKey');
 // doc — every sync of a category/sub-category/backup entry/import entry
 // created a fresh near-empty document instead of updating one, with the
 // real data (name, etc.) never actually persisted.
-const { Category, SubCategory, ImportTracker, BackupHistory, ImportHistory, StaffIncentive } = require('./models/GenericModels');
+const { Category, SubCategory, ImportTracker, BackupHistory, ImportHistory, StaffIncentive, StockTransfer } = require('./models/GenericModels');
 
 const ModelMap = {
     'users': User,
@@ -121,7 +121,8 @@ const ModelMap = {
     'sub_categories': SubCategory,
     'admins': Admin,
     'upgrade_keys': UpgradeKey,
-    'staff_incentives': StaffIncentive
+    'staff_incentives': StaffIncentive,
+    'stock_transfers': StockTransfer
 };
 
 // ============================================================
@@ -982,7 +983,14 @@ wss.on('connection', (ws, req) => {
                     }
 
                     const recordCount = await DBManager.count(Model, store, { licenseKey: finalLicense });
-                    const GlobalStores = ['users', 'branches', 'settings', 'staff', 'licenses'];
+                    // 'stock_transfers' is global too — the SAME transfer record gets
+                    // updated by two different branches over its lifetime (created by
+                    // the source branch, later completed/cancelled by the destination
+                    // or source branch), so the upsert dedup key must be (licenseKey,
+                    // id) only — scoping it by whichever branch happens to be pushing
+                    // right now would create a duplicate document instead of updating
+                    // the original when the OTHER branch's terminal saves next.
+                    const GlobalStores = ['users', 'branches', 'settings', 'staff', 'licenses', 'stock_transfers'];
                     const isGlobalStore = GlobalStores.includes(store);
                     // Computed early (also reused below for DB-write partitioning) —
                     // registerLimit is PER BRANCH, so its count must be scoped by
