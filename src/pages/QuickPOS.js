@@ -378,14 +378,14 @@ export async function renderQuickPOS(container) {
                <table class="ep-table">
                   <thead>
                      <tr>
-                        <th style="width:50px; text-align:center">S.No.</th>
-                        <th>Item Name</th>
-                        <th style="width:70px; text-align:center">Unit</th>
-                        <th style="width:50px; text-align:center">Qty</th>
-                        <th style="width:90px; text-align:right">Rate</th>
-                        <th style="width:80px; text-align:right">Dis</th>
-                        <th style="width:78px; text-align:center" title="Tax amount, rate %, and whether it's Included in the Rate shown (Incl) or added on top (Excl)">Tx</th>
-                        <th style="width:100px; text-align:right">Amount</th>
+                        <th style="width:40px; text-align:center">S.No.</th>
+                        <th style="width:400px">Item Name</th>
+                        <th style="width:55px; text-align:center">Unit</th>
+                        <th style="width:45px; text-align:center">Qty</th>
+                        <th style="width:120px; text-align:right">Rate</th>
+                        <th style="width:50px; text-align:right">Dis</th>
+                        <th style="width:105px; text-align:right" title="Tax amount, rate %, and whether it's Included in the Rate shown (Incl) or added on top (Excl)">Tx</th>
+                        <th style="width:90px; text-align:right">Amount</th>
                      </tr>
                   </thead>
                   <tbody id="quickCartBody">
@@ -535,14 +535,14 @@ export async function renderQuickPOS(container) {
       .ep-transaction-col { flex: 1; background: var(--bg-card); border: 1px solid var(--border); display: flex; flex-direction: column; }
       .ep-table-title { background: var(--bg-elevated); padding: 4px 10px; font-size: 13px; font-weight: 700; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
       .ep-table-wrap { flex: 1; overflow-y: auto; }
-      .ep-table { width: 100%; border-collapse: collapse; }
+      .ep-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
       .ep-table th {
         background: var(--bg-elevated);
         border-bottom: 1px solid var(--border);
         border-right: 1px solid var(--border);
-        padding: 6px 10px;
+        padding: 4px 8px;
         text-align: left;
-        font-size: 13px;
+        font-size: 12px;
         color: var(--text-secondary);
         position: sticky;
         top: 0;
@@ -552,12 +552,19 @@ export async function renderQuickPOS(container) {
       .ep-table td {
         border-bottom: 1px solid var(--border);
         border-right: 1px solid var(--border);
-        padding: 6px 10px;
-        font-size: 14px;
+        padding: 4px 8px;
+        font-size: 13px;
         font-weight: 600;
         color: var(--text-main);
       }
       .ep-table td:last-child { border-right: none; }
+      /* Item Name is the only unconstrained-width column — with
+         table-layout:fixed its th width (200px) is now a hard cap instead
+         of stretching to swallow all the leftover row width, so it no
+         longer dwarfs the Qty/Rate/Tx/Amount columns next to it. Long
+         names truncate with an ellipsis; the full name is still readable
+         via the row's own title tooltip. */
+      .ep-table td.item-name-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .ep-table tr.selected-row { background: var(--primary) !important; }
       .ep-table tr.selected-row td { color: #ffffff !important; }
 
@@ -1036,10 +1043,8 @@ export async function renderQuickPOS(container) {
 
       const priceCell = isSelected && selectedColIndex === 1
         ? `<td style="text-align:right"><input id="colInput" type="number" min="0" step="0.01" value="${item.price.toFixed(2)}" style="width:80px;text-align:right;border:2px solid var(--info);background:var(--bg-card);color:var(--text-main);border-radius:4px;padding:2px 4px;outline:none"></td>`
-        : `<td style="text-align:right" title="${item.taxType === 'inclusive' ? `This Rate already includes ${taxRate}% tax. After any discount, Base (${cur}${preTaxRate !== null ? preTaxRate.toFixed(2) : '0.00'}) + Tax = Amount.` : 'This Rate is before tax — tax is added on top (see Tx column)'}">
-             <div>${item.price.toFixed(2)}</div>
-             ${taxRate > 0 ? `<div style="font-size:10px; font-weight:700; opacity:0.65; white-space:nowrap">${item.taxType === 'inclusive' ? 'Tax Incl' : 'Tax Excl'}</div>` : ''}
-             ${preTaxRate !== null ? `<div style="font-size:9px; opacity:0.55; white-space:nowrap">${cur}${preTaxRate.toFixed(2)}</div>` : ''}
+        : `<td style="text-align:right; white-space:nowrap" title="${item.taxType === 'inclusive' ? `This Rate already includes ${taxRate}% tax. After any discount, Base (${cur}${preTaxRate !== null ? preTaxRate.toFixed(2) : '0.00'}) + Tax = Amount.` : 'This Rate is before tax — tax is added on top (see Tx column)'}">
+             ${item.price.toFixed(2)}${taxRate > 0 ? ` <span style="font-size:10px; font-weight:700; opacity:0.65">${item.taxType === 'inclusive' ? 'Tax Incl' : 'Tax Excl'}${preTaxRate !== null ? ` (${cur}${preTaxRate.toFixed(2)})` : ''}</span>` : ''}
            </td>`;
 
       const discCell = isSelected && selectedColIndex === 2
@@ -1058,16 +1063,13 @@ export async function renderQuickPOS(container) {
       return `
       <tr class="${isSelected ? 'selected-row' : ''}" data-index="${idx}" data-cart-id="${item.cartId}">
         <td style="text-align:center; font-family:monospace">${idx + 1}</td>
-        <td>${descHtml}</td>
+        <td class="item-name-cell" title="${escapeHtml(item.name)}${item.variantName ? ` (${escapeHtml(item.variantName)})` : ''}">${descHtml}</td>
         <td style="text-align:center; opacity:0.8">${item.unit || '-'}</td>
         ${qtyCell}
         ${priceCell}
         ${discCell}
-        <td style="text-align:center" title="${taxRate > 0 ? `${taxRate}% GST, ${item.taxType === 'inclusive' ? 'Inclusive — already included in the Rate shown' : 'Exclusive — added on top of the Rate shown'}` : 'No tax on this item'}">
-          ${taxRate > 0 ? `
-            <div style="font-weight:700">${cur}${taxAmt.toFixed(2)}</div>
-            <div style="font-size:10px; font-weight:700; opacity:0.65; white-space:nowrap">${taxRate}% ${item.taxType === 'inclusive' ? 'Incl' : 'Excl'}</div>
-          ` : '<span style="opacity:0.5">—</span>'}
+        <td style="text-align:right; white-space:nowrap" title="${taxRate > 0 ? `${taxRate}% GST, ${item.taxType === 'inclusive' ? 'Inclusive — already included in the Rate shown' : 'Exclusive — added on top of the Rate shown'}` : 'No tax on this item'}">
+          ${taxRate > 0 ? `${cur}${taxAmt.toFixed(2)} <span style="font-size:10px; font-weight:700; opacity:0.65">${taxRate}% ${item.taxType === 'inclusive' ? 'Incl' : 'Excl'}</span>` : '<span style="opacity:0.5">—</span>'}
         </td>
         <td style="text-align:right; font-weight:900" title="${item.taxType === 'inclusive'
             ? `Rate ${cur}${item.price.toFixed(2)} − Discount ${cur}${itemDisc.toFixed(2)} = ${cur}${lineTotal.toFixed(2)} (tax was already inside the Rate — nothing more to add)`
