@@ -3888,6 +3888,14 @@ table {
   flex-shrink: 0;
   padding: 16px 20px 0 20px;
   background: var(--bg-app);
+  /* z-index only applies to positioned elements — without this, the rule
+     below was dead, and the search-suggestions dropdown's own z-index:1000
+     had nothing to anchor a real stacking context to. That let each product
+     card's absolutely-positioned "X OFF" badge (z-index:10, escaping straight
+     to the root stacking context since nothing between it and the header
+     established one) tie/outrank the dropdown and paint through it — see
+     reported bug: "off lam proper place la show agala". */
+  position: relative;
   z-index: 10;
 }
 
@@ -3896,6 +3904,13 @@ table {
   overflow-y: auto;
   padding: 12px 20px 20px 20px;
   -webkit-overflow-scrolling: touch;
+  /* Gives the product grid (and every discount badge inside it) its own
+     stacking context, pinned below the header/search-dropdown one above —
+     without this, a badge's z-index:10 could tie/outrank the header's and
+     paint on top of the search suggestions dropdown (DOM-order tiebreak
+     favored the grid, since it comes after the header in the markup). */
+  position: relative;
+  z-index: 1;
 }
 
 .pos-products-grid-scroll::-webkit-scrollbar {

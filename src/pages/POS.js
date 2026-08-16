@@ -248,26 +248,7 @@ export async function renderPOS(container) {
 
     // Auto-suggestion logic
     const allProducts = await getProducts(store.branch?.id);
-    const matches = searchQuery ? allProducts.filter(p => {
-      const pName = p.name.toLowerCase();
-      const pSku = normalizeSearchQuery(p.sku || '');
-      const pBarcode = normalizeSearchQuery(p.barcode || '');
-
-      return pName.includes(searchQuery) ||
-        (pSku && pSku.includes(normQuery)) ||
-        (pBarcode && pBarcode.includes(normQuery));
-    }).sort((a, b) => {
-      const aName = a.name.toLowerCase();
-      const bName = b.name.toLowerCase();
-      const aStarts = aName.startsWith(searchQuery);
-      const bStarts = bName.startsWith(searchQuery);
-      
-      if (aStarts && !bStarts) return -1;
-      if (!aStarts && bStarts) return 1;
-      
-      // If both start with it or both don't, sort by popular/sales count if available
-      return aName.localeCompare(bName);
-    }).slice(0, 8) : [];
+    const matches = searchQuery ? rankProductSuggestions(allProducts, searchQuery, normQuery).slice(0, 8) : [];
 
     activeSuggestionIndex = -1;
     renderSearchSuggestions(matches);
@@ -1836,15 +1817,7 @@ function startVoiceSearch() {
 
     // Trigger search logic
     const allProducts = await getProducts(store.branch?.id);
-    const matches = searchQuery ? allProducts.filter(p => {
-      const pName = p.name.toLowerCase();
-      const pSku = normalizeSearchQuery(p.sku || '');
-      const pBarcode = normalizeSearchQuery(p.barcode || '');
-
-      return pName.includes(searchQuery) ||
-        (pSku && pSku.includes(normQuery)) ||
-        (pBarcode && pBarcode.includes(normQuery));
-    }).slice(0, 8) : [];
+    const matches = searchQuery ? rankProductSuggestions(allProducts, searchQuery, normQuery).slice(0, 8) : [];
 
     activeSuggestionIndex = -1;
     renderSearchSuggestions(matches);
@@ -1977,6 +1950,32 @@ function normalizeSearchQuery(q) {
 
   // Remove all spaces and special chars that voice recognition might add
   return str.replace(/[\s\-\.]/g, '');
+}
+
+// Ranks product search matches: exact SKU/barcode match or name starting
+// with the query outranks the query merely starting a WORD inside the name
+// (e.g. "Biscuit" in "Parle-G Biscuit"), which in turn outranks the query
+// just appearing buried in the name (e.g. "b" inside "Notebook"). Without
+// these tiers, ties fell back to plain alphabetical order, which could rank
+// a weak mid-word match ("Notebook") above a real word-start match
+// ("Biscuit") purely because "L" sorts before "P" — see reported bug.
+function rankProductSuggestions(products, query, normQuery) {
+  const wordBoundary = new RegExp('\\b' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const scored = [];
+  for (const p of products) {
+    const name = p.name.toLowerCase();
+    const sku = normalizeSearchQuery(p.sku || '');
+    const barcode = normalizeSearchQuery(p.barcode || '');
+    const isExactCode = (sku && sku === normQuery) || (barcode && barcode === normQuery);
+    let score;
+    if (isExactCode || name.startsWith(query)) score = 0;
+    else if (wordBoundary.test(name)) score = 1;
+    else if (name.includes(query) || (sku && sku.includes(normQuery)) || (barcode && barcode.includes(normQuery))) score = 2;
+    else continue;
+    scored.push({ product: p, score, matchIndex: name.indexOf(query) });
+  }
+  scored.sort((a, b) => a.score - b.score || a.matchIndex - b.matchIndex);
+  return scored.map(s => s.product);
 }
 
 // Small inline "quantity to add" control reused for both plain products and
