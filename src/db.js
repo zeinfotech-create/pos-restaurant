@@ -6,7 +6,7 @@ const DB_NAME = 'zepos_db';
 // at on a real device (IndexedDB versions only ever go up, never down —
 // opening with a lower version than what's already on disk throws immediately
 // and the whole app fails to initialize, before onboarding can even render).
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 class DbService {
   constructor() {
@@ -380,6 +380,7 @@ export const KEYS = {
   CREDIT_HISTORY: 'pos_credit_history',
   LOGIN_ACTIVITY: 'pos_login_activity',
   STOCK_TRANSFERS: 'pos_stock_transfers',
+  EXPENSES: 'pos_expenses',
   // Tombstones: track deleted record IDs so pos_full_state won't resurrect them
   DELETED_TOMBSTONES: 'pos_deleted_tombstones'
 };
@@ -421,6 +422,11 @@ const DEFAULT_SETTINGS = {
   // freely to match how this store actually talks about stock.
   unitsOfMeasure: ['pcs', 'kg', 'g', 'ltr', 'dz', 'box'],
   paymentMethods: [],
+  // Settings > General > "Expense Categories" — same add/remove pill UI as
+  // Payment Methods/Units. Free-text categories a shop actually pays out for
+  // (rent, salaries, utilities, ...) that never touch inventory, so they'd
+  // otherwise never show up anywhere near Purchases' stock-buying cost.
+  expenseCategories: ['Rent', 'Salary', 'Electricity', 'Water', 'Internet', 'Maintenance', 'Transport', 'Marketing', 'Stationery', 'Miscellaneous'],
   businessType: 'Restaurant', // options: 'Restaurant', 'General', 'Bakery', 'Saloon'
   masterPin: '0000',
   settingsLockEnabled: false,
@@ -495,6 +501,7 @@ export async function hasPermission(action) {
       'inventory': 'inventory:view',
       'purchases': 'inventory:view',
       'stock-transfer': 'inventory:manage',
+      'expenses': 'inventory:manage',
       'orders': 'orders:view',
       'customers': 'customers:view',
       'suppliers': 'products:view',
@@ -522,7 +529,7 @@ export async function hasPermission(action) {
 
   // Legacy fallback for users created before ACL feature (No permissions array)
   console.warn(`[RBAC] Legacy user fallback for: ${user.name}`);
-  const restrictedModules = ['reports', 'users', 'staff', 'settings', 'branches', 'purchases', 'stock-transfer'];
+  const restrictedModules = ['reports', 'users', 'staff', 'settings', 'branches', 'purchases', 'stock-transfer', 'expenses'];
   if (restrictedModules.includes(module)) return false;
   
   // Allow basic navigation for legacy
@@ -2577,6 +2584,48 @@ export async function cancelStockTransfer(transferId, cancelledByName = '', reas
   return transfer;
 }
 
+// ============================================================
+// Expenses (Rent/Salary/Electricity/etc — operating costs that never touch
+// stock, unlike Purchases above). Simple single-branch records, same shape
+// as Purchases minus the receive/complete workflow — an expense is fully
+// "done" the moment it's saved.
+// ============================================================
+
+export async function getExpenses(branchId = null, startDate = null, endDate = null) {
+  const list = await db.getAll(KEYS.EXPENSES) || [];
+  return list.filter(x => {
+    const isBranchMatch = !branchId || (x.branchId || 'b1') === branchId;
+    // See getPurchases() above — compare date-only so today's timestamped
+    // expenses aren't wrongly excluded when endDate is today.
+    const dateOnly = localDateOnly(x.date);
+    const isDateMatch = (!startDate || dateOnly >= startDate) && (!endDate || dateOnly <= endDate);
+    return isBranchMatch && isDateMatch;
+  });
+}
+
+export async function saveExpense(exp) {
+  if (!exp.id) exp.id = 'EXP-' + Date.now();
+  if (!exp.date) exp.date = new Date().toISOString();
+  if (!exp.branchId) {
+    const cb = await getCurrentBranch();
+    exp.branchId = cb?.id || 'b1';
+  }
+  exp.amount = Math.max(0, Number(exp.amount) || 0);
+  await updateData('expenses', exp);
+  return exp;
+}
+
+export async function deleteExpense(id) {
+  await deleteData('expenses', id);
+}
+
+// Sum of expenses in a branch/date range — used by Reports.js's Business
+// Analysis card to turn Gross Profit (Revenue - COGS) into a real Net Profit.
+export async function getTotalExpenses(branchId = null, startDate = null, endDate = null) {
+  const list = await getExpenses(branchId, startDate, endDate);
+  return list.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
+}
+
 // Analytics helpers (Modified for branch filtering if needed)
 export async function getTodaySales(branchId = null, startDate = null, endDate = null) {
   const today = new Date().toDateString();
@@ -3838,7 +3887,7 @@ export async function updateData(store, data, isSilent = false) {
     // never get an isSynced field set at all. Both are worth syncing: a
     // multi-branch owner reviewing "who imported what, when" or "was a
     // backup taken" shouldn't have to check that specific device.
-    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers'];
+    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses'];
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable
@@ -3861,7 +3910,7 @@ export async function updateData(store, data, isSilent = false) {
         // syncAllLocalData()'s own retry list, which did nothing since that
         // retry filters on isSynced !== true — a record already wrongly
         // marked true there is invisible to it too).
-        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers'];
+        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses'];
         if (syncStores.includes(store.toLowerCase())) {
           data.isSynced = false;
         } else {

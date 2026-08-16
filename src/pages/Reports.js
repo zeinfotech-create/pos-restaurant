@@ -1,4 +1,4 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getSuppliers, getPurchases, getPurchasesTrend, getSalesVsPurchasesTrend, getPaymentMethodReport, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getSuppliers, getPurchases, getPurchasesTrend, getSalesVsPurchasesTrend, getPaymentMethodReport, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD, getTotalExpenses } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
@@ -713,8 +713,16 @@ async function renderSalesAnalysis(container, cur) {
 
   const totalRevenue = merged.reduce((s, m) => s + m.sales, 0);
   const totalCost = merged.reduce((s, m) => s + m.purchases, 0);
+  // This is Gross Profit (Revenue - COGS only) — Rent/Salary/Electricity and
+  // other operating costs never show up in "purchases" (that's stock buying
+  // cost only), so it's kept separate from Net Profit below, which pulls
+  // those in via getTotalExpenses().
   const totalProfit = totalRevenue - totalCost;
   const marginPct = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+  const totalExpenses = await getTotalExpenses(currentBranchFilter, currentStartDate, currentEndDate);
+  const netProfit = totalProfit - totalExpenses;
+  const netMarginPct = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
   container.innerHTML = `
     <div class="card mb-24">
@@ -744,7 +752,7 @@ async function renderSalesAnalysis(container, cur) {
       </div>
       <div class="stat-card">
         <div class="stat-info">
-          <div class="stat-label">Total Profit</div>
+          <div class="stat-label">Gross Profit</div>
           <div class="stat-value" style="color:${totalProfit >= 0 ? 'var(--success)' : 'var(--danger)'}">${cur}${totalProfit.toLocaleString()}</div>
         </div>
       </div>
@@ -752,6 +760,24 @@ async function renderSalesAnalysis(container, cur) {
         <div class="stat-info">
           <div class="stat-label">Overall Margin</div>
           <div class="stat-value" style="color:${marginPct >= 0 ? 'var(--success)' : 'var(--danger)'}">${marginPct.toFixed(1)}%</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-info">
+          <div class="stat-label">Total Expenses <span title="Rent, Salary, Electricity, etc — from the Expenses page"><i class="fa-solid fa-circle-info" style="font-size:10px;opacity:0.5"></i></span></div>
+          <div class="stat-value text-danger">${cur}${totalExpenses.toLocaleString()}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-info">
+          <div class="stat-label">Net Profit <span title="Gross Profit minus Total Expenses"><i class="fa-solid fa-circle-info" style="font-size:10px;opacity:0.5"></i></span></div>
+          <div class="stat-value" style="color:${netProfit >= 0 ? 'var(--success)' : 'var(--danger)'}">${cur}${netProfit.toLocaleString()}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-info">
+          <div class="stat-label">Net Margin</div>
+          <div class="stat-value" style="color:${netMarginPct >= 0 ? 'var(--success)' : 'var(--danger)'}">${netMarginPct.toFixed(1)}%</div>
         </div>
       </div>
     </div>

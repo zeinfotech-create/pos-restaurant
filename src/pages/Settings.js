@@ -452,6 +452,19 @@ export async function renderSettings(container) {
                 <!-- Default payload if undefined -->
                 <input type="hidden" id="sPaymentMethods" value='${JSON.stringify(s.paymentMethods || [])}' />
               </div>
+
+              <!-- Expense Categories — same pill add/remove pattern, feeds the Expenses page's category select -->
+              <div class="form-group" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--border)">
+                <label class="form-label">Expense Categories</label>
+                <div id="expenseCategoriesContainer" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px">
+                  <!-- rendered dynamically -->
+                </div>
+                <div style="display:flex; gap:8px">
+                  <input class="form-input" id="newExpenseCategoryInput" type="text" placeholder="e.g. Repairs" style="width:160px" />
+                  <button type="button" class="btn btn-secondary btn-sm" id="addExpenseCategoryBtn"><i class="fa-solid fa-plus mr-4"></i> Add Category</button>
+                </div>
+                <input type="hidden" id="sExpenseCategories" value='${JSON.stringify(s.expenseCategories || [])}' />
+              </div>
               <div class="form-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border)">
                 <label class="flex items-center gap-12 cursor-pointer">
                   <input type="checkbox" id="sRoundOffEnabled" ${s.roundOffEnabled ? 'checked' : ''} style="width:20px;height:20px" />
@@ -1064,6 +1077,56 @@ export async function renderSettings(container) {
 
   await renderPaymentMethods();
 
+  // Expense Categories UI Management — same add/remove pill pattern as
+  // Payment Methods above, feeding the Expenses page's category select.
+  async function renderExpenseCategories() {
+    const eContainer = document.getElementById('expenseCategoriesContainer');
+    if (!eContainer) return;
+
+    let categories = [];
+    try {
+      categories = JSON.parse(document.getElementById('sExpenseCategories').value || '[]');
+    } catch (e) {
+      categories = [];
+    }
+
+    eContainer.innerHTML = categories.map(c => `
+      <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:6px 12px; border-radius:8px; display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600">
+        ${escapeHtml(c)}
+        <button type="button" class="remove-expense-category-btn" data-category="${escapeHtml(c)}" style="background:none; border:none; color:var(--danger); cursor:pointer; padding:2px"><i class="fa-solid fa-circle-xmark"></i></button>
+      </div>
+    `).join('');
+
+    eContainer.querySelectorAll('.remove-expense-category-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const category = e.currentTarget.dataset.category;
+        categories = categories.filter(c => c !== category);
+        document.getElementById('sExpenseCategories').value = JSON.stringify(categories);
+        await renderExpenseCategories();
+      });
+    });
+  }
+
+  document.getElementById('addExpenseCategoryBtn')?.addEventListener('click', async () => {
+    const input = document.getElementById('newExpenseCategoryInput');
+    const val = input.value.trim();
+    if (!val) return showToast('Enter a valid category name', 'warning');
+
+    let categories = [];
+    try { categories = JSON.parse(document.getElementById('sExpenseCategories').value); } catch (e) {}
+
+    if (!categories.some(c => c.toLowerCase() === val.toLowerCase())) {
+      categories.push(val);
+      document.getElementById('sExpenseCategories').value = JSON.stringify(categories);
+      input.value = '';
+      await renderExpenseCategories();
+    } else {
+      showToast('Category already exists', 'info');
+    }
+  });
+
+  await renderExpenseCategories();
+
   // Units of Measurement UI Management — same add/remove pill pattern as
   // Payment Methods above, feeding Products' own Unit dropdown.
   async function renderUnitsOfMeasure() {
@@ -1248,6 +1311,7 @@ export async function renderSettings(container) {
       availableTaxes: JSON.parse(container.querySelector('#sAvailableTaxes').value || '[]'),
       taxRate: parseFloat(container.querySelector('#sTaxRate').value) || 0,
       paymentMethods: JSON.parse(container.querySelector('#sPaymentMethods')?.value || '[]'),
+      expenseCategories: JSON.parse(container.querySelector('#sExpenseCategories')?.value || '[]'),
       // The whole block (and this hidden input) doesn't exist in the DOM
       // while Enable Unit of Measure is off — fall back to the existing
       // saved list instead of '[]', so toggling the feature off and saving

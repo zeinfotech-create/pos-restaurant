@@ -31,4 +31,9 @@ module.exports = {
     // device pulls every transfer for the license, client-side code decides
     // whether it involves the branch it cares about.
     StockTransfer: createGenericModel('StockTransfer'),
+    // Expenses (Rent/Salary/Electricity/etc) — unlike StockTransfer above,
+    // an expense belongs to exactly ONE branch, so it's a normal
+    // branchId-scoped model: included in index.js's branchScopedStores list,
+    // NOT in GlobalStores.
+    Expense: createGenericModel('Expense'),
 };
