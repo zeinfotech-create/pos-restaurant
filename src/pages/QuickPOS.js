@@ -976,7 +976,9 @@ export async function renderQuickPOS(container) {
     const items = store.cart;
 
     if (items.length > 0 && selectedCartIndex === -1) {
-        selectedCartIndex = items.length - 1;
+        // Newest scan/add lands at the top of the list (see addToCart in
+        // store.js) — select index 0, not the last index.
+        selectedCartIndex = 0;
     }
 
     // Save scroll position BEFORE innerHTML resets it
@@ -1231,11 +1233,25 @@ export async function renderQuickPOS(container) {
 
     let flattenedMatches = [];
     const products = await getProducts(branchId);
-    const rawMatches = products.filter(p => {
-        return p.name.toLowerCase().includes(query) || 
-               (p.sku && p.sku.toLowerCase() === query) ||
-               (p.barcode && p.barcode.toLowerCase() === query);
-    });
+    // Rank name-starts-with / exact-code matches first, then whole-word
+    // matches, then loose substring matches — a plain .includes() filter
+    // left the array in whatever order getProducts() happened to return,
+    // so typing "bi" could surface "Parle-G Biscuit" (mid-word match)
+    // ahead of "Biriyani" (starts with the query) — see reported bug.
+    const wordBoundary = new RegExp('\\b' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const scored = [];
+    for (const p of products) {
+        const name = p.name.toLowerCase();
+        const isExactCode = (p.sku && p.sku.toLowerCase() === query) || (p.barcode && p.barcode.toLowerCase() === query);
+        let score;
+        if (isExactCode || name.startsWith(query)) score = 0;
+        else if (wordBoundary.test(name)) score = 1;
+        else if (name.includes(query)) score = 2;
+        else continue;
+        scored.push({ product: p, score, matchIndex: name.indexOf(query) });
+    }
+    scored.sort((a, b) => a.score - b.score || a.matchIndex - b.matchIndex);
+    const rawMatches = scored.map(s => s.product);
 
     for (const p of rawMatches) {
         if (p.variants && p.variants.length > 0) {

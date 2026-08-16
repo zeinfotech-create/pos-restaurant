@@ -100,13 +100,15 @@ export function addToCart(product, variant = null, qty = 1) {
     if (existing) {
         existing.qty = parseFloat((existing.qty + roundedQty).toFixed(3));
         if (existing.qty <= 0) { removeFromCart(cartId); return cartId; }
-        // Move to bottom (user preference: last added/updated should be at bottom)
-        store.cart = [...store.cart.filter(i => i.cartId !== cartId), existing];
+        // Move to top (user preference: last scanned/added should be at the
+        // top, right under the scan box, so the cashier doesn't have to
+        // scroll down to see what they just rang up).
+        store.cart = [existing, ...store.cart.filter(i => i.cartId !== cartId)];
     } else {
         // Mirrors updateQty()'s floor — a brand-new line must never be pushed
         // with a zero/negative qty (e.g. a stray 0 from a weight-scale read).
         if (roundedQty <= 0) return cartId;
-        store.cart.push({
+        store.cart.unshift({
             ...product,
             cartId,
             variantName: variant ? variant.name : null,
