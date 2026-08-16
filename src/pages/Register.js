@@ -292,7 +292,7 @@ export async function renderRegister(container) {
 
   // ── Button Handlers ──────────────────────────────────────────────
   const openBtn = document.getElementById('openShiftBtn');
-  if (openBtn) openBtn.onclick = () => openOpeningModal(branch.id, user?.name || user?.username || 'Admin', registerId);
+  if (openBtn) openBtn.onclick = () => openOpeningModal(branch.id, user?.name || user?.username || 'Admin', registerId, cur);
 
   const closeBtn = document.getElementById('closeShiftBtn');
   if (closeBtn) closeBtn.onclick = () => openClosingModal(shift, cur, branch.id);
@@ -312,7 +312,7 @@ export async function renderRegister(container) {
 // ────────────────────────────────────────────────────────────────────
 // Open Register Modal
 // ────────────────────────────────────────────────────────────────────
-function openOpeningModal(branchId, openedByName, registerId = null) {
+function openOpeningModal(branchId, openedByName, registerId = null, cur = '₹') {
   openModal({
     title: '<i class="fa-solid fa-key"></i> Open Register',
     body: `
@@ -324,8 +324,35 @@ function openOpeningModal(branchId, openedByName, registerId = null) {
             <i class="fa-solid fa-money-bill"></i>
             <input class="form-input" type="number" id="openingBal" placeholder="0.00" value="0" min="0" step="0.01" />
           </div>
-          <p style="font-size:11px;opacity:0.6;margin-top:4px">The starting cash available in the cash drawer.</p>
+          <p style="font-size:11px;opacity:0.6;margin-top:4px">The starting cash available in the cash drawer — type it directly, or count it out by denomination below.</p>
         </div>
+
+        <!-- Denomination Counter — same note-by-note count as Close Register,
+             so the float can be counted physically instead of guessed/typed
+             as one lump number. -->
+        <div>
+          <label class="form-label">Denomination Count (Optional)</label>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px">
+            ${[2000, 500, 200, 100, 50, 20, 10, 5, 2, 1].map(d => `
+              <div class="flex items-center gap-8" style="font-size:12px;padding:4px 8px;background:var(--bg-elevated);border-radius:var(--radius-sm)">
+                <span style="width:44px;font-weight:600">${cur}${d} ×</span>
+                <input type="number" class="form-input open-denomination-input" data-val="${d}" placeholder="0" style="padding:4px 8px;height:28px;font-size:12px" min="0" />
+              </div>
+            `).join('')}
+          </div>
+          <!-- Real notes/coins only ever add up to a whole rupee — there's no
+               physical way to "count" a ₹0.76 paise remainder, so it gets its
+               own free-decimal field instead of forcing it through the
+               denomination grid above. -->
+          <div class="flex items-center gap-8" style="font-size:12px;padding:4px 8px;margin-top:6px;background:var(--bg-elevated);border-radius:var(--radius-sm)">
+            <span style="width:120px;font-weight:600">Loose Change (paise)</span>
+            <input type="number" class="form-input" id="openLooseChange" placeholder="0.00" step="0.01" min="0" style="padding:4px 8px;height:28px;font-size:12px" />
+          </div>
+          <div style="font-size:11px;opacity:0.6;margin-top:4px;text-align:right">
+            Denomination Total: <span id="openDenomTotal" class="font-bold">${cur}0.00</span>
+          </div>
+        </div>
+
         <div class="form-group">
           <label class="form-label">Opening Notes (Optional)</label>
           <input class="form-input" type="text" id="openingNotes" placeholder="e.g. Start of day shift" />
@@ -338,6 +365,27 @@ function openOpeningModal(branchId, openedByName, registerId = null) {
     `
   });
 
+  // Same denomination-counter behavior as Close Register: typing a count
+  // against any note/coin value recomputes the total and fills it straight
+  // into Opening Cash Balance — the field stays a plain number underneath,
+  // so it's still editable by hand if the count is skipped.
+  const openInputs = document.querySelectorAll('.open-denomination-input');
+  const openingBalInput = document.getElementById('openingBal');
+  const openDenomTotalEl = document.getElementById('openDenomTotal');
+  const openLooseChangeInput = document.getElementById('openLooseChange');
+  const recalcOpenDenomTotal = () => {
+    let total = 0;
+    openInputs.forEach(i => {
+      const qty = parseInt(i.value) || 0;
+      total += qty * parseInt(i.dataset.val);
+    });
+    total += parseFloat(openLooseChangeInput.value) || 0;
+    openDenomTotalEl.textContent = `${cur}${total.toFixed(2)}`;
+    if (total > 0) openingBalInput.value = total.toFixed(2);
+  };
+  openInputs.forEach(input => input.addEventListener('input', recalcOpenDenomTotal));
+  openLooseChangeInput.addEventListener('input', recalcOpenDenomTotal);
+
   const confirmOpenBtn = document.getElementById('confirmOpenBtn');
   confirmOpenBtn.onclick = async () => {
     if (confirmOpenBtn.disabled) return;
@@ -348,6 +396,7 @@ function openOpeningModal(branchId, openedByName, registerId = null) {
       await openRegister(branchId, openedByName, bal, registerId, notes);
       showToast('Register opened successfully!', 'success');
       closeModal();
+      if (window.renderSidebar) window.renderSidebar();
       window.navigate('register');
     } catch (err) {
       confirmOpenBtn.disabled = false;
@@ -489,6 +538,14 @@ async function openClosingModal(shift, cur, branchId) {
               </div>
             `).join('')}
           </div>
+          <!-- Real notes/coins only ever add up to a whole rupee — there's no
+               physical way to "count" a ₹0.76 paise remainder, so it gets its
+               own free-decimal field instead of forcing it through the
+               denomination grid above. -->
+          <div class="flex items-center gap-8" style="font-size:12px;padding:4px 8px;margin-top:6px;background:var(--bg-elevated);border-radius:var(--radius-sm)">
+            <span style="width:120px;font-weight:600">Loose Change (paise)</span>
+            <input type="number" class="form-input" id="closeLooseChange" placeholder="0.00" step="0.01" min="0" style="padding:4px 8px;height:28px;font-size:12px" />
+          </div>
           <div style="font-size:11px;opacity:0.6;margin-top:4px;text-align:right">
             Denomination Total: <span id="denomTotal" class="font-bold">${cur}0.00</span>
           </div>
@@ -525,20 +582,22 @@ async function openClosingModal(shift, cur, branchId) {
     }
   };
 
-  inputs.forEach(input => {
-    input.addEventListener('input', () => {
-      let total = 0;
-      inputs.forEach(i => {
-        const qty = parseInt(i.value) || 0;
-        total += qty * parseInt(i.dataset.val);
-      });
-      denomTotalEl.textContent = `${cur}${total.toFixed(2)}`;
-      if (total > 0) {
-        closingBalInput.value = total.toFixed(2);
-        updateDiscrepancy();
-      }
+  const closeLooseChangeInput = document.getElementById('closeLooseChange');
+  const recalcCloseDenomTotal = () => {
+    let total = 0;
+    inputs.forEach(i => {
+      const qty = parseInt(i.value) || 0;
+      total += qty * parseInt(i.dataset.val);
     });
-  });
+    total += parseFloat(closeLooseChangeInput.value) || 0;
+    denomTotalEl.textContent = `${cur}${total.toFixed(2)}`;
+    if (total > 0) {
+      closingBalInput.value = total.toFixed(2);
+      updateDiscrepancy();
+    }
+  };
+  inputs.forEach(input => input.addEventListener('input', recalcCloseDenomTotal));
+  closeLooseChangeInput.addEventListener('input', recalcCloseDenomTotal);
 
   closingBalInput.addEventListener('input', updateDiscrepancy);
   updateDiscrepancy();
@@ -553,6 +612,7 @@ async function openClosingModal(shift, cur, branchId) {
       await closeRegister(shift.id, bal, notes);
       showToast('Register closed. Shift summary saved.', 'info');
       closeModal();
+      if (window.renderSidebar) window.renderSidebar();
       window.navigate('register');
     } catch (err) {
       confirmCloseBtn.disabled = false;
