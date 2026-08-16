@@ -1025,10 +1025,14 @@ export async function renderQuickPOS(container) {
       // construction, since it's just derived from lineTotal itself.
       const beforeDiscTotal = itemDisc > 0 ? lineTotal + itemDisc : null;
 
-      // Inline editable cell renderer
+      // Inline editable cell renderer — the non-editing variant of each of
+      // these three cells carries data-col so a click can jump straight
+      // into edit mode for that exact field, instead of only being
+      // reachable via row-select + ArrowRight/ArrowRight/ArrowRight
+      // (keyboard-only was the sole way in before this).
       const qtyCell = isSelected && selectedColIndex === 0
         ? `<td style="text-align:center"><input id="colInput" type="number" min="0.001" step="0.001" value="${Number.isInteger(item.qty) ? item.qty : item.qty.toFixed(3)}" style="width:68px;text-align:center;font-weight:900;border:2px solid var(--info);background:var(--bg-card);color:var(--text-main);border-radius:4px;padding:2px 4px;outline:none"></td>`
-        : `<td style="text-align:center; font-weight:900">${Number.isInteger(item.qty) ? item.qty : item.qty.toFixed(3)}</td>`;
+        : `<td data-col="0" style="text-align:center; font-weight:900; cursor:pointer">${Number.isInteger(item.qty) ? item.qty : item.qty.toFixed(3)}</td>`;
 
       // For an inclusive-tax Rate, break out exactly what's "inside" it —
       // the pre-tax base price — instead of leaving the customer to work
@@ -1048,7 +1052,7 @@ export async function renderQuickPOS(container) {
 
       const priceCell = isSelected && selectedColIndex === 1
         ? `<td style="text-align:right"><input id="colInput" type="number" min="0" step="0.01" value="${item.price.toFixed(2)}" style="width:80px;text-align:right;border:2px solid var(--info);background:var(--bg-card);color:var(--text-main);border-radius:4px;padding:2px 4px;outline:none"></td>`
-        : `<td style="text-align:right; white-space:nowrap" title="${item.taxType === 'inclusive' ? `This Rate already includes ${taxRate}% tax. After any discount, Base (${cur}${preTaxRate !== null ? preTaxRate.toFixed(2) : '0.00'}) + Tax = Amount.` : 'This Rate is before tax — tax is added on top (see Tx column)'}">
+        : `<td data-col="1" style="text-align:right; white-space:nowrap; cursor:pointer" title="${item.taxType === 'inclusive' ? `This Rate already includes ${taxRate}% tax. After any discount, Base (${cur}${preTaxRate !== null ? preTaxRate.toFixed(2) : '0.00'}) + Tax = Amount.` : 'This Rate is before tax — tax is added on top (see Tx column)'}">
              ${item.price.toFixed(2)}${taxRate > 0 ? ` <span style="font-size:10px; font-weight:700; opacity:0.65">${item.taxType === 'inclusive' ? 'Tax Incl' : 'Tax Excl'}${preTaxRate !== null ? ` (${cur}${preTaxRate.toFixed(2)})` : ''}</span>` : ''}
            </td>`;
 
@@ -1059,7 +1063,7 @@ export async function renderQuickPOS(container) {
                <button id="colDiscTypeBtn" class="ep-btn-sm" data-type="${item.itemDiscountType || 'flat'}" style="padding: 2px 4px; font-size:10px;">${(item.itemDiscountType || 'flat') === 'flat' ? cur : '%'}</button>
              </div>
            </td>`
-        : `<td style="text-align:right">${itemDisc > 0 ? (item.itemDiscountType === 'pct' ? `${item.itemDiscount}% <span style="opacity:0.6; font-weight:400">(${cur}${itemDisc.toFixed(2)})</span>` : itemDisc.toFixed(2)) : ''}</td>`;
+        : `<td data-col="2" style="text-align:right; cursor:pointer">${itemDisc > 0 ? (item.itemDiscountType === 'pct' ? `${item.itemDiscount}% <span style="opacity:0.6; font-weight:400">(${cur}${itemDisc.toFixed(2)})</span>` : itemDisc.toFixed(2)) : ''}</td>`;
 
       const descHtml = item.variantName
         ? `${escapeHtml(item.name)} <span style="font-size:11px;opacity:0.6;font-weight:normal">(${escapeHtml(item.variantName)})</span>`
@@ -1084,6 +1088,36 @@ export async function renderQuickPOS(container) {
 
     // Always restore scroll — NO scrollIntoView here (prevents qty-update jump)
     if (tableWrap) tableWrap.scrollTop = savedScroll;
+
+    // Mouse support for row/column selection — this screen was keyboard-only
+    // before (row select via Up/Down, column entry only via Right/Right/
+    // Right), so clicking a cell had no effect. A click on Qty/Rate/Dis now
+    // jumps straight into edit mode for that exact field; a click anywhere
+    // else on the row just selects it, same as ArrowUp/ArrowDown would.
+    cartBody.querySelectorAll('tr[data-cart-id]').forEach(row => {
+      row.style.cursor = 'pointer';
+      row.onclick = async () => {
+        const idx = parseInt(row.dataset.index, 10);
+        if (selectedCartIndex === idx && selectedColIndex === -1) return;
+        if (selectedColIndex >= 0) await saveColInput();
+        selectedCartIndex = idx;
+        selectedColIndex = -1;
+        await renderCart();
+      };
+      row.querySelectorAll('td[data-col]').forEach(cell => {
+        cell.onclick = async (e) => {
+          e.stopPropagation();
+          const idx = parseInt(row.dataset.index, 10);
+          const col = parseInt(cell.dataset.col, 10);
+          if (selectedCartIndex === idx && selectedColIndex === col) return; // already editing this exact cell
+          if (selectedColIndex >= 0) await saveColInput();
+          selectedCartIndex = idx;
+          selectedColIndex = col;
+          await renderCart();
+          setTimeout(scrollToSelected, 20);
+        };
+      });
+    });
 
     // Focus the inline input if a column is selected
     if (selectedColIndex >= 0) {
