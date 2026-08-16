@@ -3043,6 +3043,16 @@ table {
   animation: slideIn 0.18s ease;
 }
 
+/* Light tint on whichever cart line the cashier last scanned/added or
+   bumped with +/- — a quiet visual cue for "this is what just changed",
+   without repositioning or otherwise disturbing the rest of the list. */
+.cart-item-wrapper.cart-item-recent {
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+  border-left: 3px solid var(--primary);
+  transition: background 0.25s ease;
+}
+.cart-item-wrapper.cart-item-recent .cart-item { background: transparent; }
+
 @keyframes slideIn {
   from {
     opacity: 0;

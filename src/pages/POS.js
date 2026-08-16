@@ -28,6 +28,11 @@ let isProcessingEnterAdd = false;
 // 'custom'). Tracks the id of the tile currently being dragged; module-level
 // since only one drag can be in flight at a time for this page.
 let dragSrcProductId = null;
+// cartId of whichever line the cashier last touched (scanned/added, or
+// bumped with +/-) — renderCart() gives it a light highlight so it's
+// obvious at a glance which row just changed, without having to re-read
+// every row's quantity.
+let lastTouchedCartId = null;
 export async function renderPOS(container) {
   if (window._posCleanup) { window._posCleanup(); window._posCleanup = null; }
 
@@ -359,7 +364,7 @@ function handleProductAddition(product, variant = null) {
       showToast(`Weight captured: ${weight.toFixed(3)} kg`, 'info');
     }
   }
-  addToCart(product, variant, qty);
+  lastTouchedCartId = addToCart(product, variant, qty);
 }
 
 async function renderCategories() {
@@ -820,7 +825,7 @@ export async function renderCart(cur) {
           <p style="font-size:12px; color:var(--text-muted); opacity:0.7; margin-top:4px">Select items to start order</p>
         </div>
       ` : store.cart.map(item => `
-        <div class="cart-item-wrapper" style="border-bottom:1px solid var(--border)">
+        <div class="cart-item-wrapper${item.cartId === lastTouchedCartId ? ' cart-item-recent' : ''}" style="border-bottom:1px solid var(--border)">
           <div class="cart-item" data-cart-id="${item.cartId}" style="border:none; padding:6px 10px">
             <div style="width:24px;height:24px;border-radius:4px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
               ${item.image ? `<img src="${item.image}" style="width:100%;height:100%;object-fit:cover" />` : (item.emoji || '📦')}
@@ -1022,7 +1027,10 @@ export async function renderCart(cur) {
   `;
 
   panel.querySelectorAll('.qty-btn').forEach(btn => {
-    btn.addEventListener('click', () => updateQty(btn.dataset.id, Number(btn.dataset.delta)));
+    btn.addEventListener('click', () => {
+      lastTouchedCartId = btn.dataset.id;
+      updateQty(btn.dataset.id, Number(btn.dataset.delta));
+    });
   });
   panel.querySelectorAll('.remove-btn').forEach(btn => {
     btn.addEventListener('click', () => removeFromCart(btn.dataset.remove));
@@ -1114,6 +1122,7 @@ export async function renderCart(cur) {
       const itemDiscount = discType === 'pct'
         ? parseFloat(((price * discRaw) / 100).toFixed(2))
         : discRaw;
+      lastTouchedCartId = cartId;
       updateCartItem(cartId, {
         // itemDiscount is now always a flat \u20B9 amount (converted above), so itemDiscountType
         // must be reset to 'flat' here too \u2014 otherwise it stays stuck at whatever the product's
@@ -1171,6 +1180,7 @@ export async function renderCart(cur) {
   });
   panel.querySelector('#clearCartBtn')?.addEventListener('click', () => {
     clearCart();
+    lastTouchedCartId = null;
     showToast('Cart cleared', 'info');
   });
 
