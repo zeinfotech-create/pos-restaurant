@@ -8,12 +8,20 @@ let currentCart = { items: [], subtotal: 0, tax: 0, discount: 0, total: 0 };
 export async function renderCustomerDisplay(container) {
   // Same window._cdCleanup pattern POS.js/QuickPOS.js use \u2014 without it, every
   // re-entry to this page (navigate away and back) left the PREVIOUS call's
-  // clock interval running forever against a now-detached #cdTime node, and
+  // clock interval running forever against a now-detached #cdSidebarTime node, and
   // silently reassigned (not cleaned up) channel.onmessage each time.
   if (window._cdCleanup) { window._cdCleanup(); window._cdCleanup = null; }
 
   const settings = await getSettings();
   const cur = settings.currency || '\u20B9';
+
+  // Prefer the real logo uploaded in Settings > Store Profile; fall back to
+  // a gradient badge with the store's initial letter only when none is set.
+  const hasLogo = !!settings.storeLogo;
+  const logoInner = hasLogo
+    ? `<img src="${settings.storeLogo}" alt="${escapeHtml(settings.storeName || 'Logo')}" />`
+    : escapeHtml(settings.storeName?.[0] || 'Z');
+  const logoClass = hasLogo ? ' has-logo' : '';
 
   let clockInterval = null;
   function updateUI(data) {
@@ -37,7 +45,7 @@ export async function renderCustomerDisplay(container) {
       container.innerHTML = `
         <div class="customer-display-welcome">
           <div class="welcome-content">
-            <div class="store-logo-large">${escapeHtml(settings.storeName?.[0] || 'Z')}</div>
+            <div class="store-logo-large${logoClass}">${logoInner}</div>
             <h1 class="store-name-display">${escapeHtml(settings.storeName) || 'Welcome'}</h1>
             <p class="welcome-message">${escapeHtml(settings.receiptFooter) || 'Thank you for shopping with us!'}</p>
             <div class="live-indicator"><span class="dot"></span> System Live</div>
@@ -51,14 +59,9 @@ export async function renderCustomerDisplay(container) {
       <div class="customer-display-layout">
         <!-- Main Cart Area -->
         <div class="cd-main">
-          <div class="cd-header">
-            <div class="cd-store-info">
-              <span class="cd-logo-small">${escapeHtml(settings.storeName?.[0] || 'Z')}</span>
-              <span class="cd-store-name">${escapeHtml(settings.storeName)}</span>
-            </div>
-            <div class="cd-time" id="cdTime"></div>
-          </div>
-          
+          <!-- Branch name/logo/time already live in the sidebar's brand
+               footer below — repeating them up here was pure duplication,
+               so this panel is just the cart grid now. -->
           <div class="cd-cart-grid custom-scrollbar">
             ${items.map(item => `
               <div class="cd-cart-item animate-slide-in">
@@ -103,15 +106,29 @@ export async function renderCustomerDisplay(container) {
             </div>
             ` : ''}
           </div>
+
+          <div class="cd-brand-footer">
+            <div class="cd-brand-id">
+              <span class="cd-brand-logo${logoClass}">${logoInner}</span>
+              <div class="cd-brand-meta">
+                <span class="cd-brand-name">${escapeHtml(settings.storeName) || 'My Store'}</span>
+                <span class="cd-brand-tag"><span class="cd-live-dot"></span> Live &middot; Secure Checkout</span>
+              </div>
+            </div>
+            <div class="cd-brand-time" id="cdSidebarTime"></div>
+          </div>
         </div>
       </div>
     `;
 
-    // Internal Clock
-    const timeEl = document.getElementById('cdTime');
-    if (timeEl) {
+    // Internal Clock — drives the sidebar brand-footer's time + date.
+    const sidebarTimeEl = document.getElementById('cdSidebarTime');
+    if (sidebarTimeEl) {
       const updateTime = () => {
-        timeEl.innerText = new Date().toLocaleTimeString();
+        const now = new Date();
+        const t = now.toLocaleTimeString();
+        const d = now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+        sidebarTimeEl.innerHTML = `<span class="cd-brand-time-value">${t}</span><span class="cd-brand-time-date">${d}</span>`;
       };
       updateTime();
       clockInterval = setInterval(updateTime, 1000);
@@ -154,6 +171,8 @@ export async function renderCustomerDisplay(container) {
         font-size: 60px; font-weight: 800; margin: 0 auto 24px;
         box-shadow: 0 20px 40px rgba(79, 70, 229, 0.3);
       }
+      .store-logo-large.has-logo { background: #fff; padding: 14px; box-shadow: 0 20px 40px rgba(15,23,42,0.12), inset 0 0 0 1px var(--border); }
+      .store-logo-large img { width: 100%; height: 100%; object-fit: contain; }
       .store-name-display { font-size: 48px; margin-bottom: 12px; color: var(--text-main); }
       .welcome-message { font-size: 20px; color: var(--text-secondary); opacity: 0.8; }
       
@@ -162,16 +181,7 @@ export async function renderCustomerDisplay(container) {
         height: 100vh; width: 100vw; max-width: 100vw; overflow: hidden; background: var(--bg-main);
       }
       .cd-main { display: flex; flex-direction: column; padding: 40px; border-right: 1px solid var(--border); min-width: 0; }
-      .cd-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
-      .cd-store-info { display: flex; align-items: center; gap: 16px; }
-      .cd-logo-small { 
-        width: 40px; height: 40px; background: var(--primary); color: white;
-        border-radius: 10px; display: flex; align-items: center; justify-content: center;
-        font-weight: bold; font-size: 20px;
-      }
-      .cd-store-name { font-size: 24px; font-weight: 700; color: var(--text-main); }
-      .cd-time { font-size: 20px; font-weight: 500; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-      
+
       .cd-cart-grid {
         flex: 1; overflow-y: auto; overflow-x: hidden; padding-right: 20px; min-width: 0;
         display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -242,6 +252,34 @@ export async function renderCustomerDisplay(container) {
       }
 
       .cd-footer-promo { margin-top: 24px; text-align: center; font-size: 14px; padding: 12px; background: rgba(245,158,11,0.08); border-radius: 12px; color: var(--warning-dark); }
+
+      /* Brand footer — fills the leftover space below the summary card,
+         pinned to the bottom of the sidebar via margin-top:auto. */
+      .cd-brand-footer {
+        margin-top: auto;
+        display: flex; align-items: center; justify-content: space-between; gap: 14px;
+        padding: 18px 20px; border-radius: 20px;
+        background: var(--bg-main); border: 1px solid var(--border);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.06);
+        min-width: 0;
+      }
+      .cd-brand-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
+      .cd-brand-logo {
+        width: 42px; height: 42px; flex-shrink: 0; border-radius: 12px;
+        background: linear-gradient(135deg, var(--primary) 0%, #7c3aed 100%);
+        color: #fff; display: flex; align-items: center; justify-content: center;
+        font-weight: 800; font-size: 19px;
+        box-shadow: 0 6px 14px -4px rgba(79, 70, 229, 0.5);
+      }
+      .cd-brand-logo.has-logo { background: #fff; padding: 5px; box-shadow: inset 0 0 0 1px var(--border); }
+      .cd-brand-logo img { width: 100%; height: 100%; object-fit: contain; }
+      .cd-brand-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+      .cd-brand-name { font-size: 15px; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .cd-brand-tag { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); opacity: 0.75; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+      .cd-live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); animation: pulse 2s infinite; flex-shrink: 0; }
+      .cd-brand-time { text-align: right; flex-shrink: 0; }
+      .cd-brand-time-value { display: block; font-size: 18px; font-weight: 800; color: var(--text-main); font-variant-numeric: tabular-nums; letter-spacing: 0.3px; white-space: nowrap; }
+      .cd-brand-time-date { display: block; font-size: 11px; font-weight: 600; color: var(--text-secondary); opacity: 0.7; margin-top: 2px; white-space: nowrap; }
 
       .animate-slide-in { animation: slideIn 0.3s ease-out forwards; }
       @keyframes slideIn {

@@ -422,6 +422,9 @@ function createMainWindow() {
       minHeight: 600,
       backgroundColor: '#0f172a',
       autoHideMenuBar: true,
+      // Customer Display is a kiosk-style customer-facing screen — no native
+      // title bar / "ZeInfoTech POS" text bleeding across the top of it.
+      frame: !url.includes('customer-display'),
       title: 'ZeInfoTech POS',
       icon: fs.existsSync(iconPath) ? iconPath : undefined,
       webPreferences: {
@@ -452,6 +455,7 @@ function createMainWindow() {
         minHeight: 600,
         backgroundColor: '#0f172a',
         autoHideMenuBar: true,
+        frame: !url.includes('customer-display'),
         title: 'ZeInfoTech POS',
         icon: fs.existsSync(iconPath) ? iconPath : undefined,
         webPreferences: { nodeIntegration: false, contextIsolation: true },
