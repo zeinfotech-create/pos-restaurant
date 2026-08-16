@@ -36,4 +36,7 @@ module.exports = {
     // branchId-scoped model: included in index.js's branchScopedStores list,
     // NOT in GlobalStores.
     Expense: createGenericModel('Expense'),
+    // Staff Attendance (clock-in/out) — also single-branch, same treatment
+    // as Expense above.
+    Attendance: createGenericModel('Attendance'),
 };

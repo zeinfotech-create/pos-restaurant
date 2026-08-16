@@ -6,7 +6,7 @@ const DB_NAME = 'zepos_db';
 // at on a real device (IndexedDB versions only ever go up, never down —
 // opening with a lower version than what's already on disk throws immediately
 // and the whole app fails to initialize, before onboarding can even render).
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 class DbService {
   constructor() {
@@ -381,6 +381,7 @@ export const KEYS = {
   LOGIN_ACTIVITY: 'pos_login_activity',
   STOCK_TRANSFERS: 'pos_stock_transfers',
   EXPENSES: 'pos_expenses',
+  ATTENDANCE: 'pos_attendance',
   // Tombstones: track deleted record IDs so pos_full_state won't resurrect them
   DELETED_TOMBSTONES: 'pos_deleted_tombstones'
 };
@@ -494,6 +495,7 @@ export async function hasPermission(action) {
       'reports': 'reports:view',
       'users': 'staff:manage',
       'staff': 'staff:view', // Allow viewing list if they have view permission
+      'attendance': 'staff:view', // Clock in/out — same visibility as the Staff list itself; edits are further gated on staff:manage inside the page
       'settings': 'settings:manage',
       'branches': 'settings:branches',
       'products': 'products:view',
@@ -529,7 +531,7 @@ export async function hasPermission(action) {
 
   // Legacy fallback for users created before ACL feature (No permissions array)
   console.warn(`[RBAC] Legacy user fallback for: ${user.name}`);
-  const restrictedModules = ['reports', 'users', 'staff', 'settings', 'branches', 'purchases', 'stock-transfer', 'expenses'];
+  const restrictedModules = ['reports', 'users', 'staff', 'attendance', 'settings', 'branches', 'purchases', 'stock-transfer', 'expenses'];
   if (restrictedModules.includes(module)) return false;
   
   // Allow basic navigation for legacy
@@ -3517,6 +3519,104 @@ export async function saveStaffIncentive(inc) {
 }
 
 // ============================================================
+// Staff Attendance / Clock-in-Out
+// ============================================================
+// Deliberately separate from Register.js's shift open/close — a Register
+// shift tracks the CASH DRAWER for a branch (one open shift per register at
+// a time); this tracks INDIVIDUAL STAFF presence (any number of staff can be
+// clocked in at once, independent of whether a register is even open).
+
+export async function getAttendance(branchId = null, startDate = null, endDate = null) {
+  const list = await db.getAll(KEYS.ATTENDANCE) || [];
+  return list.filter(x => {
+    const isBranchMatch = !branchId || (x.branchId || 'b1') === branchId;
+    // See getPurchases() above — compare date-only so today's timestamped
+    // entries aren't wrongly excluded when endDate is today.
+    const dateOnly = localDateOnly(x.clockIn);
+    const isDateMatch = (!startDate || dateOnly >= startDate) && (!endDate || dateOnly <= endDate);
+    return isBranchMatch && isDateMatch;
+  });
+}
+
+// The one still-open (not yet clocked out) record for a staff member at a
+// branch, if any — drives the Attendance board's Clock In vs Clock Out
+// button state, and guards against double clock-in.
+export async function getOpenAttendance(staffId, branchId = null) {
+  const list = await db.getAll(KEYS.ATTENDANCE) || [];
+  return list.find(x => String(x.staffId) === String(staffId) && x.status === 'open' && (!branchId || (x.branchId || 'b1') === branchId)) || null;
+}
+
+export async function clockInStaff(staffId, staffName, branchId) {
+  const existing = await getOpenAttendance(staffId, branchId);
+  if (existing) throw new Error(`${staffName} is already clocked in.`);
+  const record = {
+    id: 'ATT-' + Date.now(),
+    staffId, staffName,
+    branchId: branchId || 'b1',
+    clockIn: new Date().toISOString(),
+    clockOut: null,
+    durationMinutes: null,
+    status: 'open',
+    source: 'self',
+  };
+  await updateData('attendance', record);
+  return record;
+}
+
+export async function clockOutStaff(attendanceId) {
+  const record = await getDataById('attendance', attendanceId);
+  if (!record) throw new Error('Attendance record not found');
+  if (record.status !== 'open') throw new Error('This entry is already clocked out.');
+  record.clockOut = new Date().toISOString();
+  record.durationMinutes = Math.max(0, Math.round((new Date(record.clockOut) - new Date(record.clockIn)) / 60000));
+  record.status = 'closed';
+  await updateData('attendance', record);
+  return record;
+}
+
+// Manual add/edit (admin corrections) — a staff member forgot to clock in,
+// or a time needs fixing after the fact. Recomputes durationMinutes/status
+// from whatever clockIn/clockOut are given; a null clockOut is a valid
+// still-open entry entered by an admin on someone's behalf.
+export async function saveAttendance(record) {
+  if (!record.id) record.id = 'ATT-' + Date.now();
+  if (!record.clockIn) record.clockIn = new Date().toISOString();
+  if (!record.branchId) {
+    const cb = await getCurrentBranch();
+    record.branchId = cb?.id || 'b1';
+  }
+  if (record.clockOut) {
+    record.durationMinutes = Math.max(0, Math.round((new Date(record.clockOut) - new Date(record.clockIn)) / 60000));
+    record.status = 'closed';
+  } else {
+    record.durationMinutes = null;
+    record.status = 'open';
+  }
+  await updateData('attendance', record);
+  return record;
+}
+
+export async function deleteAttendance(id) {
+  await deleteData('attendance', id);
+}
+
+// Per-staff rollup (days present, total hours) for a branch/date range —
+// powers the Attendance page's staff-wise summary table.
+export async function getAttendanceSummary(branchId = null, startDate = null, endDate = null) {
+  const list = await getAttendance(branchId, startDate, endDate);
+  const map = new Map();
+  for (const x of list) {
+    const key = String(x.staffId);
+    const entry = map.get(key) || { staffId: x.staffId, staffName: x.staffName, daysPresent: 0, totalMinutes: 0, days: new Set() };
+    const day = localDateOnly(x.clockIn);
+    if (!entry.days.has(day)) { entry.days.add(day); entry.daysPresent += 1; }
+    entry.totalMinutes += x.durationMinutes || 0;
+    map.set(key, entry);
+  }
+  return [...map.values()].map(({ days, ...rest }) => rest).sort((a, b) => b.totalMinutes - a.totalMinutes);
+}
+
+// ============================================================
 // Appointments (Saloon specific)
 // ============================================================
 
@@ -3903,7 +4003,7 @@ export async function updateData(store, data, isSilent = false) {
     // never get an isSynced field set at all. Both are worth syncing: a
     // multi-branch owner reviewing "who imported what, when" or "was a
     // backup taken" shouldn't have to check that specific device.
-    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses'];
+    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance'];
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable
@@ -3926,7 +4026,7 @@ export async function updateData(store, data, isSilent = false) {
         // syncAllLocalData()'s own retry list, which did nothing since that
         // retry filters on isSynced !== true — a record already wrongly
         // marked true there is invisible to it too).
-        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses'];
+        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance'];
         if (syncStores.includes(store.toLowerCase())) {
           data.isSynced = false;
         } else {
