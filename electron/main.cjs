@@ -423,6 +423,7 @@ function createMainWindow() {
       backgroundColor: '#0f172a',
       autoHideMenuBar: true,
       title: 'ZeInfoTech POS',
+      icon: fs.existsSync(iconPath) ? iconPath : undefined,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -452,6 +453,7 @@ function createMainWindow() {
         backgroundColor: '#0f172a',
         autoHideMenuBar: true,
         title: 'ZeInfoTech POS',
+        icon: fs.existsSync(iconPath) ? iconPath : undefined,
         webPreferences: { nodeIntegration: false, contextIsolation: true },
       },
     }));
