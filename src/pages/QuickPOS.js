@@ -1909,34 +1909,64 @@ export async function renderQuickPOS(container) {
           }
       };
 
-      const showCustSuggestions = async (matches) => {
+      // searchVal is only used for the zero-match "add as new" row — before
+      // this, typing a query with no match just hid the dropdown in
+      // silence, which read as "search is broken" rather than "nobody by
+      // that name/phone at this branch yet" (customers ARE branch-scoped
+      // here, same as everywhere else in the app — see getCustomers(branchId)
+      // below — so this is a very reachable, normal case, not an edge case).
+      const showCustSuggestions = async (matches, searchVal = '') => {
           qcSuggestions.classList.remove('hidden');
-          
+
           let listHtml = `
             <div class="ep-suggestion-item" data-cust-id="walkin" style="padding:10px; border-bottom:1px solid var(--border); font-weight:700; color:var(--info); background:var(--bg-elevated)">
                 <i class="fa-solid fa-user-group mr-8"></i> Walk-in Customer
             </div>
           `;
 
-          listHtml += matches.slice(0, 5).map((c, idx) => {
-            const currentVal = qcSearchPhone.value.trim();
-            return `
-            <div class="ep-suggestion-item ${idx === 0 && !currentVal ? 'active' : ''}" data-cust-id="${c.id}" style="padding:10px; font-size:13px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                   <div style="font-weight:700; color:var(--text-main)">${escapeHtml(c.name)}</div>
-                   <div style="font-size:11px; color:var(--primary-light); font-weight:600">${escapeHtml(c.phone || 'No Phone')}</div>
-                </div>
-                <div style="font-size:10px; color:var(--text-secondary)"><i class="fa-solid fa-chevron-right"></i></div>
-            </div>
-          `;}).join('');
-          
+          if (matches.length === 0) {
+            listHtml += `
+              <div class="ep-suggestion-item" data-cust-id="__add_new" style="padding:10px; font-size:13px;">
+                  <div>
+                     <div style="font-weight:700; color:var(--text-main)"><i class="fa-solid fa-user-plus mr-4" style="color:var(--success)"></i> No customer found</div>
+                     <div style="font-size:11px; color:var(--text-secondary); margin-top:2px">Click to add "${escapeHtml(searchVal)}" as a new customer</div>
+                  </div>
+              </div>
+            `;
+          } else {
+            listHtml += matches.slice(0, 5).map((c, idx) => {
+              const currentVal = qcSearchPhone.value.trim();
+              return `
+              <div class="ep-suggestion-item ${idx === 0 && !currentVal ? 'active' : ''}" data-cust-id="${c.id}" style="padding:10px; font-size:13px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                  <div>
+                     <div style="font-weight:700; color:var(--text-main)">${escapeHtml(c.name)}</div>
+                     <div style="font-size:11px; color:var(--primary-light); font-weight:600">${escapeHtml(c.phone || 'No Phone')}</div>
+                  </div>
+                  <div style="font-size:10px; color:var(--text-secondary)"><i class="fa-solid fa-chevron-right"></i></div>
+              </div>
+            `;}).join('');
+          }
+
           qcSuggestions.innerHTML = listHtml;
-          
+
           qcSuggestions.querySelectorAll('.ep-suggestion-item').forEach(item => {
               item.onclick = async () => {
                   const custId = item.dataset.custId;
                   if (custId === 'walkin') {
                       await syncCustomerDisplay(null);
+                  } else if (custId === '__add_new') {
+                      // Same fallback doSearchCust() (the magnifying-glass button)
+                      // already had — pre-fill whichever field the typed text
+                      // looks like (all digits → phone, else → name) and focus
+                      // the other one, so adding the customer is one click away
+                      // instead of a dead end.
+                      if (/^\d+$/.test(searchVal)) {
+                        container.querySelector('#qcPhone').value = searchVal;
+                        container.querySelector('#qcName').focus();
+                      } else {
+                        container.querySelector('#qcName').value = searchVal.charAt(0).toUpperCase() + searchVal.slice(1);
+                        container.querySelector('#qcPhone').focus();
+                      }
                   } else {
                       const cust = matches.find(m => String(m.id) === String(custId));
                       if (cust) await syncCustomerDisplay(cust);
@@ -1954,12 +1984,11 @@ export async function renderQuickPOS(container) {
               return;
           }
           const customers = await getCustomers(branchId);
-          const matches = customers.filter(c => 
-              (c.phone && c.phone.includes(val)) || 
+          const matches = customers.filter(c =>
+              (c.phone && c.phone.includes(val)) ||
               (c.name && c.name.toLowerCase().includes(val))
           );
-          if (matches.length > 0) await showCustSuggestions(matches);
-          else qcSuggestions.classList.add('hidden');
+          await showCustSuggestions(matches, val);
       };
 
       qcSearchBtn.onclick = doSearchCust;
