@@ -2,7 +2,7 @@
 // Dashboard.js
 // ============================================================
 
-import { getTodaySales, getOrders, getReturns, getSettings, hasPermission, getProducts, updateProduct, logInventoryChange, getSession, getLowStockProducts, localDateOnly } from '../db.js';
+import { getTodaySales, getOrders, getReturns, getSettings, hasPermission, getProducts, updateProduct, logInventoryChange, getSession, getLowStockProducts, getReorderSuggestions, localDateOnly } from '../db.js';
 import { store } from '../store.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
@@ -295,8 +295,13 @@ export async function renderDashboard(container) {
             `).join('');
           })()}
         </div>
+        ${lowStockItems.length > 0 && await hasPermission('inventory:manage') ? `
+          <button class="btn btn-primary btn-sm dash-create-po-btn" style="width:100%; margin-top:12px; font-size:12px;">
+            <i class="fa-solid fa-wand-magic-sparkles mr-4"></i> Create Purchase Order for ${lowStockItems.length} Item${lowStockItems.length === 1 ? '' : 's'}
+          </button>
+        ` : ''}
         ${lowStockItems.length > 3 ? `
-          <button class="btn btn-ghost btn-sm" style="width:100%; margin-top:12px; font-size:12px;" onclick="window.posFilterStock = 'Low Stock'; window.navigate('products')">
+          <button class="btn btn-ghost btn-sm" style="width:100%; margin-top:8px; font-size:12px;" onclick="window.posFilterStock = 'Low Stock'; window.navigate('products')">
             <i class="fa-solid fa-arrow-right mr-4"></i> View All ${lowStockItems.length} Low Stock Items
           </button>
         ` : ''}
@@ -586,6 +591,22 @@ export async function renderDashboard(container) {
     container.addEventListener('click', (e) => {
       const viewAllBtn = e.target.closest('#viewAllProductsBtn');
       if (viewAllBtn) openAllProductsModal(latestTopProductsMap, latestCur);
+    });
+    container.addEventListener('click', async (e) => {
+      const poBtn = e.target.closest('.dash-create-po-btn');
+      if (!poBtn) return;
+      poBtn.disabled = true;
+      try {
+        const suggestions = await getReorderSuggestions(store.branch?.id);
+        if (suggestions.length === 0) {
+          if (window.showToast) window.showToast('No low-stock items to reorder right now', 'info');
+          return;
+        }
+        const { openPurchaseForm } = await import('./Purchases.js');
+        await openPurchaseForm(container, suggestions.map(s => ({ id: s.id, name: s.name, variantName: s.variantName, qty: s.suggestedQty, cost: s.cost })));
+      } finally {
+        poBtn.disabled = false;
+      }
     });
     container.addEventListener('click', async (e) => {
       const btn = e.target.closest('.dash-addstock-btn');

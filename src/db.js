@@ -3124,6 +3124,57 @@ export async function getLowStockProducts(branchId = null) {
   });
 }
 
+// Turns the passive "these items are low" list into an actionable reorder
+// list: one row per product (or per variant), each with a suggestedQty a
+// Purchase Order can be pre-filled with directly. Heuristic — since products
+// don't carry their own explicit reorder-up-to level — is to restock up to
+// DOUBLE the alert threshold (the same minStock/DEFAULT_LOW_STOCK_THRESHOLD
+// getStockStatus() already uses), so a shop doesn't have to come back and
+// reorder again the moment the low-stock badge would otherwise reappear.
+export async function getReorderSuggestions(branchId = null) {
+  const products = await getProducts(branchId);
+  const rows = [];
+
+  const pushRow = (p, variant) => {
+    const stock = Number(variant ? variant.stock : p.stock) || 0;
+    const minStock = variant ? variant.minStock : p.minStock;
+    const status = getStockStatus(stock, minStock);
+    if (status === 'in') return;
+    const threshold = (minStock != null && minStock > 0) ? minStock : DEFAULT_LOW_STOCK_THRESHOLD;
+    const targetStock = threshold * 2;
+    const suggestedQty = Math.max(1, Math.round(targetStock - stock));
+    const costPrice = Number(variant ? (variant.costPrice ?? p.costPrice) : p.costPrice) || 0;
+    rows.push({
+      id: p.id,
+      name: variant ? `${p.name} (${variant.name})` : p.name,
+      variantName: variant ? variant.name : null,
+      sku: variant ? (variant.sku || p.sku) : p.sku,
+      category: p.category || 'General',
+      stock,
+      threshold,
+      suggestedQty,
+      // Same "own recorded cost, else a rough 80%-of-selling-price guess"
+      // fallback Purchases.js's own "Add Product" button uses.
+      cost: costPrice > 0 ? costPrice : (Number(variant ? (variant.price ?? p.price) : p.price) || 0) * 0.8,
+      status,
+    });
+  };
+
+  products.forEach(p => {
+    if (p.variants && p.variants.length > 0) {
+      p.variants.forEach(v => pushRow(p, v));
+    } else {
+      pushRow(p, null);
+    }
+  });
+
+  // Most urgent first: out-of-stock before merely-low, then by how far below threshold.
+  return rows.sort((a, b) => {
+    if (a.status !== b.status) return a.status === 'out' ? -1 : 1;
+    return a.stock - b.stock;
+  });
+}
+
 // Parses a "YYYY-MM-DD" date-only string as LOCAL midnight — the native Date
 // constructor treats bare date strings as UTC midnight, which silently shifts
 // the result by a whole day in any timezone ahead of UTC (e.g. IST) when

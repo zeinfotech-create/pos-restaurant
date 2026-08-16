@@ -1,4 +1,4 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getSuppliers, getPurchases, getPurchasesTrend, getSalesVsPurchasesTrend, getPaymentMethodReport, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD, getTotalExpenses, getExpenseCategoryTotals, getExpenses } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getSuppliers, getPurchases, getPurchasesTrend, getSalesVsPurchasesTrend, getPaymentMethodReport, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD, getTotalExpenses, getExpenseCategoryTotals, getExpenses, getReorderSuggestions } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
@@ -2969,6 +2969,7 @@ async function renderLowStockReport(container, cur) {
   const products = await getProducts(currentBranchFilter);
   const lowStockItems = products.filter(p => getProductOverallStockStatus(p) !== 'in');
   const canExportLow = await hasPermission('reports:export');
+  const canManageInventory = await hasPermission('inventory:manage');
 
   function lowStockRowHtml(p) {
     const isVariant = p.variants && p.variants.length > 0;
@@ -3016,6 +3017,7 @@ async function renderLowStockReport(container, cur) {
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <span class="badge badge-danger">${lowStockItems.length} Items Needing Restock</span>
+          ${lowStockItems.length > 0 && canManageInventory ? `<button class="btn btn-primary btn-sm" id="createPoFromLowStockBtn"><i class="fa-solid fa-wand-magic-sparkles mr-4"></i> Create Purchase Order</button>` : ''}
           ${canExportLow ? tableExportButtonsHtml('low-stock') : ''}
         </div>
       </div>
@@ -3033,6 +3035,27 @@ async function renderLowStockReport(container, cur) {
   `;
 
   wireTableExport('low-stock', document.getElementById('lowStockBody').closest('table'), 'Low Stock Alert', () => lowStockItems.map(lowStockRowHtml).join(''));
+
+  const createPoBtn = document.getElementById('createPoFromLowStockBtn');
+  if (createPoBtn) {
+    createPoBtn.onclick = async () => {
+      createPoBtn.disabled = true;
+      try {
+        // Independent of this table's own (one-row-per-product) view —
+        // getReorderSuggestions() breaks a variant product out per-variant,
+        // which is what a real Purchase Order line item needs.
+        const suggestions = await getReorderSuggestions(currentBranchFilter);
+        if (suggestions.length === 0) {
+          showToast('No low-stock items to reorder right now', 'info');
+          return;
+        }
+        const { openPurchaseForm } = await import('./Purchases.js');
+        await openPurchaseForm(container, suggestions.map(s => ({ id: s.id, name: s.name, variantName: s.variantName, qty: s.suggestedQty, cost: s.cost })));
+      } finally {
+        createPoBtn.disabled = false;
+      }
+    };
+  }
 }
 
 async function renderReturnsReport(container, cur) {

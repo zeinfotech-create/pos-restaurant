@@ -393,7 +393,13 @@ export async function renderPurchases(container, subPage) {
   }
 }
 
-export async function openPurchaseForm(container) {
+// `prefillItems` (optional) — {id, name, variantName, qty, cost}[], same shape
+// selectedItems already uses internally. Lets a Reorder Suggestion (Dashboard's
+// Low Stock card, Reports' Low Stock Alert) open this form pre-loaded instead
+// of starting from an empty item list — the supplier still has to be picked
+// manually (products don't carry their own default supplier), and every
+// prefilled row stays fully editable/removable just like a manually added one.
+export async function openPurchaseForm(container, prefillItems = []) {
   const suppliers = await getSuppliers();
   const products = await getProducts();
   const cur0 = store.settings?.currency || '₹';
@@ -414,7 +420,7 @@ export async function openPurchaseForm(container) {
     .map(m => parseInt(m[1], 10));
   const nextInvoiceNo = `INV-${String((usedAutoNumbers.length ? Math.max(...usedAutoNumbers) : 0) + 1).padStart(4, '0')}`;
 
-  let selectedItems = [];
+  let selectedItems = prefillItems.map(i => ({ id: i.id, name: i.name, variantName: i.variantName || null, qty: i.qty, cost: i.cost }));
   let billAttachment = '';
   const purPayMethods = store.settings.paymentMethods?.length ? store.settings.paymentMethods : ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Cheque'];
   let purNoTax = false;
@@ -531,6 +537,11 @@ export async function openPurchaseForm(container) {
   openModal({
     title: `<i class="fa-solid fa-cart-flatbed mr-8"></i> New Purchase Entry`,
     body: `
+      ${prefillItems.length > 0 ? `
+        <div style="margin-bottom:16px; padding:12px 16px; background:rgba(99,102,241,0.08); border:1px solid rgba(99,102,241,0.25); border-radius:10px; color:var(--primary); font-size:13px;">
+          <i class="fa-solid fa-wand-magic-sparkles mr-4"></i> Pre-filled from <b>${prefillItems.length}</b> low-stock reorder suggestion${prefillItems.length === 1 ? '' : 's'} — pick a supplier, then adjust quantities/costs or remove rows as needed.
+        </div>
+      ` : ''}
       <!-- Purchase Context -->
       <div style="margin-bottom: 24px; padding: 20px; background: var(--bg-elevated); border-radius: var(--radius); border: 1px solid var(--border)">
          <div class="form-grid">
