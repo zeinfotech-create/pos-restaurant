@@ -998,7 +998,12 @@ export async function renderQuickPOS(container) {
       const itemDisc   = item.itemDiscount > 0
         ? (item.itemDiscountType === 'pct' ? extPrice * item.itemDiscount / 100 : item.itemDiscount * qty)
         : 0;
-      const taxable    = extPrice - itemDisc;
+      // updateCartItem() now caps itemDiscount at the item's own price, so
+      // this can't go negative from here on — but a cart line saved/synced
+      // from BEFORE that fix could still carry an old, uncapped value
+      // (carts persist across sessions), so floor it here too rather than
+      // trusting the stored number, same as POS.js's cart row already does.
+      const taxable    = Math.max(0, extPrice - itemDisc);
       const taxRate    = item.taxRate || 0;
       const taxAmt     = item.taxType === 'inclusive'
         ? taxable - taxable / (1 + taxRate / 100)
