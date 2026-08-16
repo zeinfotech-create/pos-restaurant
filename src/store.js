@@ -153,11 +153,25 @@ export function removeFromCart(cartId) {
 export function updateCartItem(cartId, fields) {
     const item = store.cart.find(i => i.cartId === cartId);
     if (!item) return;
-    
+
     if (fields.qty !== undefined) {
         fields.qty = parseFloat(parseFloat(fields.qty).toFixed(3));
     }
-    
+
+    // A discount bigger than the item's own per-unit value drives the whole
+    // line's taxable amount (and Tx/Amount) negative once multiplied by qty
+    // — e.g. a flat ₹1000/unit discount on a ₹90 item looks harmless at
+    // qty:1, but at qty:100000 it produces a -₹91,000,000 line total. Cap it
+    // here, in the one place every cart-item edit (QuickPOS's inline Dis
+    // cell, POS.js's edit panel) funnels through, instead of duplicating
+    // the check per-UI.
+    if (fields.itemDiscount !== undefined) {
+        const type = fields.itemDiscountType !== undefined ? fields.itemDiscountType : item.itemDiscountType;
+        const price = fields.price !== undefined ? fields.price : item.price;
+        const cap = type === 'pct' ? 100 : price;
+        fields.itemDiscount = Math.max(0, Math.min(Number(fields.itemDiscount) || 0, cap));
+    }
+
     Object.assign(item, fields);
     renderCartEvent();
 }

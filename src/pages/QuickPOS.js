@@ -1341,9 +1341,14 @@ export async function renderQuickPOS(container) {
       // Unit Price
       updateCartItem(item.cartId, { price: val });
     } else if (selectedColIndex === 2) {
-      // Discount
+      // Discount — updateCartItem() itself caps this (pct at 100, flat at
+      // the item's own per-unit price) so a discount can never push the
+      // line total negative; surface it here so the cashier knows their
+      // typed value got adjusted instead of it just silently not sticking.
       const typeBtn = cartBody.querySelector('#colDiscTypeBtn');
       const type = typeBtn ? typeBtn.dataset.type : (item.itemDiscountType || 'flat');
+      const cap = type === 'pct' ? 100 : item.price;
+      if (val > cap) showToast(`Discount can't exceed the item's value — capped at ${type === 'pct' ? cap + '%' : cur + cap.toFixed(2)}`, 'warning');
       await updateCartItem(item.cartId, { itemDiscount: val, itemDiscountType: type });
     }
   };
