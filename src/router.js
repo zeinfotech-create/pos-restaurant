@@ -245,6 +245,7 @@ export async function navigate(page) {
         'reports/category-sales': 'Category Sales Metrics',
         'reports/sales-analysis': 'Business Analysis',
         'reports/purchases': 'Purchase Report',
+        'reports/expenses': 'Expense Report',
         'reports/gst': 'GST Summary Report',
         'reports/payments': 'Payment Report',
         'reports/customers': 'Customer Report',

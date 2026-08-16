@@ -145,6 +145,7 @@ async function renderSidebar() {
           <button class="submenu-item ${getCurrentPage() === 'reports/sales-analysis' ? 'active' : ''}" data-page="reports/sales-analysis"><i class="fa-solid fa-chart-area"></i> <span>Business Analysis</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/inventory' ? 'active' : ''}" data-page="reports/inventory"><i class="fa-solid fa-cubes"></i> <span>Inventory Report</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/purchases' ? 'active' : ''}" data-page="reports/purchases"><i class="fa-solid fa-truck-ramp-box"></i> <span>Purchase Report</span></button>
+          <button class="submenu-item ${getCurrentPage() === 'reports/expenses' ? 'active' : ''}" data-page="reports/expenses"><i class="fa-solid fa-receipt"></i> <span>Expense Report</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/vehicles' ? 'active' : ''}" data-page="reports/vehicles"><i class="fa-solid fa-truck-fast"></i> <span>Vehicle Report</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/outstanding' ? 'active' : ''}" data-page="reports/outstanding"><i class="fa-solid fa-scale-unbalanced"></i> <span>Outstanding Report</span></button>
           <button class="submenu-item ${getCurrentPage() === 'reports/payments' ? 'active' : ''}" data-page="reports/payments"><i class="fa-solid fa-money-bill-transfer"></i> <span>Payment Report</span></button>

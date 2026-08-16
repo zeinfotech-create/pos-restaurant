@@ -2626,6 +2626,22 @@ export async function getTotalExpenses(branchId = null, startDate = null, endDat
   return list.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
 }
 
+// Category-wise breakdown of expenses in a branch/date range — same shape
+// as getCategorySales()'s per-category rows, powers Reports.js's Expense
+// Report pie chart + table.
+export async function getExpenseCategoryTotals(branchId = null, startDate = null, endDate = null) {
+  const list = await getExpenses(branchId, startDate, endDate);
+  const map = new Map();
+  for (const x of list) {
+    const cat = x.category || 'Uncategorized';
+    const entry = map.get(cat) || { category: cat, total: 0, count: 0 };
+    entry.total += Number(x.amount) || 0;
+    entry.count += 1;
+    map.set(cat, entry);
+  }
+  return [...map.values()].sort((a, b) => b.total - a.total);
+}
+
 // Analytics helpers (Modified for branch filtering if needed)
 export async function getTodaySales(branchId = null, startDate = null, endDate = null) {
   const today = new Date().toDateString();

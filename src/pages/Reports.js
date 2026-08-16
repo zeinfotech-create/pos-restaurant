@@ -1,4 +1,4 @@
-import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getSuppliers, getPurchases, getPurchasesTrend, getSalesVsPurchasesTrend, getPaymentMethodReport, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD, getTotalExpenses } from '../db.js';
+import { getSettings, getTodaySales, getSalesLast7Days, getOrders, getTopProducts, getDailySalesBreakdown, getVehicleDeliveryReport, getSupplierOutstandingReport, getBranches, getCategorySales, getSuppliers, getPurchases, getPurchasesTrend, getSalesVsPurchasesTrend, getPaymentMethodReport, getPurchaseReturnedTotals, getReturns, getCustomers, getShifts, getRegisters, getStaff, getStaffIncentives, getProducts, getInstantSalesData, updateProduct, read, KEYS, hasPermission, getStockStatus, localDateOnly, DEFAULT_LOW_STOCK_THRESHOLD, getTotalExpenses, getExpenseCategoryTotals, getExpenses } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { openModal, closeModal } from '../components/Modal.js';
 import { store } from '../store.js';
@@ -71,6 +71,7 @@ export async function renderReports(container, subPage = 'sales') {
       <button class="btn btn-ghost btn-sm ${subPage === 'sales-analysis' ? 'active-tab' : ''}" onclick="navigate('reports/sales-analysis')">Analysis</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'inventory' ? 'active-tab' : ''}" onclick="navigate('reports/inventory')">Inventory</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'purchases' ? 'active-tab' : ''}" onclick="navigate('reports/purchases')">Purchase</button>
+      <button class="btn btn-ghost btn-sm ${subPage === 'expenses' ? 'active-tab' : ''}" onclick="navigate('reports/expenses')">Expenses</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'vehicles' ? 'active-tab' : ''}" onclick="navigate('reports/vehicles')">Vehicles</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'outstanding' ? 'active-tab' : ''}" onclick="navigate('reports/outstanding')">Outstanding</button>
       <button class="btn btn-ghost btn-sm ${subPage === 'payments' ? 'active-tab' : ''}" onclick="navigate('reports/payments')">Payments</button>
@@ -101,6 +102,9 @@ export async function renderReports(container, subPage = 'sales') {
       break;
     case 'purchases':
       await renderPurchaseReport(contentEl, cur);
+      break;
+    case 'expenses':
+      await renderExpenseReport(contentEl, cur);
       break;
     case 'vehicles':
       await renderVehicleDeliveryReport(contentEl, cur);
@@ -874,6 +878,150 @@ async function renderSalesAnalysis(container, cur) {
             ticks: { color: '#94a3b8', callback: (v) => `${cur}${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}` }
           },
         },
+      }
+    });
+  }
+}
+
+async function renderExpenseReport(container, cur) {
+  // getExpenseCategoryTotals() (db.js) does the grouping — same per-category
+  // {category, total, count} shape as getCategorySales(), just sourced from
+  // the Expenses store instead of Orders.
+  const categoryTotals = await getExpenseCategoryTotals(currentBranchFilter, currentStartDate, currentEndDate);
+  const allExpenses = await getExpenses(currentBranchFilter, currentStartDate, currentEndDate);
+  const canExportExp = await hasPermission('reports:export');
+
+  const totalExpenses = categoryTotals.reduce((s, c) => s + c.total, 0);
+  const totalCount = allExpenses.length;
+  const topCategory = categoryTotals[0];
+
+  const categoryRow = (c) => {
+    const pct = totalExpenses > 0 ? (c.total / totalExpenses) * 100 : 0;
+    return `
+      <tr>
+        <td data-label="Category"><span class="badge badge-info">${escapeHtml(c.category)}</span></td>
+        <td data-label="Entries">${c.count}</td>
+        <td data-label="Total" class="font-bold">${cur}${c.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td data-label="Share">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="flex:1; height:6px; background:var(--bg-app); border-radius:3px; overflow:hidden; min-width:40px;">
+              <div style="height:100%; width:${pct}%; background:var(--danger); border-radius:3px;"></div>
+            </div>
+            <span style="font-size:11px; color:var(--text-muted); flex-shrink:0;">${pct.toFixed(0)}%</span>
+          </div>
+        </td>
+      </tr>
+    `;
+  };
+  const categoryRows = categoryTotals.map(categoryRow).join('')
+    || `<tr><td colspan="4" style="text-align:center;padding:40px;opacity:0.5">No expenses recorded in this range</td></tr>`;
+
+  const entryRow = (x) => `
+    <tr>
+      <td data-label="Date">${x.date ? new Date(x.date).toLocaleDateString() : 'N/A'}</td>
+      <td data-label="Category"><span class="badge badge-ghost">${escapeHtml(x.category || 'Uncategorized')}</span></td>
+      <td data-label="Description">${escapeHtml(x.description || '—')}</td>
+      <td data-label="Paid To">${escapeHtml(x.paidTo || '—')}</td>
+      <td data-label="Method">${escapeHtml(x.paymentMethod || '—')}</td>
+      <td data-label="Amount" style="text-align:right" class="font-bold">${cur}${(Number(x.amount) || 0).toFixed(2)}</td>
+    </tr>
+  `;
+  const sortedEntries = [...allExpenses].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const entryRows = sortedEntries.map(entryRow).join('')
+    || `<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.5">No expenses recorded in this range</td></tr>`;
+
+  container.innerHTML = `
+    <div class="grid-3 gap-16 mb-24">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(239,68,68,0.15)"><i class="fa-solid fa-receipt" style="color:#ef4444"></i></div>
+        <div class="stat-info">
+          <div class="stat-value text-danger">${cur}${totalExpenses.toLocaleString()}</div>
+          <div class="stat-label">Total Expenses</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(99,102,241,0.15)"><i class="fa-solid fa-list-ol" style="color:#6366f1"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${totalCount}</div>
+          <div class="stat-label">Entries</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(245,158,11,0.15)"><i class="fa-solid fa-crown" style="color:#f59e0b"></i></div>
+        <div class="stat-info">
+          <div class="stat-value" style="font-size:18px">${topCategory ? escapeHtml(topCategory.category) : '—'}</div>
+          <div class="stat-label">Top Category${topCategory ? ` (${cur}${topCategory.total.toLocaleString()})` : ''}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-24">
+      <div class="font-bold mb-16"><i class="fa-solid fa-chart-pie mr-8" style="color:var(--danger)"></i> Expenses by Category</div>
+      ${categoryTotals.length === 0 ? `<div class="empty-state" style="padding:30px 0"><i class="fa-solid fa-chart-pie"></i><p>No expenses recorded in this range</p></div>` : `<div style="height:300px"><canvas id="expenseCategoryChart"></canvas></div>`}
+    </div>
+
+    <div class="card mb-24">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold">Category Breakdown</div>
+        ${canExportExp ? tableExportButtonsHtml('expense-categories') : ''}
+      </div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Category</th><th>Entries</th><th>Total</th><th>Share</th></tr></thead>
+          <tbody id="expenseCategoryBody">${categoryRows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="font-bold">All Expense Entries</div>
+        ${canExportExp ? tableExportButtonsHtml('expense-entries') : ''}
+      </div>
+      <div class="table-wrap">
+        <table class="responsive-table">
+          <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Paid To</th><th>Method</th><th style="text-align:right">Amount</th></tr></thead>
+          <tbody id="expenseEntriesBody">${entryRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  wireTableExport('expense-categories', document.getElementById('expenseCategoryBody').closest('table'), 'Expenses by Category', () => categoryRows);
+  wireTableExport('expense-entries', document.getElementById('expenseEntriesBody').closest('table'), 'All Expense Entries', () => entryRows);
+
+  const donutColors = ['#f87171', '#fbbf24', '#818cf8', '#34d399', '#60a5fa', '#a78bfa', '#f472b6', '#22d3ee', '#fb923c', '#a3e635'];
+  const chartCtx = document.getElementById('expenseCategoryChart');
+  if (chartCtx && categoryTotals.length > 0) {
+    new Chart(chartCtx, {
+      type: 'doughnut',
+      data: {
+        labels: categoryTotals.map(c => c.category),
+        datasets: [{
+          data: categoryTotals.map(c => c.total),
+          backgroundColor: categoryTotals.map((_, i) => donutColors[i % donutColors.length]),
+          borderColor: 'transparent',
+          hoverOffset: 8,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '65%',
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: { color: '#94a3b8', boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: 'circle' }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(17, 24, 39, 0.92)',
+            padding: 12,
+            cornerRadius: 8,
+            callbacks: {
+              label: (item) => `${item.label}: ${cur}${item.parsed.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            }
+          }
+        }
       }
     });
   }
