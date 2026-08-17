@@ -109,6 +109,21 @@ function res(...parts) {
   return path.join(__dirname, '..', ...parts);
 }
 
+// electron/icon.png is deliberately excluded from the asar (files: "!electron/icon.png")
+// and copied instead to a separate resources/icon.png via extraResources — so a real
+// file on disk (not inside the archive) exists for the OS-level icon APIs (Tray,
+// window icon, native dialogs) that don't always handle asar-virtual paths cleanly.
+// path.join(__dirname, 'icon.png') used to be computed directly at each call site,
+// which only ever resolved correctly in dev (__dirname = electron/ source folder) —
+// in the packaged app __dirname is .../app.asar/electron, and electron/icon.png was
+// never packed there, so fs.existsSync() silently returned false everywhere and
+// every icon: option fell through to `undefined`, leaving Electron's own default
+// logo showing in the taskbar/window/tray instead of the app's real one.
+function getIconPath() {
+  if (isDev) return path.join(__dirname, 'icon.png');
+  return path.join(process.resourcesPath, 'icon.png');
+}
+
 function getNodeExe() {
   if (isDev) {
     // 1. Bundled portable node
@@ -231,7 +246,12 @@ function createSplash() {
     skipTaskbar: true, // Never show a second, confusing taskbar entry for the splash
     webPreferences: { nodeIntegration: false },
   });
-  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+  const splashPath = path.join(__dirname, 'splash.html');
+  console.log('[Splash] loading:', splashPath, '| exists:', fs.existsSync(splashPath));
+  splashWindow.webContents.on('did-fail-load', (e, errorCode, errorDescription, validatedURL) => {
+    console.error('[Splash] did-fail-load', errorCode, errorDescription, validatedURL);
+  });
+  splashWindow.loadFile(splashPath);
   splashWindow.show();
   splashWindow.on('closed', () => { splashWindow = null; });
 }
@@ -366,7 +386,7 @@ function createMainWindow() {
     return;
   }
 
-  const iconPath = path.join(__dirname, 'icon.png');
+  const iconPath = getIconPath();
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -384,8 +404,16 @@ function createMainWindow() {
   });
 
   mainWindow.setMenuBarVisibility(false);
-  if (isDev && !useDistInCI) mainWindow.loadURL('http://localhost:5173');
-  else mainWindow.loadFile(res('dist', 'index.html'));
+  mainWindow.webContents.on('did-fail-load', (e, errorCode, errorDescription, validatedURL) => {
+    console.error('[MainWindow] did-fail-load', errorCode, errorDescription, validatedURL);
+  });
+  if (isDev && !useDistInCI) {
+    mainWindow.loadURL('http://localhost:5173');
+  } else {
+    const indexPath = res('dist', 'index.html');
+    console.log('[MainWindow] loading:', indexPath, '| exists:', fs.existsSync(indexPath));
+    mainWindow.loadFile(indexPath);
+  }
 
   mainWindow.once('ready-to-show', () => {
     if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
@@ -468,7 +496,7 @@ function createMainWindow() {
 function createTray() {
   if (process.env.CI) return; // Tray causes crashes in headless xvfb environments
   try {
-    const iconPath = path.join(__dirname, 'icon.png');
+    const iconPath = getIconPath();
     if (!fs.existsSync(iconPath)) return;
     const img = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
     tray = new Tray(img);

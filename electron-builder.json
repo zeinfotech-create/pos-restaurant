@@ -3,6 +3,7 @@
   "productName": "ZeInfoTech POS",
   "copyright": "Copyright © 2025 ZeInfoTech",
   "asar": true,
+  "npmRebuild": false,
   "asarUnpack": [
     "**/server/**/*",
     "**/node_modules/@serialport/**/*",
@@ -17,7 +18,7 @@
     "enableNodeCliInspectArguments": false,
     "enableEmbeddedAsarIntegrityValidation": true,
     "onlyLoadAppFromAsar": true,
-    "grantFileProtocolExtraPrivileges": false
+    "grantFileProtocolExtraPrivileges": true
   },
 
   "directories": {
@@ -82,6 +83,7 @@
 
   "win": {
     "forceCodeSigning": false,
+    "signAndEditExecutable": false,
     "target": [
       {
         "target": "nsis",

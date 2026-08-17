@@ -21,19 +21,18 @@ try {
   // 3. Run the build
   console.log(`\x1b[34m[Release]\x1b[0m Building installer...`);
   // Using 'inherit' so you can see the progress in the terminal
-  // We move the cache to D: because C: is out of space, and skip broken extraction.
-  // Was pointing at D:/pos (the original, separate project) — copied verbatim when
-  // this project was cloned from it — redirected to this project's own D:/pos-lite
-  // tree so a pos-lite build never writes cache/temp files into the sibling project.
+  // Was pointing at a D: drive (copied verbatim from wherever this project was
+  // cloned from) that doesn't exist on this machine at all — every build
+  // failed before even starting. Redirected to this project's own local
+  // .cache/temp folders on C: (390GB+ free here, no space concern).
   const newEnv = {
     ...process.env,
-    ELECTRON_BUILDER_CACHE: 'D:/pos-lite/.cache/electron-builder',
-    WIN_CODE_SIGN_DIR: 'D:/pos-lite/.cache/electron-builder/winCodeSign/winCodeSign-2.6.0',
+    ELECTRON_BUILDER_CACHE: path.join(__dirname, '..', '.cache', 'electron-builder'),
     WIN_CODE_SIGN_SKIP_EXTRACT: 'true',
     CSC_IDENTITY_AUTO_DISCOVERY: 'false',
     CSC_SKIP: 'true',
-    TEMP: 'D:/pos-lite/temp',
-    TMP: 'D:/pos-lite/temp'
+    TEMP: path.join(__dirname, '..', 'temp'),
+    TMP: path.join(__dirname, '..', 'temp')
   };
   execSync('npm run build && electron-builder --win --x64', { stdio: 'inherit', env: newEnv });
 
