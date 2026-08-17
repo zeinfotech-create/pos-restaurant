@@ -1,4 +1,4 @@
-import { getProducts, getSettings, updateSettings, getCustomers, isRegisterOpen, getBusinessFeatures, getAppointments, getStaff, saveAppointment, deleteAppointment, updateAppointmentStatus, hasPermission, getCategories, getSubCategories, getLowStockProducts, getExpiringProducts, getCurrentRegisterId, getCurrentBranch, updateProduct, logInventoryChange, getCurrentUser } from '../db.js';
+import { getProducts, getSettings, updateSettings, getCustomers, isRegisterOpen, getBusinessFeatures, getAppointments, getStaff, saveAppointment, deleteAppointment, updateAppointmentStatus, hasPermission, getCategories, getSubCategories, getLowStockProducts, getExpiringProducts, getReorderSuggestions, getCurrentRegisterId, getCurrentBranch, updateProduct, logInventoryChange, getCurrentUser } from '../db.js';
 import { store, addToCart, onCartUpdate, getCartTotals, updateQty, removeFromCart, clearCart, setDiscount, setExtraTax, loadAppointmentIntoCart, updateCartItem } from '../store.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { openCustomerForm } from '../components/CustomerForm.js';
@@ -2003,6 +2003,8 @@ export async function openLowStockModal(cur) {
     return;
   }
 
+  const canManageInventory = await hasPermission('inventory:manage');
+
   openModal({
     title: '<i class="fa-solid fa-triangle-exclamation text-danger"></i> Low Stock Alert',
     body: `
@@ -2051,11 +2053,33 @@ export async function openLowStockModal(cur) {
     `,
     footer: `
       <button class="btn btn-ghost" onclick="closeModal()">Dismiss</button>
+      ${canManageInventory ? `
+        <button class="btn btn-primary" id="lowStockCreatePoBtn"><i class="fa-solid fa-wand-magic-sparkles mr-8"></i> Create Purchase Order</button>
+      ` : ''}
       <button class="btn btn-primary" onclick="closeModal(); window.posFilterStock = 'Low Stock'; window.navigate('products')">
         <i class="fa-solid fa-box-open mr-8"></i> Manage Inventory
       </button>
     `
   });
+
+  const createPoBtn = document.getElementById('lowStockCreatePoBtn');
+  if (createPoBtn) {
+    createPoBtn.onclick = async () => {
+      createPoBtn.disabled = true;
+      try {
+        const suggestions = await getReorderSuggestions(store.branch?.id);
+        if (suggestions.length === 0) {
+          showToast('No low-stock items to reorder right now', 'info');
+          return;
+        }
+        const { openPurchaseForm } = await import('./Purchases.js');
+        closeModal();
+        await openPurchaseForm(document.getElementById('page-container'), suggestions.map(s => ({ id: s.id, name: s.name, variantName: s.variantName, qty: s.suggestedQty, cost: s.cost })));
+      } finally {
+        createPoBtn.disabled = false;
+      }
+    };
+  }
 
   document.querySelectorAll('.lowstock-update-btn').forEach(btn => {
     btn.onclick = async () => {
