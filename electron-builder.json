@@ -4,6 +4,7 @@
   "copyright": "Copyright © 2025 ZeInfoTech",
   "asar": true,
   "npmRebuild": false,
+  "afterPack": "scripts/afterPack-set-icon.cjs",
   "asarUnpack": [
     "**/server/**/*",
     "**/node_modules/@serialport/**/*",
