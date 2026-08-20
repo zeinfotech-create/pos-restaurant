@@ -33,16 +33,21 @@ export function renderLogin(container) {
       <div class="login-hero-section">
         <div class="hero-branding anim-slide-up">
           <div class="hero-logo-box">
-            <i class="fa-solid fa-antigravity"></i>
+            <svg viewBox="18 8 208 220" width="60%" height="60%" xmlns="http://www.w3.org/2000/svg">
+              <defs><linearGradient id="loginHeroLogoG" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#FDFEFF"/><stop offset="0.6" stop-color="#F1F4FE"/><stop offset="1" stop-color="#D9E1F9"/></linearGradient></defs>
+              <path d="M32 46 C 32 32, 42 22, 56 22 L 188 22 C 202 22, 212 32, 212 46 L 212 214 L 201 201 L 190 214 L 179 201 L 168 214 L 157 201 L 146 214 L 135 201 L 124 214 L 113 201 L 102 214 L 91 201 L 80 214 L 69 201 L 58 214 L 47 201 L 32 214 Z" fill="url(#loginHeroLogoG)"/>
+              <g transform="translate(92.8,88) scale(0.6) translate(-182,-164)"><path d="M136 108 C 130 108, 126 112, 126 118 C 126 124, 130 128, 136 128 L 202 128 C 190 140, 168 158, 148 176 C 132 190, 124 198, 124 210 C 124 216, 128 220, 134 220 L 226 220 C 232 220, 236 216, 236 210 C 236 204, 232 200, 226 200 L 160 200 C 172 188, 194 170, 214 152 C 230 138, 238 130, 238 118 C 238 112, 234 108, 228 108 Z" fill="#26339E" stroke="#26339E" stroke-width="4" stroke-linejoin="round"/></g>
+              <rect x="58" y="146" width="128" height="10" rx="5" fill="#9AA3EF"/><rect x="58" y="162" width="98" height="10" rx="5" fill="#C4CAF6"/><rect x="58" y="178" width="112" height="10" rx="5" fill="#9AA3EF"/>
+            </svg>
           </div>
           <h1 class="hero-title">
-            The Future of <span>Modern POS</span>
+            Your internet goes down.<span>Your sales don't.</span>
           </h1>
           <p class="hero-desc">
-            Experience the next generation of business management. A sleek, powerful, 
-            and intuitive platform designed to scale with your enterprise.
+            ZeInfoTech POS keeps billing, inventory, and GST compliance running — online or off.
+            Built for multi-branch retail that can't afford downtime.
           </p>
-          
+
           <div class="hero-stats">
             <div class="hero-stat-item">
               <span class="hero-stat-value">100%</span>
@@ -53,8 +58,8 @@ export function renderLogin(container) {
               <span class="hero-stat-label">Secure</span>
             </div>
             <div class="hero-stat-item">
-              <span class="hero-stat-value">24/7</span>
-              <span class="hero-stat-label">Reliability</span>
+              <span class="hero-stat-value">22</span>
+              <span class="hero-stat-label">Modules</span>
             </div>
           </div>
         </div>
