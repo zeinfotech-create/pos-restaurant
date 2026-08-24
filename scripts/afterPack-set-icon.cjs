@@ -23,14 +23,21 @@ module.exports = async function afterPack(context) {
   if (context.electronPlatformName !== 'win32') return;
 
   const exePath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.exe`);
-  const iconPath = path.join(context.outDir, '.icon-ico', 'icon.ico');
+  // Prefer the hand-built multi-resolution icon.ico we ship in electron/ directly —
+  // electron-builder only populates outDir/.icon-ico/icon.ico when it auto-converts
+  // a PNG itself, which it skips once a real .ico already exists in buildResources.
+  // Falling back to that cache path too in case a future change removes our .ico
+  // and goes back to relying on electron-builder's own PNG->ICO conversion.
+  const shippedIconPath = path.join(__dirname, '..', 'electron', 'icon.ico');
+  const cachedIconPath = path.join(context.outDir, '.icon-ico', 'icon.ico');
+  const iconPath = fs.existsSync(shippedIconPath) ? shippedIconPath : cachedIconPath;
 
   if (!fs.existsSync(exePath)) {
     console.warn(`[afterPack-set-icon] exe not found at ${exePath}, skipping icon stamp`);
     return;
   }
   if (!fs.existsSync(iconPath)) {
-    console.warn(`[afterPack-set-icon] icon.ico not found at ${iconPath}, skipping icon stamp`);
+    console.warn(`[afterPack-set-icon] icon.ico not found at ${shippedIconPath} or ${cachedIconPath}, skipping icon stamp`);
     return;
   }
 
