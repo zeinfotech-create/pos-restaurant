@@ -15,6 +15,7 @@ import { escapeHtml } from '../utils/escapeHtml.js';
 import { formatElapsed } from '../utils/tableDisplay.js';
 
 let kitchenTimerInterval = null;
+let liveListenerRegistered = false;
 
 // Kitchen tickets move much faster than a table's whole occupied session, so
 // these thresholds are deliberately tighter than tableDisplay.js's (10/20min
@@ -36,6 +37,22 @@ export async function renderKitchen(container) {
     </div>
     <div id="kitchenContent"></div>
   `;
+
+  // A KOT sent from RestaurantPOS.js (on this device or, via sync, another
+  // one) shows up here immediately rather than only on the next manual visit
+  // to this page — real KDS boards are expected to update live. Registered
+  // once globally (guarded, like the cart listener in RestaurantPOS.js) and
+  // self-checks the container is still on screen before acting, since there's
+  // no page-unmount hook in this router to unregister it on navigating away.
+  if (!liveListenerRegistered) {
+    window.addEventListener('storage-change', (e) => {
+      if (e.detail?.store !== 'kots') return;
+      if (!document.getElementById('kitchenContent')) return;
+      renderKitchenContent();
+    });
+    liveListenerRegistered = true;
+  }
+
   await renderKitchenContent();
 }
 

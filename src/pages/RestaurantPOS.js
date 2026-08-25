@@ -33,6 +33,12 @@ const KITCHEN_ITEM_META = {
   pending: { label: 'In kitchen queue', icon: 'fa-hourglass-half', color: 'var(--text-muted)' },
   ready: { label: 'Ready — pickup!', icon: 'fa-bell', color: 'var(--success)' },
   served: { label: 'Served', icon: 'fa-check-double', color: 'var(--primary)' },
+  // A "sent" item that genuinely has no matching KOT entry anywhere — should
+  // never happen if sendToKitchen() and Kitchen.js stay in sync, but if it
+  // ever does, this makes the mismatch visible and one-click recoverable
+  // (Resend) instead of silently looking like a normal queued item forever
+  // while actually blocking Bill Now for a ticket the kitchen never sees.
+  not_found: { label: 'Not showing in Kitchen — resend', icon: 'fa-triangle-exclamation', color: 'var(--danger)' },
 };
 
 let view = 'picker'; // 'picker' | 'ordering'
@@ -86,10 +92,19 @@ async function enterTable(table) {
   selectedTable = table;
   orderType = 'dine-in';
   loadTableOrderIntoCart(table);
+  // Dine-in orders use the table's OWN id as their session key — stable and
+  // deterministic, rather than a freshly-generated random one. A table can
+  // only ever have one current order, so its id is already a perfectly good
+  // session key; deriving it this way (instead of storing a separately
+  // generated id that has to be found again later) means a table's
+  // already-sent KOTs can never end up orphaned from the bill-gate just
+  // because they were sent by an earlier build that didn't have this field
+  // yet — exactly the failure mode a random per-session id would hit on
+  // first resume after an upgrade.
+  orderSessionId = table.id;
   if (table.currentOrder) {
     guestCount = table.currentOrder.guestCount || null;
     changeLog = table.currentOrder.changeLog || table.currentOrder.voidLog || [];
-    orderSessionId = table.currentOrder.orderSessionId || genSessionId();
     if (table.currentOrder.waiterId) {
       const waiter = (await getStaff()).find(s => s.id === table.currentOrder.waiterId);
       setStaff(waiter || null);
@@ -333,7 +348,17 @@ function promptGuestCount(onConfirm) {
 async function buildKitchenStatusMap() {
   const map = new Map();
   if (!orderSessionId) return map;
-  const kots = (await getKots()).filter(k => k.orderSessionId === orderSessionId);
+  const kots = (await getKots()).filter(k =>
+    k.orderSessionId === orderSessionId ||
+    // Backward compatibility: a KOT sent before orderSessionId existed on
+    // this build has no orderSessionId at all — for dine-in, still match it
+    // by table (orderSessionId IS the tableId now — see enterTable()) so a
+    // ticket sent by an older version doesn't get permanently orphaned from
+    // the bill-gate just because it predates this field. Items that also
+    // predate cartId still can't be linked precisely (see the 'not_found'
+    // recovery path below), but the KOT itself is at least considered.
+    (!k.orderSessionId && orderType === 'dine-in' && selectedTable && k.tableId === selectedTable.id)
+  );
   kots.forEach(kot => (kot.items || []).forEach(i => {
     if (!i.cartId) return;
     const arr = map.get(i.cartId) || [];
@@ -344,7 +369,12 @@ async function buildKitchenStatusMap() {
 }
 
 function summarizeCartIdStatus(statuses) {
-  if (!statuses || statuses.length === 0) return 'pending';
+  // No entry at all is NOT the same as "queued" — a genuinely pending item
+  // always has a real KOT entry (sendToKitchen() creates one before marking
+  // the cart item sent). Zero entries means the link between this cart item
+  // and its kitchen ticket is broken, which needs to be visible and
+  // recoverable, not silently indistinguishable from normal pending.
+  if (!statuses || statuses.length === 0) return 'not_found';
   const live = statuses.filter(s => s !== 'voided');
   if (live.length === 0) return 'served'; // every portion of this line was cancelled — nothing left to wait on
   if (live.every(s => s === 'served')) return 'served';
@@ -432,11 +462,13 @@ async function renderOrderingView() {
               <div style="display:flex; align-items:center; justify-content:space-between; margin-top:6px; flex-wrap:wrap; gap:6px;">
                 ${i.sentToKitchen ? (() => {
                   const kStatus = summarizeCartIdStatus(serveStatus.kitchenStatusMap.get(i.cartId));
+                  if (kStatus === 'not_found') console.error(`[RestaurantPOS] "${i.name}" is marked sent but has no matching KOT entry (orderSessionId=${orderSessionId}) — offering Resend.`);
                   const meta = KITCHEN_ITEM_META[kStatus] || KITCHEN_ITEM_META.pending;
                   return `
                     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                       <span style="font-size:10px; font-weight:700; color:${meta.color};"><i class="fa-solid ${meta.icon}"></i> ${meta.label}${i.course ? ` · ${escapeHtml(i.course)}` : ''} · x${i.qty}</span>
-                      ${kStatus !== 'served' ? `<button class="btn-icon rpos-modify-item" data-cart-id="${i.cartId}" title="Modify"><i class="fa-solid fa-pen" style="font-size:10px;"></i></button>` : ''}
+                      ${kStatus === 'not_found' ? `<button class="btn-icon rpos-resend-item" data-cart-id="${i.cartId}" title="Resend to kitchen"><i class="fa-solid fa-rotate-right" style="font-size:10px; color:var(--danger);"></i></button>` : ''}
+                      ${kStatus !== 'served' && kStatus !== 'not_found' ? `<button class="btn-icon rpos-modify-item" data-cart-id="${i.cartId}" title="Modify"><i class="fa-solid fa-pen" style="font-size:10px;"></i></button>` : ''}
                     </div>
                   `;
                 })() : `
@@ -494,6 +526,7 @@ async function renderOrderingView() {
   document.querySelectorAll('.rpos-qty-minus').forEach(el => el.addEventListener('click', () => requestQtyMinus(el.dataset.cartId)));
   document.querySelectorAll('.rpos-customize-item').forEach(el => el.addEventListener('click', () => openModifierModal(el.dataset.cartId)));
   document.querySelectorAll('.rpos-modify-item').forEach(el => el.addEventListener('click', () => openModifyModal(el.dataset.cartId)));
+  document.querySelectorAll('.rpos-resend-item').forEach(el => el.addEventListener('click', () => resendItem(el.dataset.cartId)));
   document.querySelectorAll('.rpos-course-select').forEach(el => el.addEventListener('change', e => { updateCartItem(el.dataset.cartId, { course: e.target.value || null }); }));
   document.querySelectorAll('.rpos-send-course').forEach(el => el.addEventListener('click', () => sendToKitchen(el.dataset.course || null)));
 
@@ -525,6 +558,17 @@ async function renderOrderingView() {
 
 function variantCartId(product, variant = null) {
   return variant ? `${product.id}_${variant.name}` : String(product.id);
+}
+
+// Recovery action for the 'not_found' kitchen-status case — un-fires the
+// item locally so the next Send to Kitchen creates a fresh, properly-linked
+// KOT entry for it, instead of leaving it silently stuck forever.
+async function resendItem(cartId) {
+  const item = store.cart.find(i => i.cartId === cartId);
+  if (!item) return;
+  item.sentToKitchen = false;
+  showToast('Ready to resend — tap Send to Kitchen again.', 'info');
+  await renderOrderingView();
 }
 
 // Multiple courses are only worth surfacing once staff actually start using
@@ -754,27 +798,47 @@ async function sendToKitchen(courseFilter = null) {
   const branchId = store.branch?.id || (await getCurrentBranch())?.id || 'b1';
   const settings = store.settings || await getSettings();
 
-  const kot = await saveKot({
-    tableId: selectedTable?.id || null,
-    tableName: selectedTable?.name || null,
-    orderType,
-    orderSessionId,
-    course: courseFilter || null,
-    contactName: takeawayContact.name || '',
-    waiterName: store.selectedStaff?.name || null,
-    items: unsent.map(i => ({ name: i.name, qty: i.qty, modifiers: i.modifiers || [], notes: i.notes || '', course: i.course || null, cartId: i.cartId, itemStatus: 'pending' })),
-    branchId,
-  });
+  let kot;
+  try {
+    kot = await saveKot({
+      tableId: selectedTable?.id || null,
+      tableName: selectedTable?.name || null,
+      orderType,
+      orderSessionId,
+      course: courseFilter || null,
+      contactName: takeawayContact.name || '',
+      waiterName: store.selectedStaff?.name || null,
+      items: unsent.map(i => ({ name: i.name, qty: i.qty, modifiers: i.modifiers || [], notes: i.notes || '', course: i.course || null, cartId: i.cartId, itemStatus: 'pending' })),
+      branchId,
+    });
+  } catch (err) {
+    // Nothing marked sent, cart untouched — safe for the cashier to just
+    // retry. Silently failing here (or marking items sent regardless) is
+    // exactly how a cart item could end up permanently stuck looking "sent"
+    // with no real kitchen ticket behind it.
+    console.error('[RestaurantPOS] sendToKitchen: saveKot() failed', err);
+    showToast('Could not send to kitchen — please try again.', 'error');
+    return;
+  }
 
   unsent.forEach(i => { i.sentToKitchen = true; });
 
   if (orderType === 'dine-in' && selectedTable) {
-    selectedTable = await saveTable({
-      ...selectedTable,
-      status: 'occupied',
-      occupiedAt: selectedTable.occupiedAt || new Date().toISOString(),
-      currentOrder: { items: store.cart, orderType, guestCount, changeLog, orderSessionId, waiterId: store.selectedStaff?.id || null, waiterName: store.selectedStaff?.name || null }
-    });
+    try {
+      selectedTable = await saveTable({
+        ...selectedTable,
+        status: 'occupied',
+        occupiedAt: selectedTable.occupiedAt || new Date().toISOString(),
+        currentOrder: { items: store.cart, orderType, guestCount, changeLog, orderSessionId, waiterId: store.selectedStaff?.id || null, waiterName: store.selectedStaff?.name || null }
+      });
+    } catch (err) {
+      // The KOT itself already saved — the kitchen WILL see it. Only the
+      // table's own status/currentOrder snapshot failed to persist, which
+      // self-corrects on the very next save (any later Send/Modify/Cancel/
+      // Bill re-saves the full currentOrder) — a warning, not a hard stop.
+      console.error('[RestaurantPOS] sendToKitchen: saveTable() failed', err);
+      showToast('Sent to kitchen, but the table status may be out of date — it will self-correct shortly.', 'warning');
+    }
   }
 
   await printReceiptHtml(renderKotHtml(kot, settings), `KOT - ${kot.id}`);
