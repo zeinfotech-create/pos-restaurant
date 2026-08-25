@@ -569,10 +569,6 @@ async function renderTopbar() {
             <i class="fa-solid fa-chair"></i>
             <span class="shortcut-label">Tables</span>
           </div>
-          <div class="shortcut-item" id="shortcut-customer-screen">
-            <i class="fa-solid fa-display"></i>
-            <span class="shortcut-label">Cust Screen</span>
-          </div>
           <div class="shortcut-item" id="shortcut-reports">
             <i class="fa-solid fa-chart-line"></i>
             <span class="shortcut-label">Reports</span>
@@ -724,7 +720,6 @@ async function renderShortcutsState() {
   const settings = store.settings || await getSettings();
 
   const shortcuts = [
-    { id: 'shortcut-customer-screen', action: () => window.open(window.location.href.split('#')[0] + '#customer-display', '_blank'), premium: false, label: 'Cust Screen' },
     { id: 'shortcut-reports', action: () => window.navigate('reports'), premium: false, label: 'Reports' }
   ];
 
