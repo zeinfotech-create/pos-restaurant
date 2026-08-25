@@ -113,7 +113,6 @@ async function enterTable(table) {
     }
   } else {
     changeLog = [];
-    orderSessionId = genSessionId();
     setStaff(null);
   }
   view = 'ordering';
