@@ -1,6 +1,6 @@
 {
-  "appId": "com.zeinfotech.pos",
-  "productName": "ZeInfoTech POS",
+  "appId": "com.zeinfotech.pos.restaurant",
+  "productName": "ZeInfoTech Restaurant POS",
   "copyright": "Copyright © 2025 ZeInfoTech",
   "asar": true,
   "npmRebuild": false,
@@ -103,7 +103,7 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "ZeInfoTech POS",
+    "shortcutName": "ZeInfoTech Restaurant POS",
     "deleteAppDataOnUninstall": false,
     "runAfterFinish": true,
     "unicode": true,

@@ -1,7 +1,7 @@
 {
-  "name": "zeinfotech-pos",
-  "productName": "ZeInfoTech POS",
-  "description": "ZeInfoTech Point of Sale Desktop Application",
+  "name": "zeinfotech-pos-restaurant",
+  "productName": "ZeInfoTech Restaurant POS",
+  "description": "ZeInfoTech Restaurant Point of Sale Desktop Application",
   "author": "ZeInfoTech",
   "private": true,
   "version": "1.0.2",
