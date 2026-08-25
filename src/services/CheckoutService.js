@@ -842,6 +842,12 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
         orderType: restaurantMeta.orderType,
         tableId: restaurantMeta.tableId || null,
         tableName: restaurantMeta.tableName || null,
+        guestCount: restaurantMeta.guestCount || null,
+        contactName: restaurantMeta.contactName || undefined,
+        contactPhone: restaurantMeta.contactPhone || undefined,
+        deliveryAddress: restaurantMeta.deliveryAddress || undefined,
+        pickupTime: restaurantMeta.pickupTime || undefined,
+        voidLog: restaurantMeta.voidLog || undefined,
       } : {})
     });
 

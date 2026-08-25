@@ -1,21 +1,19 @@
 // ============================================================
-// Tables.js — Restaurant table management (add/edit/delete tables,
-// see live status). The actual order-taking happens in RestaurantPOS.js —
-// this page only manages the table *definitions* and lets staff glance at
-// who's occupied/free, same separation as Categories.js manages category
-// definitions while POS.js does the actual selling.
+// Tables.js — Restaurant table management (add/edit/delete/merge tables,
+// see live status + occupied timers, grouped by section). The actual
+// order-taking happens in RestaurantPOS.js — this page only manages the
+// table *definitions* and lets staff glance at who's occupied/free, same
+// separation as Categories.js manages category definitions while POS.js
+// does the actual selling.
 // ============================================================
 
 import { getTables, saveTable, deleteTable } from '../db.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { navigate } from '../router.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, occupiedElapsedMs, formatElapsed, timerTier } from '../utils/tableDisplay.js';
 
-const STATUS_META = {
-  free: { label: 'Free', color: 'var(--success)', bg: 'rgba(34,197,94,0.08)' },
-  occupied: { label: 'Occupied', color: 'var(--warning)', bg: 'rgba(245,158,11,0.08)' },
-  billed: { label: 'Billed', color: 'var(--danger)', bg: 'rgba(239,68,68,0.08)' },
-};
+let timerInterval = null;
 
 export async function renderTables(container) {
   container.innerHTML = `
@@ -37,7 +35,9 @@ async function renderTablesContent() {
   const area = document.getElementById('tablesContent');
   if (!area) return;
 
-  const tables = (await getTables()).sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  const allTables = await getTables();
+  const tables = visibleTables(allTables).sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  const grouped = groupBySection(tables);
 
   area.innerHTML = `
     ${tables.length === 0 ? `
@@ -46,37 +46,76 @@ async function renderTablesContent() {
         <div style="font-size:14px; font-weight:700">No tables yet</div>
         <div style="font-size:12px; margin-top:4px">Click "New Table" to add your first one</div>
       </div>
-    ` : `
-      <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:14px;">
-        ${tables.map(t => {
-          const status = STATUS_META[t.status] || STATUS_META.free;
-          return `
-            <div class="table-card" data-id="${t.id}" style="padding:18px; border-radius:14px; border:1px solid var(--border); background:${status.bg}; cursor:pointer; transition:all 0.15s;">
-              <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                <div>
-                  <div style="font-size:16px; font-weight:800;"><i class="fa-solid fa-chair" style="opacity:0.4; margin-right:6px; font-size:13px"></i>${t.name}</div>
-                  <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${t.capacity || 4}</div>
-                </div>
-                <div style="display:flex; gap:4px;" onclick="event.stopPropagation()">
-                  <button class="btn-icon edit-table-btn" data-id="${t.id}" title="Edit"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
-                  <button class="btn-icon del-table-btn" data-id="${t.id}" title="Delete"><i class="fa-solid fa-trash" style="font-size:10px; color:var(--danger)"></i></button>
-                </div>
-              </div>
-              <div style="margin-top:14px; font-size:11px; font-weight:700; color:${status.color};">
-                <i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px"></i>${status.label}
-                ${t.status === 'occupied' && t.currentOrder?.items?.length ? ` · ${t.currentOrder.items.length} item(s)` : ''}
-              </div>
-            </div>
-          `;
-        }).join('')}
+    ` : grouped.map(({ section, tables: sectionTables }) => `
+      <div style="margin-bottom:22px;">
+        ${grouped.length > 1 ? `<div style="font-size:12px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeAttr(section)}</div>` : ''}
+        <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:14px;">
+          ${sectionTables.map(t => renderTableCard(t, allTables)).join('')}
+        </div>
       </div>
-    `}
+    `).join('')}
     <style>
       .table-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md, 0 4px 12px rgba(0,0,0,0.08)); }
     </style>
   `;
 
   await setupTablesListeners();
+  startTimerLoop();
+}
+
+function renderTableCard(t, allTables) {
+  const status = STATUS_META[t.status] || STATUS_META.free;
+  const displayName = tableDisplayName(t, allTables);
+  const displayCap = tableDisplayCapacity(t, allTables);
+  const elapsed = t.status === 'occupied' ? occupiedElapsedMs(t) : null;
+  const hasMerge = t.mergedTableIds?.length > 0;
+  return `
+    <div class="table-card" data-id="${t.id}" style="padding:18px; border-radius:14px; border:1px solid var(--border); background:${status.bg}; cursor:pointer; transition:all 0.15s;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div>
+          <div style="font-size:16px; font-weight:800;"><i class="fa-solid fa-chair" style="opacity:0.4; margin-right:6px; font-size:13px"></i>${escapeAttr(displayName)}</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${displayCap}</div>
+        </div>
+        <div style="display:flex; gap:4px;" onclick="event.stopPropagation()">
+          <button class="btn-icon edit-table-btn" data-id="${t.id}" title="Edit"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
+          ${hasMerge
+            ? `<button class="btn-icon unmerge-table-btn" data-id="${t.id}" title="Unmerge"><i class="fa-solid fa-object-ungroup" style="font-size:10px"></i></button>`
+            : (t.status !== 'occupied' ? `<button class="btn-icon merge-table-btn" data-id="${t.id}" title="Merge with another table"><i class="fa-solid fa-object-group" style="font-size:10px"></i></button>` : '')}
+          <button class="btn-icon del-table-btn" data-id="${t.id}" title="Delete"><i class="fa-solid fa-trash" style="font-size:10px; color:var(--danger)"></i></button>
+        </div>
+      </div>
+      <div style="margin-top:14px; display:flex; align-items:center; justify-content:space-between;">
+        <div style="font-size:11px; font-weight:700; color:${status.color};">
+          <i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px"></i>${status.label}
+          ${t.status === 'occupied' && t.currentOrder?.items?.length ? ` · ${t.currentOrder.items.length} item(s)` : ''}
+          ${t.currentOrder?.guestCount ? ` · ${t.currentOrder.guestCount}👤` : ''}
+        </div>
+        ${elapsed !== null ? `<div class="table-timer" data-occupied-at="${t.occupiedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function escapeAttr(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Only the timer badges re-render on this tick (not the whole grid) so an
+// open modal / merge selection never gets clobbered by a background tick.
+// Self-clears once #tablesContent leaves the DOM (page navigated away).
+function startTimerLoop() {
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    const area = document.getElementById('tablesContent');
+    if (!area) { clearInterval(timerInterval); timerInterval = null; return; }
+    area.querySelectorAll('.table-timer').forEach(el => {
+      const occupiedAt = el.dataset.occupiedAt;
+      if (!occupiedAt) return;
+      const ms = Date.now() - new Date(occupiedAt).getTime();
+      el.textContent = formatElapsed(ms);
+      el.style.color = timerTier(ms).color;
+    });
+  }, 30000);
 }
 
 async function setupTablesListeners() {
@@ -88,7 +127,8 @@ async function setupTablesListeners() {
     });
   });
 
-  document.getElementById('addTableBtn')?.addEventListener('click', () => {
+  document.getElementById('addTableBtn')?.addEventListener('click', async () => {
+    const existingSections = [...new Set((await getTables()).map(t => t.section?.trim()).filter(Boolean))];
     openModal({
       title: '<i class="fa-solid fa-chair mr-8"></i> New Table',
       body: `
@@ -99,6 +139,11 @@ async function setupTablesListeners() {
         <div class="form-group mt-8">
           <label class="form-label">Seating Capacity</label>
           <input class="form-input" id="newTableCapInput" type="number" min="1" value="4" />
+        </div>
+        <div class="form-group mt-8">
+          <label class="form-label">Section / Area (optional)</label>
+          <input class="form-input" id="newTableSectionInput" list="tableSectionList" placeholder="e.g. Ground Floor, Terrace, AC Hall" />
+          <datalist id="tableSectionList">${existingSections.map(s => `<option value="${escapeAttr(s)}"></option>`).join('')}</datalist>
         </div>
       `,
       footer: `
@@ -120,7 +165,8 @@ async function setupTablesListeners() {
           return showToast(`A table named "${name}" already exists`, 'error');
         }
         const capacity = Math.max(1, parseInt(document.getElementById('newTableCapInput')?.value, 10) || 4);
-        await saveTable({ name, capacity, status: 'free' });
+        const section = document.getElementById('newTableSectionInput')?.value.trim() || '';
+        await saveTable({ name, capacity, section, status: 'free' });
         closeModal();
         showToast(`Table "${name}" created`, 'success');
         await renderTablesContent();
@@ -132,16 +178,22 @@ async function setupTablesListeners() {
     btn.addEventListener('click', async () => {
       const table = (await getTables()).find(t => t.id === btn.dataset.id);
       if (!table) return;
+      const existingSections = [...new Set((await getTables()).map(t => t.section?.trim()).filter(Boolean))];
       openModal({
         title: '<i class="fa-solid fa-pen-to-square mr-8"></i> Edit Table',
         body: `
           <div class="form-group">
             <label class="form-label required">Table Name / Number</label>
-            <input class="form-input" id="editTableNameInput" value="${table.name}" autofocus />
+            <input class="form-input" id="editTableNameInput" value="${escapeAttr(table.name)}" autofocus />
           </div>
           <div class="form-group mt-8">
             <label class="form-label">Seating Capacity</label>
             <input class="form-input" id="editTableCapInput" type="number" min="1" value="${table.capacity || 4}" />
+          </div>
+          <div class="form-group mt-8">
+            <label class="form-label">Section / Area (optional)</label>
+            <input class="form-input" id="editTableSectionInput" list="tableSectionListEdit" value="${escapeAttr(table.section || '')}" placeholder="e.g. Ground Floor, Terrace, AC Hall" />
+            <datalist id="tableSectionListEdit">${existingSections.map(s => `<option value="${escapeAttr(s)}"></option>`).join('')}</datalist>
           </div>
         `,
         footer: `
@@ -163,7 +215,8 @@ async function setupTablesListeners() {
             return showToast(`A table named "${name}" already exists`, 'error');
           }
           const capacity = Math.max(1, parseInt(document.getElementById('editTableCapInput')?.value, 10) || 4);
-          await saveTable({ ...table, name, capacity });
+          const section = document.getElementById('editTableSectionInput')?.value.trim() || '';
+          await saveTable({ ...table, name, capacity, section });
           closeModal();
           showToast('Table updated', 'success');
           await renderTablesContent();
@@ -178,6 +231,9 @@ async function setupTablesListeners() {
       if (table?.status === 'occupied') {
         return showToast('This table has an order in progress — bill or clear it first.', 'error');
       }
+      if (table?.mergedTableIds?.length || table?.mergedInto) {
+        return showToast('Unmerge this table first before deleting it.', 'error');
+      }
       const confirmed = await showConfirm({
         title: 'Delete Table',
         message: `Remove "${table?.name}"? This can't be undone.`,
@@ -188,6 +244,72 @@ async function setupTablesListeners() {
         showToast('Table deleted', 'info');
         await renderTablesContent();
       }
+    });
+  });
+
+  document.querySelectorAll('.merge-table-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const allTables = await getTables();
+      const primary = allTables.find(t => t.id === btn.dataset.id);
+      if (!primary) return;
+      const candidates = allTables.filter(t => t.id !== primary.id && t.status !== 'merged' && t.status !== 'occupied' && !t.mergedTableIds?.length);
+      if (candidates.length === 0) {
+        return showToast('No other free tables available to merge with.', 'info');
+      }
+      openModal({
+        title: `<i class="fa-solid fa-object-group mr-8"></i> Merge "${escapeAttr(primary.name)}" with…`,
+        body: `
+          <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">Pick one or more tables to combine into a single order under "${escapeAttr(primary.name)}" — useful for a large party spanning multiple tables.</div>
+          <div style="display:flex; flex-direction:column; gap:8px; max-height:260px; overflow-y:auto;">
+            ${candidates.map(t => `
+              <label style="display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid var(--border); border-radius:8px; cursor:pointer;">
+                <input type="checkbox" class="merge-candidate-cb" value="${t.id}" />
+                <span style="font-weight:700; font-size:13px;">${escapeAttr(t.name)}</span>
+                <span style="font-size:11px; color:var(--text-muted); margin-left:auto;">Seats ${t.capacity || 4}</span>
+              </label>
+            `).join('')}
+          </div>
+        `,
+        footer: `
+          <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          <button class="btn btn-primary" id="confirmMergeBtn"><i class="fa-solid fa-object-group mr-4"></i> Merge Selected</button>
+        `
+      });
+      setTimeout(() => {
+        document.getElementById('confirmMergeBtn')?.addEventListener('click', async () => {
+          const selectedIds = Array.from(document.querySelectorAll('.merge-candidate-cb:checked')).map(cb => cb.value);
+          if (selectedIds.length === 0) return showToast('Select at least one table', 'error');
+          await saveTable({ ...primary, mergedTableIds: selectedIds });
+          for (const id of selectedIds) {
+            const t = allTables.find(x => x.id === id);
+            if (t) await saveTable({ ...t, status: 'merged', mergedInto: primary.id });
+          }
+          closeModal();
+          showToast(`Merged into "${primary.name}"`, 'success');
+          await renderTablesContent();
+        });
+      }, 50);
+    });
+  });
+
+  document.querySelectorAll('.unmerge-table-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const allTables = await getTables();
+      const primary = allTables.find(t => t.id === btn.dataset.id);
+      if (!primary?.mergedTableIds?.length) return;
+      const confirmed = await showConfirm({
+        title: 'Unmerge Tables',
+        message: `Split "${tableDisplayName(primary, allTables)}" back into separate tables?`,
+        okText: 'Unmerge'
+      });
+      if (!confirmed) return;
+      for (const id of primary.mergedTableIds) {
+        const t = allTables.find(x => x.id === id);
+        if (t) await saveTable({ ...t, status: 'free', mergedInto: null });
+      }
+      await saveTable({ ...primary, mergedTableIds: [] });
+      showToast('Tables unmerged', 'info');
+      await renderTablesContent();
     });
   });
 }

@@ -1,34 +1,41 @@
 // ============================================================
 // RestaurantPOS.js — Order-taking flow for a restaurant: pick an order type
 // (Dine-in / Takeaway / Delivery), pick a table for dine-in, browse the menu,
-// add items (with optional modifiers/notes), send to the kitchen (KOT), and
-// bill. Deliberately a NEW, separate page rather than a modification of
+// add items (with optional modifiers/notes/course), assign a waiter, send to
+// the kitchen (KOT, whole order or course-by-course), preview or take a bill.
+// Deliberately a NEW, separate page rather than a modification of
 // POS.js/QuickPOS.js — it reuses their underlying plumbing (store.js's cart
 // operations, CheckoutService.confirmOrder(), the print pipeline) but never
 // touches their own files, so the existing retail flow is completely
 // unaffected by anything here.
 // ============================================================
 
-import { getTables, saveTable, getCategories, getProducts, saveKot, getKots, updateKotStatus, getSettings, getCurrentBranch } from '../db.js';
-import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart } from '../store.js';
+import { getTables, saveTable, getCategories, getProducts, saveKot, getKots, updateKotStatus, getSettings, getCurrentBranch, getStaff } from '../db.js';
+import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff } from '../store.js';
 import { confirmOrder, printReceiptHtml } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { navigate } from '../router.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, occupiedElapsedMs, formatElapsed, timerTier } from '../utils/tableDisplay.js';
 
 // A fixed, common set of toggle-able modifiers — every menu item shares the
 // same list rather than per-product-configured modifier groups. Simpler to
 // build and to use at the counter; still covers the common "no onion / extra
 // spicy / less sugar" customization requests a per-product config would.
 const COMMON_MODIFIERS = ['No Onion', 'No Garlic', 'Extra Spicy', 'Less Spicy', 'Extra Cheese', 'Less Sugar', 'No Ice'];
+const COURSES = ['Starters', 'Mains', 'Desserts', 'Other'];
 
 let view = 'picker'; // 'picker' | 'ordering' | 'kitchen'
 let orderType = null; // 'dine-in' | 'takeaway' | 'delivery'
 let selectedTable = null; // full table doc, only for dine-in
 let activeCategory = null;
-let takeawayContact = { name: '', phone: '' };
+let menuSearch = '';
+let guestCount = null; // dine-in only
+let voidLog = []; // {name, qty, reason, at, by} — audit trail for cancelled-after-fired items
+let takeawayContact = { name: '', phone: '', address: '', pickupTime: '' };
 let cartListenerRegistered = false;
+let tablesTimerInterval = null;
 
 export async function renderRestaurantPOS(container, subPage) {
   // Reset per-visit state every time the page is (re)entered fresh via nav
@@ -46,18 +53,38 @@ export async function renderRestaurantPOS(container, subPage) {
     // trusting anything the caller already had.
     const table = (await getTables()).find(t => t.id === subPage);
     if (table) {
-      selectedTable = table;
-      orderType = 'dine-in';
-      loadTableOrderIntoCart(table);
-      view = 'ordering';
+      await enterTable(table);
     }
   } else {
     view = 'picker';
     orderType = null;
     selectedTable = null;
+    guestCount = null;
+    voidLog = [];
+    setStaff(null);
   }
 
   await render(container);
+}
+
+async function enterTable(table) {
+  selectedTable = table;
+  orderType = 'dine-in';
+  loadTableOrderIntoCart(table);
+  if (table.currentOrder) {
+    guestCount = table.currentOrder.guestCount || null;
+    voidLog = table.currentOrder.voidLog || [];
+    if (table.currentOrder.waiterId) {
+      const waiter = (await getStaff()).find(s => s.id === table.currentOrder.waiterId);
+      setStaff(waiter || null);
+    } else {
+      setStaff(null);
+    }
+  } else {
+    voidLog = [];
+    setStaff(null);
+  }
+  view = 'ordering';
 }
 
 // Sub-view handlers that switch `view` and re-render only their own
@@ -140,6 +167,9 @@ function handleBack() {
     view = 'picker';
     orderType = null;
     selectedTable = null;
+    guestCount = null;
+    voidLog = [];
+    setStaff(null);
     return render(container);
   }
   navigate('dashboard');
@@ -168,6 +198,8 @@ async function renderPickerView() {
           await renderPickerView();
         } else {
           selectedTable = null;
+          guestCount = null;
+          voidLog = [];
           loadTableOrderIntoCart(null);
           view = 'ordering';
           updateBackButtonLabel();
@@ -178,13 +210,12 @@ async function renderPickerView() {
     return;
   }
 
-  // orderType === 'dine-in', no table chosen yet — show the table grid.
-  const STATUS_META = {
-    free: { label: 'Free', color: 'var(--success)', bg: 'rgba(34,197,94,0.08)' },
-    occupied: { label: 'Occupied', color: 'var(--warning)', bg: 'rgba(245,158,11,0.08)' },
-    billed: { label: 'Billed', color: 'var(--danger)', bg: 'rgba(239,68,68,0.08)' },
-  };
-  const tables = (await getTables()).sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  // orderType === 'dine-in', no table chosen yet — show the table grid,
+  // grouped by section, with an occupied-timer badge on busy tables.
+  const allTables = await getTables();
+  const tables = visibleTables(allTables).sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  const grouped = groupBySection(tables);
+
   area.innerHTML = `
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
       <h2 style="font-size:16px; font-weight:800;">Select a Table</h2>
@@ -194,30 +225,94 @@ async function renderPickerView() {
       <div class="card" style="padding:40px; text-align:center; color:var(--text-muted);">
         No tables set up yet. <a href="#tables" style="color:var(--primary); font-weight:700;">Add tables</a> to get started.
       </div>
-    ` : `
-      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr)); gap:14px;">
-        ${tables.map(t => {
-          const status = STATUS_META[t.status] || STATUS_META.free;
-          return `
-            <div class="rpos-table-card" data-id="${t.id}" style="background:${status.bg}; border:1px solid var(--border);">
-              <div style="font-weight:800; font-size:15px;"><i class="fa-solid fa-chair" style="opacity:.4; margin-right:6px; font-size:12px;"></i>${escapeHtml(t.name)}</div>
-              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${t.capacity || 4}</div>
-              <div style="margin-top:10px; font-size:11px; font-weight:700; color:${status.color};"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>${status.label}${t.status === 'occupied' && t.currentOrder?.items?.length ? ` · ${t.currentOrder.items.length} item(s)` : ''}</div>
-            </div>
-          `;
-        }).join('')}
+    ` : grouped.map(({ section, tables: sectionTables }) => `
+      <div style="margin-bottom:22px;">
+        ${grouped.length > 1 ? `<div style="font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeHtml(section)}</div>` : ''}
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr)); gap:14px;">
+          ${sectionTables.map(t => {
+            const status = STATUS_META[t.status] || STATUS_META.free;
+            const elapsed = t.status === 'occupied' ? occupiedElapsedMs(t) : null;
+            return `
+              <div class="rpos-table-card" data-id="${t.id}" style="background:${status.bg}; border:1px solid var(--border);">
+                <div style="font-weight:800; font-size:15px;"><i class="fa-solid fa-chair" style="opacity:.4; margin-right:6px; font-size:12px;"></i>${escapeHtml(tableDisplayName(t, allTables))}</div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${tableDisplayCapacity(t, allTables)}</div>
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
+                  <div style="font-size:11px; font-weight:700; color:${status.color};"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>${status.label}${t.status === 'occupied' && t.currentOrder?.items?.length ? ` · ${t.currentOrder.items.length} item(s)` : ''}</div>
+                  ${elapsed !== null ? `<div class="rpos-table-timer" data-occupied-at="${t.occupiedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
+                </div>
+                ${t.currentOrder?.guestCount ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:4px;"><i class="fa-solid fa-users" style="margin-right:4px; opacity:.5;"></i>${t.currentOrder.guestCount} guests</div>` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
       </div>
-    `}
+    `).join('')}
   `;
   document.querySelectorAll('.rpos-table-card').forEach(el => {
     el.addEventListener('click', async () => {
-      selectedTable = tables.find(t => t.id === el.dataset.id);
-      loadTableOrderIntoCart(selectedTable);
-      view = 'ordering';
-      updateBackButtonLabel();
-      await renderOrderingView();
+      const table = tables.find(t => t.id === el.dataset.id);
+      if (!table) return;
+      if (table.currentOrder) {
+        await enterTable(table);
+        updateBackButtonLabel();
+        await renderOrderingView();
+      } else {
+        // Fresh order on a free table — capture party size before landing on
+        // the menu, matching how a host stand normally seats a table.
+        promptGuestCount(async (count) => {
+          await enterTable(table);
+          guestCount = count; // fresh table has no currentOrder to read a guest count from
+          updateBackButtonLabel();
+          await renderOrderingView();
+        });
+      }
     });
   });
+  startTablesTimerLoop();
+}
+
+function startTablesTimerLoop() {
+  if (tablesTimerInterval) clearInterval(tablesTimerInterval);
+  tablesTimerInterval = setInterval(() => {
+    const area = document.getElementById('rposContent');
+    if (!area) { clearInterval(tablesTimerInterval); tablesTimerInterval = null; return; }
+    const timers = area.querySelectorAll('.rpos-table-timer');
+    if (timers.length === 0) { clearInterval(tablesTimerInterval); tablesTimerInterval = null; return; }
+    timers.forEach(el => {
+      const occupiedAt = el.dataset.occupiedAt;
+      if (!occupiedAt) return;
+      const ms = Date.now() - new Date(occupiedAt).getTime();
+      el.textContent = formatElapsed(ms);
+      el.style.color = timerTier(ms).color;
+    });
+  }, 30000);
+}
+
+function promptGuestCount(onConfirm) {
+  openModal({
+    title: '<i class="fa-solid fa-users mr-8"></i> Party Size',
+    body: `
+      <div class="form-group">
+        <label class="form-label">Number of guests</label>
+        <input class="form-input" id="rposGuestCountInput" type="number" min="1" value="2" autofocus />
+      </div>
+    `,
+    footer: `
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="rposGuestCountConfirm">Start Order</button>
+    `
+  });
+  setTimeout(() => {
+    const input = document.getElementById('rposGuestCountInput');
+    input?.focus(); input?.select();
+    const confirm = () => {
+      const count = Math.max(1, parseInt(input?.value, 10) || 1);
+      closeModal();
+      onConfirm(count);
+    };
+    document.getElementById('rposGuestCountConfirm')?.addEventListener('click', confirm);
+    input?.addEventListener('keydown', e => { if (e.key === 'Enter') confirm(); });
+  }, 50);
 }
 
 // ── Ordering view: menu + cart ────────────────────────────────────────────
@@ -228,29 +323,45 @@ async function renderOrderingView() {
   const settings = store.settings || await getSettings();
   const cur = settings.currency || '₹';
   const categories = await getCategories();
-  const products = (await getProducts()).filter(p => !activeCategory || p.category === activeCategory);
+  const staffList = await getStaff();
+  const allTables = orderType === 'dine-in' ? await getTables() : [];
+  const tableLabel = selectedTable ? tableDisplayName(selectedTable, allTables) : null;
+  const search = menuSearch.trim().toLowerCase();
+  const products = (await getProducts()).filter(p => (!activeCategory || p.category === activeCategory) && (!search || (p.name || '').toLowerCase().includes(search)));
   const totals = getCartTotals();
+  const unsent = store.cart.filter(i => !i.sentToKitchen);
+  const coursesPresent = [...new Set(unsent.map(i => i.course).filter(Boolean))];
 
   area.innerHTML = `
     <div class="rpos-layout">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
-          <div style="font-size:14px; font-weight:800;">
-            ${orderType === 'dine-in' ? `<i class="fa-solid fa-chair"></i> ${escapeHtml(selectedTable?.name || 'Table')}` : orderType === 'takeaway' ? '<i class="fa-solid fa-bag-shopping"></i> Takeaway' : '<i class="fa-solid fa-motorcycle"></i> Delivery'}
+          <div style="font-size:14px; font-weight:800; display:flex; align-items:center; gap:8px;">
+            ${orderType === 'dine-in' ? `<i class="fa-solid fa-chair"></i> ${escapeHtml(tableLabel || 'Table')}` : orderType === 'takeaway' ? '<i class="fa-solid fa-bag-shopping"></i> Takeaway' : '<i class="fa-solid fa-motorcycle"></i> Delivery'}
+            ${orderType === 'dine-in' ? `<button class="btn-icon" id="rposEditGuestsBtn" style="font-size:11px; font-weight:600; color:var(--text-muted);" title="Edit party size"><i class="fa-solid fa-users" style="margin-right:4px;"></i>${guestCount || '—'}<i class="fa-solid fa-pen" style="font-size:9px; margin-left:4px; opacity:.5;"></i></button>` : ''}
           </div>
-          ${orderType !== 'dine-in' ? `
-            <div style="display:flex; gap:8px;">
-              <input class="form-input" id="rposContactName" placeholder="Customer name (optional)" value="${escapeHtml(takeawayContact.name)}" style="max-width:160px; font-size:12px;" />
-              <input class="form-input" id="rposContactPhone" placeholder="Phone (optional)" value="${escapeHtml(takeawayContact.phone)}" style="max-width:130px; font-size:12px;" />
-            </div>
-          ` : ''}
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <select class="form-input" id="rposWaiterSelect" style="max-width:150px; font-size:12px;">
+              <option value="">Waiter (optional)</option>
+              ${staffList.map(s => `<option value="${s.id}" ${store.selectedStaff?.id === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
+            </select>
+            ${orderType !== 'dine-in' ? `
+              <input class="form-input" id="rposContactName" placeholder="Customer name" value="${escapeHtml(takeawayContact.name)}" style="max-width:140px; font-size:12px;" />
+              <input class="form-input" id="rposContactPhone" placeholder="Phone" value="${escapeHtml(takeawayContact.phone)}" style="max-width:120px; font-size:12px;" />
+              ${orderType === 'delivery' ? `<input class="form-input" id="rposContactAddress" placeholder="Delivery address" value="${escapeHtml(takeawayContact.address)}" style="max-width:200px; font-size:12px;" />` : ''}
+              ${orderType === 'takeaway' ? `<input class="form-input" id="rposPickupTime" type="time" value="${escapeHtml(takeawayContact.pickupTime)}" title="Pickup time" style="max-width:110px; font-size:12px;" />` : ''}
+            ` : ''}
+          </div>
+        </div>
+        <div style="margin-bottom:12px;">
+          <input class="form-input" id="rposMenuSearch" placeholder="🔍 Search menu…" value="${escapeHtml(menuSearch)}" style="font-size:13px;" />
         </div>
         <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:10px; margin-bottom:14px;">
           <div class="rpos-cat-tab ${!activeCategory ? 'active' : ''}" data-cat="">All</div>
           ${categories.map(c => `<div class="rpos-cat-tab ${activeCategory === c.name ? 'active' : ''}" data-cat="${escapeHtml(c.name)}">${escapeHtml(c.name)}</div>`).join('')}
         </div>
         <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:12px;">
-          ${products.length === 0 ? `<div style="grid-column:1/-1; text-align:center; padding:30px; color:var(--text-muted);">No items in this category</div>` : products.map(p => `
+          ${products.length === 0 ? `<div style="grid-column:1/-1; text-align:center; padding:30px; color:var(--text-muted);">No items match</div>` : products.map(p => `
             <div class="rpos-product-card" data-id="${p.id}">
               <div style="font-size:24px; text-align:center;">${p.emoji || '🍽️'}</div>
               <div style="font-size:12px; font-weight:700; margin-top:6px; text-align:center;">${escapeHtml(p.name)}</div>
@@ -262,7 +373,7 @@ async function renderOrderingView() {
 
       <div class="card" style="padding:16px; position:sticky; top:0;">
         <div style="font-size:13px; font-weight:800; margin-bottom:10px;">🛒 Order (${store.cart.length} item${store.cart.length === 1 ? '' : 's'})</div>
-        <div style="max-height:40vh; overflow-y:auto;">
+        <div style="max-height:36vh; overflow-y:auto;">
           ${store.cart.length === 0 ? `<div style="text-align:center; padding:24px; color:var(--text-muted); font-size:12px;">No items yet — tap a menu item to add it</div>` : store.cart.map(i => `
             <div class="rpos-cart-item">
               <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
@@ -270,23 +381,36 @@ async function renderOrderingView() {
                 <button class="btn-icon rpos-remove-item" data-cart-id="${i.cartId}" title="Remove"><i class="fa-solid fa-xmark" style="font-size:11px; color:var(--danger);"></i></button>
               </div>
               ${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(' · ')}</div>` : ''}
-              <div style="display:flex; align-items:center; justify-content:space-between; margin-top:6px;">
-                <div style="display:flex; align-items:center; gap:8px;">
-                  <button class="btn-icon rpos-qty-minus" data-cart-id="${i.cartId}"><i class="fa-solid fa-minus" style="font-size:10px;"></i></button>
-                  <span style="font-size:12px; font-weight:700; min-width:18px; text-align:center;">${i.qty}</span>
-                  <button class="btn-icon rpos-qty-plus" data-cart-id="${i.cartId}"><i class="fa-solid fa-plus" style="font-size:10px;"></i></button>
-                  <button class="btn-icon rpos-customize-item" data-cart-id="${i.cartId}" title="Customize"><i class="fa-solid fa-sliders" style="font-size:10px;"></i></button>
-                </div>
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-top:6px; flex-wrap:wrap; gap:6px;">
+                ${i.sentToKitchen ? `
+                  <div style="font-size:10px; font-weight:700; color:var(--success);"><i class="fa-solid fa-check"></i> Sent to kitchen${i.course ? ` · ${escapeHtml(i.course)}` : ''} · x${i.qty}</div>
+                ` : `
+                  <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                    <button class="btn-icon rpos-qty-minus" data-cart-id="${i.cartId}"><i class="fa-solid fa-minus" style="font-size:10px;"></i></button>
+                    <span style="font-size:12px; font-weight:700; min-width:18px; text-align:center;">${i.qty}</span>
+                    <button class="btn-icon rpos-qty-plus" data-cart-id="${i.cartId}"><i class="fa-solid fa-plus" style="font-size:10px;"></i></button>
+                    <button class="btn-icon rpos-customize-item" data-cart-id="${i.cartId}" title="Customize"><i class="fa-solid fa-sliders" style="font-size:10px;"></i></button>
+                    <select class="form-input rpos-course-select" data-cart-id="${i.cartId}" style="font-size:10px; padding:2px 4px; max-width:82px;">
+                      <option value="">Course</option>
+                      ${COURSES.map(c => `<option value="${c}" ${i.course === c ? 'selected' : ''}>${c}</option>`).join('')}
+                    </select>
+                  </div>
+                `}
                 <div style="font-size:12px; font-weight:800;">${cur}${(i.price * i.qty).toFixed(2)}</div>
               </div>
             </div>
           `).join('')}
         </div>
-        <div style="border-top:1px solid var(--border); margin-top:12px; padding-top:12px; display:flex; justify-content:space-between; font-size:14px; font-weight:800;">
-          <span>Total</span><span>${cur}${totals.total.toFixed(2)}</span>
+        <div style="border-top:1px solid var(--border); margin-top:12px; padding-top:10px; display:flex; flex-direction:column; gap:4px; font-size:12px;">
+          <div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>Subtotal</span><span>${cur}${totals.subtotal.toFixed(2)}</span></div>
+          ${totals.discount > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--success);"><span>Discount</span><span>-${cur}${totals.discount.toFixed(2)}</span></div>` : ''}
+          <div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>Tax</span><span>${cur}${(totals.itemTax + totals.orderTax).toFixed(2)}</span></div>
+          ${totals.roundOff ? `<div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>Round Off</span><span>${totals.roundOff > 0 ? '+' : ''}${cur}${totals.roundOff.toFixed(2)}</span></div>` : ''}
+          <div style="display:flex; justify-content:space-between; font-size:15px; font-weight:800; margin-top:4px; padding-top:6px; border-top:1px solid var(--border);"><span>Total</span><span>${cur}${totals.total.toFixed(2)}</span></div>
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
-          <button class="btn btn-secondary" id="rposSendKitchenBtn" ${store.cart.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-kitchen-set"></i> Send to Kitchen</button>
+          ${renderSendControls(unsent, coursesPresent)}
+          <button class="btn btn-ghost" id="rposPreviewBillBtn" ${store.cart.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-print"></i> Preview Bill</button>
           <button class="btn btn-primary" id="rposBillBtn" ${store.cart.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-receipt"></i> Bill Now — ${cur}${totals.total.toFixed(2)}</button>
         </div>
       </div>
@@ -299,19 +423,70 @@ async function renderOrderingView() {
   document.querySelectorAll('.rpos-product-card').forEach(el => {
     el.addEventListener('click', async () => {
       const product = products.find(p => String(p.id) === el.dataset.id);
-      if (product) addToCart(product);
+      if (!product) return;
+      addToCart(product);
+      // If this line had already been fired to the kitchen, adding more of
+      // it "un-fires" the whole line again — the kitchen needs to know
+      // about the extra quantity, so it goes out on the next Send.
+      const cartId = variantCartId(product);
+      const item = store.cart.find(i => i.cartId === cartId);
+      if (item?.sentToKitchen) { item.sentToKitchen = false; await renderOrderingView(); }
     });
   });
-  document.querySelectorAll('.rpos-remove-item').forEach(el => el.addEventListener('click', () => removeFromCart(el.dataset.cartId)));
+  document.querySelectorAll('.rpos-remove-item').forEach(el => el.addEventListener('click', () => requestRemoveItem(el.dataset.cartId)));
   document.querySelectorAll('.rpos-qty-plus').forEach(el => el.addEventListener('click', () => updateQty(el.dataset.cartId, 1)));
-  document.querySelectorAll('.rpos-qty-minus').forEach(el => el.addEventListener('click', () => updateQty(el.dataset.cartId, -1)));
+  document.querySelectorAll('.rpos-qty-minus').forEach(el => el.addEventListener('click', () => requestQtyMinus(el.dataset.cartId)));
   document.querySelectorAll('.rpos-customize-item').forEach(el => el.addEventListener('click', () => openModifierModal(el.dataset.cartId)));
+  document.querySelectorAll('.rpos-course-select').forEach(el => el.addEventListener('change', e => { updateCartItem(el.dataset.cartId, { course: e.target.value || null }); }));
+  document.querySelectorAll('.rpos-send-course').forEach(el => el.addEventListener('click', () => sendToKitchen(el.dataset.course || null)));
 
+  document.getElementById('rposMenuSearch')?.addEventListener('input', async e => {
+    menuSearch = e.target.value;
+    await renderOrderingView();
+    const el = document.getElementById('rposMenuSearch');
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  });
+  document.getElementById('rposWaiterSelect')?.addEventListener('change', e => {
+    const staff = staffList.find(s => s.id === e.target.value);
+    setStaff(staff || null);
+  });
+  document.getElementById('rposEditGuestsBtn')?.addEventListener('click', () => {
+    promptGuestCount(async (count) => {
+      guestCount = count;
+      await persistOrderStateIfDineIn();
+      await renderOrderingView();
+    });
+  });
   document.getElementById('rposContactName')?.addEventListener('input', e => { takeawayContact.name = e.target.value; });
   document.getElementById('rposContactPhone')?.addEventListener('input', e => { takeawayContact.phone = e.target.value; });
+  document.getElementById('rposContactAddress')?.addEventListener('input', e => { takeawayContact.address = e.target.value; });
+  document.getElementById('rposPickupTime')?.addEventListener('input', e => { takeawayContact.pickupTime = e.target.value; });
 
-  document.getElementById('rposSendKitchenBtn')?.addEventListener('click', sendToKitchen);
+  document.getElementById('rposPreviewBillBtn')?.addEventListener('click', previewBill);
   document.getElementById('rposBillBtn')?.addEventListener('click', openPaymentPanel);
+}
+
+function variantCartId(product, variant = null) {
+  return variant ? `${product.id}_${variant.name}` : String(product.id);
+}
+
+// Multiple courses are only worth surfacing once staff actually start using
+// them (per-item Course pickers) — until then this stays the plain single
+// "Send to Kitchen" button so a shop that doesn't care about courses sees no
+// extra complexity.
+function renderSendControls(unsent, coursesPresent) {
+  if (unsent.length === 0) {
+    return store.cart.length === 0 ? '' : `<button class="btn btn-secondary" disabled><i class="fa-solid fa-check"></i> All Sent to Kitchen</button>`;
+  }
+  if (coursesPresent.length === 0) {
+    return `<button class="btn btn-secondary rpos-send-course" data-course=""><i class="fa-solid fa-kitchen-set"></i> Send to Kitchen (${unsent.length})</button>`;
+  }
+  return `
+    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+      <button class="btn btn-secondary btn-sm rpos-send-course" data-course="" style="flex:1 1 100%;"><i class="fa-solid fa-kitchen-set"></i> Send All Pending (${unsent.length})</button>
+      ${coursesPresent.map(c => `<button class="btn btn-ghost btn-sm rpos-send-course" data-course="${escapeHtml(c)}" style="flex:1;">${escapeHtml(c)} (${unsent.filter(i => i.course === c).length})</button>`).join('')}
+    </div>
+  `;
 }
 
 function openModifierModal(cartId) {
@@ -355,9 +530,82 @@ function openModifierModal(cartId) {
   }, 50);
 }
 
-// ── Send to Kitchen ────────────────────────────────────────────────────────
-async function sendToKitchen() {
-  if (store.cart.length === 0) return;
+// ── Void / cancel with mandatory reason (only enforced once an item has
+// actually been fired to the kitchen — cancelling something that never left
+// the cart has no kitchen/food-cost impact, so no audit friction there). ──
+function promptVoidReason(item, onConfirm) {
+  openModal({
+    title: `<i class="fa-solid fa-triangle-exclamation mr-8" style="color:var(--danger);"></i> Cancel Item`,
+    body: `
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;"><b>${escapeHtml(item.name)}</b> was already sent to the kitchen. Please note why it's being cancelled — this is kept on the order record.</div>
+      <div class="form-group">
+        <label class="form-label required">Reason</label>
+        <textarea class="form-input" id="rposVoidReason" rows="2" placeholder="e.g. Customer changed mind, wrong item sent..." autofocus></textarea>
+      </div>
+    `,
+    footer: `
+      <button class="btn btn-ghost" onclick="closeModal()">Keep Item</button>
+      <button class="btn btn-danger" id="rposVoidConfirmBtn"><i class="fa-solid fa-trash mr-4"></i> Cancel Item</button>
+    `
+  });
+  setTimeout(() => {
+    const reasonInput = document.getElementById('rposVoidReason');
+    reasonInput?.focus();
+    document.getElementById('rposVoidConfirmBtn')?.addEventListener('click', () => {
+      const reason = reasonInput?.value.trim();
+      if (!reason) return showToast('Please enter a reason', 'error');
+      closeModal();
+      onConfirm(reason);
+    });
+  }, 50);
+}
+
+function logVoid(item, reason) {
+  voidLog.push({ name: item.name, qty: item.qty, reason, at: new Date().toISOString(), by: store.user?.name || store.user?.username || '' });
+}
+
+function requestRemoveItem(cartId) {
+  const item = store.cart.find(i => i.cartId === cartId);
+  if (!item) return;
+  if (item.sentToKitchen) {
+    promptVoidReason(item, async (reason) => {
+      logVoid(item, reason);
+      removeFromCart(cartId);
+      await persistOrderStateIfDineIn();
+    });
+  } else {
+    removeFromCart(cartId);
+  }
+}
+
+function requestQtyMinus(cartId) {
+  const item = store.cart.find(i => i.cartId === cartId);
+  if (!item) return;
+  if (item.sentToKitchen && item.qty <= 1) {
+    promptVoidReason(item, async (reason) => {
+      logVoid(item, reason);
+      await updateQty(cartId, -1);
+      await persistOrderStateIfDineIn();
+    });
+  } else {
+    updateQty(cartId, -1);
+  }
+}
+
+async function persistOrderStateIfDineIn() {
+  if (orderType === 'dine-in' && selectedTable) {
+    selectedTable = await saveTable({
+      ...selectedTable,
+      currentOrder: { ...(selectedTable.currentOrder || {}), items: store.cart, orderType, guestCount, voidLog, waiterId: store.selectedStaff?.id || null, waiterName: store.selectedStaff?.name || null }
+    });
+  }
+}
+
+// ── Send to Kitchen — optionally scoped to one course, so Starters can go
+// out well ahead of Mains instead of the whole order firing at once. ──────
+async function sendToKitchen(courseFilter = null) {
+  const unsent = store.cart.filter(i => !i.sentToKitchen && (!courseFilter || i.course === courseFilter));
+  if (unsent.length === 0) return;
   const branchId = store.branch?.id || (await getCurrentBranch())?.id || 'b1';
   const settings = store.settings || await getSettings();
 
@@ -365,17 +613,26 @@ async function sendToKitchen() {
     tableId: selectedTable?.id || null,
     tableName: selectedTable?.name || null,
     orderType,
+    course: courseFilter || null,
     contactName: takeawayContact.name || '',
-    items: store.cart.map(i => ({ name: i.name, qty: i.qty, modifiers: i.modifiers || [], notes: i.notes || '' })),
+    waiterName: store.selectedStaff?.name || null,
+    items: unsent.map(i => ({ name: i.name, qty: i.qty, modifiers: i.modifiers || [], notes: i.notes || '', course: i.course || null })),
     branchId,
   });
 
+  unsent.forEach(i => { i.sentToKitchen = true; });
+
   if (orderType === 'dine-in' && selectedTable) {
-    selectedTable = await saveTable({ ...selectedTable, status: 'occupied', currentOrder: { items: store.cart, orderType } });
+    selectedTable = await saveTable({
+      ...selectedTable,
+      status: 'occupied',
+      occupiedAt: selectedTable.occupiedAt || new Date().toISOString(),
+      currentOrder: { items: store.cart, orderType, guestCount, voidLog, waiterId: store.selectedStaff?.id || null, waiterName: store.selectedStaff?.name || null }
+    });
   }
 
   await printReceiptHtml(renderKotHtml(kot, settings), `KOT - ${kot.id}`);
-  showToast('Sent to kitchen 🍳', 'success');
+  showToast(`Sent to kitchen 🍳${courseFilter ? ` — ${courseFilter}` : ''}`, 'success');
   await refreshKotBadge();
   await renderOrderingView();
 }
@@ -384,13 +641,14 @@ function renderKotHtml(kot, settings) {
   return `
     <div class="receipt">
       <div class="receipt-header">
-        <div class="receipt-store-name">KITCHEN ORDER TICKET</div>
+        <div class="receipt-store-name">KITCHEN ORDER TICKET${kot.course ? ` — ${escapeHtml(kot.course.toUpperCase())}` : ''}</div>
         <div class="receipt-row" style="font-size:11px; opacity:.7;">${new Date(kot.createdAt).toLocaleString()}</div>
       </div>
       <div class="receipt-divider"></div>
       <div style="font-size:14px; font-weight:800; text-align:center; margin:6px 0;">
         ${kot.orderType === 'dine-in' ? `TABLE: ${escapeHtml(kot.tableName || '')}` : (kot.orderType || '').toUpperCase()}
       </div>
+      ${kot.waiterName ? `<div style="text-align:center; font-size:11px; opacity:.75;">Waiter: ${escapeHtml(kot.waiterName)}</div>` : ''}
       <div class="receipt-divider"></div>
       ${kot.items.map(i => `
         <div style="margin:8px 0;">
@@ -402,6 +660,46 @@ function renderKotHtml(kot, settings) {
       `).join('')}
       <div class="receipt-divider"></div>
       <div style="text-align:center; font-size:10px; opacity:.6;">KOT #${kot.id}</div>
+    </div>
+  `;
+}
+
+// ── Bill Preview — a proforma print with no payment collection and no order
+// saved, so the customer can review the bill before it's finalized. ──────
+async function previewBill() {
+  if (store.cart.length === 0) return;
+  const settings = store.settings || await getSettings();
+  const cur = settings.currency || '₹';
+  const totals = getCartTotals();
+  const allTables = orderType === 'dine-in' ? await getTables() : [];
+  const tableLabel = selectedTable ? tableDisplayName(selectedTable, allTables) : null;
+  await printReceiptHtml(renderProformaHtml(totals, settings, cur, tableLabel), 'Bill Preview');
+}
+
+function renderProformaHtml(totals, settings, cur, tableLabel) {
+  return `
+    <div class="receipt">
+      <div class="receipt-header">
+        <div class="receipt-store-name">${escapeHtml(settings.storeName || 'Bill Preview')}</div>
+        <div class="receipt-row" style="font-size:11px; opacity:.7;">${new Date().toLocaleString()}</div>
+      </div>
+      <div style="text-align:center; font-size:11px; font-weight:800; letter-spacing:.5px; margin:6px 0;">PROFORMA — NOT A TAX INVOICE</div>
+      <div class="receipt-divider"></div>
+      <div style="font-size:12px; font-weight:700; text-align:center;">
+        ${orderType === 'dine-in' ? escapeHtml(tableLabel || 'Table') : (orderType || '').toUpperCase()}${guestCount ? ` · ${guestCount} guests` : ''}
+      </div>
+      <div class="receipt-divider"></div>
+      ${store.cart.map(i => `
+        <div style="display:flex; justify-content:space-between; font-size:12px; margin:4px 0;">
+          <span>${escapeHtml(i.name)} x${i.qty}</span><span>${cur}${(i.price * i.qty).toFixed(2)}</span>
+        </div>
+      `).join('')}
+      <div class="receipt-divider"></div>
+      <div style="display:flex; justify-content:space-between; font-size:12px;"><span>Subtotal</span><span>${cur}${totals.subtotal.toFixed(2)}</span></div>
+      ${totals.discount > 0 ? `<div style="display:flex; justify-content:space-between; font-size:12px;"><span>Discount</span><span>-${cur}${totals.discount.toFixed(2)}</span></div>` : ''}
+      <div style="display:flex; justify-content:space-between; font-size:12px;"><span>Tax</span><span>${cur}${(totals.itemTax + totals.orderTax).toFixed(2)}</span></div>
+      <div class="receipt-divider"></div>
+      <div style="display:flex; justify-content:space-between; font-size:14px; font-weight:800;"><span>Total</span><span>${cur}${totals.total.toFixed(2)}</span></div>
     </div>
   `;
 }
@@ -480,19 +778,40 @@ function openPaymentPanel() {
 async function completeBill(payments) {
   const settings = store.settings || await getSettings();
   const cur = settings.currency || '₹';
-  const restaurantMeta = { orderType, tableId: selectedTable?.id || null, tableName: selectedTable?.name || null };
+  const allTables = orderType === 'dine-in' ? await getTables() : [];
+  const tableLabel = selectedTable ? tableDisplayName(selectedTable, allTables) : null;
+  const restaurantMeta = {
+    orderType,
+    tableId: selectedTable?.id || null,
+    tableName: tableLabel,
+    guestCount: guestCount || null,
+    contactName: takeawayContact.name || undefined,
+    contactPhone: takeawayContact.phone || undefined,
+    deliveryAddress: orderType === 'delivery' ? (takeawayContact.address || undefined) : undefined,
+    pickupTime: orderType === 'takeaway' ? (takeawayContact.pickupTime || undefined) : undefined,
+    voidLog: voidLog.length ? voidLog : undefined,
+  };
 
   const succeeded = await confirmOrder(payments, getCartTotals(), settings, cur, { isCredit: false, creditInfo: '' }, restaurantMeta);
   if (!succeeded) return; // confirmOrder() already showed its own error toast
 
   if (orderType === 'dine-in' && selectedTable) {
-    await saveTable({ ...selectedTable, status: 'free', currentOrder: null });
+    // Billing ends the dine-in session for every table involved, including
+    // any merged into this one — all of them go back to free together.
+    const freedIds = [selectedTable.id, ...(selectedTable.mergedTableIds || [])];
+    for (const id of freedIds) {
+      const t = allTables.find(x => x.id === id) || (id === selectedTable.id ? selectedTable : null);
+      if (t) await saveTable({ ...t, status: 'free', occupiedAt: null, currentOrder: null, mergedTableIds: [], mergedInto: null });
+    }
   }
 
-  takeawayContact = { name: '', phone: '' };
+  takeawayContact = { name: '', phone: '', address: '', pickupTime: '' };
   view = 'picker';
   orderType = null;
   selectedTable = null;
+  guestCount = null;
+  voidLog = [];
+  setStaff(null);
   await renderRestaurantPOS(document.getElementById('page-container'));
 }
 
@@ -511,9 +830,10 @@ async function renderKitchenView() {
         ${kots.map(k => `
           <div class="card" style="padding:16px; border-left:4px solid ${k.status === 'preparing' ? 'var(--warning)' : 'var(--primary)'};">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-              <div style="font-weight:800; font-size:13px;">${k.orderType === 'dine-in' ? escapeHtml(k.tableName || 'Table') : (k.orderType || '').toUpperCase()}</div>
+              <div style="font-weight:800; font-size:13px;">${k.orderType === 'dine-in' ? escapeHtml(k.tableName || 'Table') : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}</div>
               <div style="font-size:10px; color:var(--text-muted);">${new Date(k.createdAt).toLocaleTimeString()}</div>
             </div>
+            ${k.waiterName ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-user" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(k.waiterName)}</div>` : ''}
             <div style="margin-top:10px; display:flex; flex-direction:column; gap:4px;">
               ${k.items.map(i => `<div style="font-size:12px;"><b>${i.qty}x</b> ${escapeHtml(i.name)}${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted); padding-left:14px;">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(', ')}</div>` : ''}</div>`).join('')}
             </div>
