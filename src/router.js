@@ -28,6 +28,7 @@ import { renderExpenses } from './pages/Expenses.js';
 import { renderAttendance } from './pages/Attendance.js';
 import { renderTables } from './pages/Tables.js';
 import { renderRestaurantPOS } from './pages/RestaurantPOS.js';
+import { renderKitchen } from './pages/Kitchen.js';
 
 const routes = {
     dashboard: renderDashboard,
@@ -56,6 +57,7 @@ const routes = {
     attendance: renderAttendance,
     tables: renderTables,
     'restaurant-pos': renderRestaurantPOS,
+    kitchen: renderKitchen,
 };
 
 let currentPage = 'dashboard';
@@ -274,7 +276,8 @@ export async function navigate(page) {
         expenses: 'Expenses',
         attendance: 'Staff Attendance',
         tables: 'Tables',
-        'restaurant-pos': 'Restaurant POS'
+        'restaurant-pos': 'Restaurant POS',
+        kitchen: 'Kitchen'
     };
     const titleEl = document.getElementById('topbar-current-page') || document.querySelector('.topbar-title');
     if (titleEl) titleEl.textContent = titles[page] || titles[mainPage] || mainPage;

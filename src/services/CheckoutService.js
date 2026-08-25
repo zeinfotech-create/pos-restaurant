@@ -847,7 +847,7 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
         contactPhone: restaurantMeta.contactPhone || undefined,
         deliveryAddress: restaurantMeta.deliveryAddress || undefined,
         pickupTime: restaurantMeta.pickupTime || undefined,
-        voidLog: restaurantMeta.voidLog || undefined,
+        changeLog: restaurantMeta.changeLog || undefined,
       } : {})
     });
 

@@ -3,6 +3,9 @@
 // (Dine-in / Takeaway / Delivery), pick a table for dine-in, browse the menu,
 // add items (with optional modifiers/notes/course), assign a waiter, send to
 // the kitchen (KOT, whole order or course-by-course), preview or take a bill.
+// The Kitchen prep board itself lives in its own page (Kitchen.js) — this
+// file only reads live per-item kitchen status to gate billing and to offer
+// cancel/modify on already-sent items.
 // Deliberately a NEW, separate page rather than a modification of
 // POS.js/QuickPOS.js — it reuses their underlying plumbing (store.js's cart
 // operations, CheckoutService.confirmOrder(), the print pipeline) but never
@@ -10,7 +13,7 @@
 // unaffected by anything here.
 // ============================================================
 
-import { getTables, saveTable, getCategories, getProducts, saveKot, getKots, updateKotStatus, toggleKotItemReady, getSettings, getCurrentBranch, getStaff } from '../db.js';
+import { getTables, saveTable, getCategories, getProducts, saveKot, getKots, getSettings, getCurrentBranch, getStaff } from '../db.js';
 import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff } from '../store.js';
 import { confirmOrder, printReceiptHtml } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
@@ -26,17 +29,27 @@ import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, gro
 const COMMON_MODIFIERS = ['No Onion', 'No Garlic', 'Extra Spicy', 'Less Spicy', 'Extra Cheese', 'Less Sugar', 'No Ice'];
 const COURSES = ['Starters', 'Mains', 'Desserts', 'Other'];
 
-let view = 'picker'; // 'picker' | 'ordering' | 'kitchen'
+const KITCHEN_ITEM_META = {
+  pending: { label: 'In kitchen queue', icon: 'fa-hourglass-half', color: 'var(--text-muted)' },
+  ready: { label: 'Ready — pickup!', icon: 'fa-bell', color: 'var(--success)' },
+  served: { label: 'Served', icon: 'fa-check-double', color: 'var(--primary)' },
+};
+
+let view = 'picker'; // 'picker' | 'ordering'
 let orderType = null; // 'dine-in' | 'takeaway' | 'delivery'
 let selectedTable = null; // full table doc, only for dine-in
 let activeCategory = null;
 let menuSearch = '';
 let guestCount = null; // dine-in only
-let voidLog = []; // {name, qty, reason, at, by} — audit trail for cancelled-after-fired items
+let changeLog = []; // {type:'cancel'|'modify', name, qty, reason, at, by} — audit trail for anything edited after being fired to the kitchen
+let orderSessionId = null; // ties every KOT sent during this one order together, so the "fully served" bill-gate can find them regardless of order type
 let takeawayContact = { name: '', phone: '', address: '', pickupTime: '' };
 let cartListenerRegistered = false;
 let tablesTimerInterval = null;
-let kitchenTimerInterval = null;
+
+function genSessionId() {
+  return 'sess-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+}
 
 export async function renderRestaurantPOS(container, subPage) {
   // Reset per-visit state every time the page is (re)entered fresh via nav
@@ -48,12 +61,7 @@ export async function renderRestaurantPOS(container, subPage) {
     cartListenerRegistered = true; // onCartUpdate() already de-dupes by function identity — this just avoids even attempting a re-registration (a new closure, so it WOULDN'T actually be de-duped) on every nav into this page
   }
 
-  if (subPage === 'kitchen') {
-    // A direct "Kitchen" quick-launch (topbar shortcut) — jump straight to
-    // the kitchen board without disturbing whatever order state (if any)
-    // was already in progress underneath it.
-    view = 'kitchen';
-  } else if (subPage) {
+  if (subPage) {
     // Came from Tables.js's own table click — jump straight into ordering
     // that table, re-reading its live status/currentOrder rather than
     // trusting anything the caller already had.
@@ -66,7 +74,8 @@ export async function renderRestaurantPOS(container, subPage) {
     orderType = null;
     selectedTable = null;
     guestCount = null;
-    voidLog = [];
+    changeLog = [];
+    orderSessionId = null;
     setStaff(null);
   }
 
@@ -79,7 +88,8 @@ async function enterTable(table) {
   loadTableOrderIntoCart(table);
   if (table.currentOrder) {
     guestCount = table.currentOrder.guestCount || null;
-    voidLog = table.currentOrder.voidLog || [];
+    changeLog = table.currentOrder.changeLog || table.currentOrder.voidLog || [];
+    orderSessionId = table.currentOrder.orderSessionId || genSessionId();
     if (table.currentOrder.waiterId) {
       const waiter = (await getStaff()).find(s => s.id === table.currentOrder.waiterId);
       setStaff(waiter || null);
@@ -87,7 +97,8 @@ async function enterTable(table) {
       setStaff(null);
     }
   } else {
-    voidLog = [];
+    changeLog = [];
+    orderSessionId = genSessionId();
     setStaff(null);
   }
   view = 'ordering';
@@ -134,15 +145,11 @@ async function render(container) {
   `;
 
   document.getElementById('rposBackBtn')?.addEventListener('click', handleBack);
-  // Re-renders the WHOLE shell (topbar included) rather than just swapping
-  // #rposContent, so the Back button's label ("Dashboard"/"Change Table")
-  // stays in sync with the view it's about to switch away from.
-  document.getElementById('rposKitchenBtn')?.addEventListener('click', () => { view = 'kitchen'; render(container); });
+  document.getElementById('rposKitchenBtn')?.addEventListener('click', () => navigate('kitchen'));
   await refreshKotBadge();
 
   if (view === 'picker') await renderPickerView();
   else if (view === 'ordering') await renderOrderingView();
-  else if (view === 'kitchen') await renderKitchenView();
 }
 
 async function refreshKotBadge() {
@@ -154,17 +161,6 @@ async function refreshKotBadge() {
 
 function handleBack() {
   const container = document.getElementById('page-container');
-  // Calling the internal render(container) here (not the exported
-  // renderRestaurantPOS()) is deliberate — renderRestaurantPOS() always
-  // resets view/orderType/selectedTable back to a fresh 'picker' state
-  // (it's the entry point for a brand-new nav into this page), which would
-  // silently undo the state changes just made below. render() just
-  // re-renders the shell + current sub-view from whatever module state
-  // already is.
-  if (view === 'kitchen') {
-    view = orderType ? 'ordering' : 'picker';
-    return render(container);
-  }
   if (view === 'ordering') {
     // Dine-in with items already sent to the kitchen (table is 'occupied')
     // just steps back to the table picker — the order lives safely on the
@@ -174,7 +170,8 @@ function handleBack() {
     orderType = null;
     selectedTable = null;
     guestCount = null;
-    voidLog = [];
+    changeLog = [];
+    orderSessionId = null;
     setStaff(null);
     return render(container);
   }
@@ -205,7 +202,8 @@ async function renderPickerView() {
         } else {
           selectedTable = null;
           guestCount = null;
-          voidLog = [];
+          changeLog = [];
+          orderSessionId = genSessionId();
           loadTableOrderIntoCart(null);
           view = 'ordering';
           updateBackButtonLabel();
@@ -321,6 +319,49 @@ function promptGuestCount(onConfirm) {
   }, 50);
 }
 
+// ── Live kitchen status for this order — used both to label each sent cart
+// item (pending/ready/served) and to gate Bill Now until every single dish
+// has actually been served, not just cooked. Reads straight from the KOT
+// docs (the Kitchen page's own source of truth) rather than trusting
+// anything cached on the cart item itself, so it can never go stale.
+//
+// A cartId can end up with MORE than one KOT entry — re-adding an
+// already-sent item un-fires the whole line, and Modify voids the old entry
+// and creates a fresh one on the next Send — so this maps each cartId to
+// the *array* of every entry it has ever had, and summarizeCartIdStatus()
+// below only calls it "served" once every non-voided entry is served. ─────
+async function buildKitchenStatusMap() {
+  const map = new Map();
+  if (!orderSessionId) return map;
+  const kots = (await getKots()).filter(k => k.orderSessionId === orderSessionId);
+  kots.forEach(kot => (kot.items || []).forEach(i => {
+    if (!i.cartId) return;
+    const arr = map.get(i.cartId) || [];
+    arr.push(i.itemStatus || 'pending');
+    map.set(i.cartId, arr);
+  }));
+  return map;
+}
+
+function summarizeCartIdStatus(statuses) {
+  if (!statuses || statuses.length === 0) return 'pending';
+  const live = statuses.filter(s => s !== 'voided');
+  if (live.length === 0) return 'served'; // every portion of this line was cancelled — nothing left to wait on
+  if (live.every(s => s === 'served')) return 'served';
+  if (live.some(s => s === 'ready')) return 'ready'; // at least one portion ready, though not everything is done yet
+  return 'pending';
+}
+
+async function getOrderServeStatus() {
+  const kitchenStatusMap = await buildKitchenStatusMap();
+  let outstanding = 0;
+  store.cart.forEach(i => {
+    if (!i.sentToKitchen) { outstanding++; return; }
+    if (summarizeCartIdStatus(kitchenStatusMap.get(i.cartId)) !== 'served') outstanding++;
+  });
+  return { kitchenStatusMap, outstanding, fullyServed: store.cart.length > 0 && outstanding === 0 };
+}
+
 // ── Ordering view: menu + cart ────────────────────────────────────────────
 async function renderOrderingView() {
   const area = document.getElementById('rposContent');
@@ -337,6 +378,7 @@ async function renderOrderingView() {
   const totals = getCartTotals();
   const unsent = store.cart.filter(i => !i.sentToKitchen);
   const coursesPresent = [...new Set(unsent.map(i => i.course).filter(Boolean))];
+  const serveStatus = await getOrderServeStatus();
 
   area.innerHTML = `
     <div class="rpos-layout">
@@ -388,9 +430,16 @@ async function renderOrderingView() {
               </div>
               ${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(' · ')}</div>` : ''}
               <div style="display:flex; align-items:center; justify-content:space-between; margin-top:6px; flex-wrap:wrap; gap:6px;">
-                ${i.sentToKitchen ? `
-                  <div style="font-size:10px; font-weight:700; color:var(--success);"><i class="fa-solid fa-check"></i> Sent to kitchen${i.course ? ` · ${escapeHtml(i.course)}` : ''} · x${i.qty}</div>
-                ` : `
+                ${i.sentToKitchen ? (() => {
+                  const kStatus = summarizeCartIdStatus(serveStatus.kitchenStatusMap.get(i.cartId));
+                  const meta = KITCHEN_ITEM_META[kStatus] || KITCHEN_ITEM_META.pending;
+                  return `
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                      <span style="font-size:10px; font-weight:700; color:${meta.color};"><i class="fa-solid ${meta.icon}"></i> ${meta.label}${i.course ? ` · ${escapeHtml(i.course)}` : ''} · x${i.qty}</span>
+                      ${kStatus !== 'served' ? `<button class="btn-icon rpos-modify-item" data-cart-id="${i.cartId}" title="Modify"><i class="fa-solid fa-pen" style="font-size:10px;"></i></button>` : ''}
+                    </div>
+                  `;
+                })() : `
                   <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                     <button class="btn-icon rpos-qty-minus" data-cart-id="${i.cartId}"><i class="fa-solid fa-minus" style="font-size:10px;"></i></button>
                     <span style="font-size:12px; font-weight:700; min-width:18px; text-align:center;">${i.qty}</span>
@@ -417,7 +466,8 @@ async function renderOrderingView() {
         <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
           ${renderSendControls(unsent, coursesPresent)}
           <button class="btn btn-ghost" id="rposPreviewBillBtn" ${store.cart.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-print"></i> Preview Bill</button>
-          <button class="btn btn-primary" id="rposBillBtn" ${store.cart.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-receipt"></i> Bill Now — ${cur}${totals.total.toFixed(2)}</button>
+          <button class="btn btn-primary" id="rposBillBtn" ${store.cart.length === 0 || !serveStatus.fullyServed ? 'disabled' : ''}><i class="fa-solid fa-receipt"></i> Bill Now — ${cur}${totals.total.toFixed(2)}</button>
+          ${store.cart.length > 0 && !serveStatus.fullyServed ? `<div style="font-size:11px; color:var(--warning); text-align:center; display:flex; align-items:center; justify-content:center; gap:6px;"><i class="fa-solid fa-hourglass-half"></i> ${serveStatus.outstanding} dish${serveStatus.outstanding === 1 ? '' : 'es'} still not served — check Kitchen</div>` : ''}
         </div>
       </div>
     </div>
@@ -443,6 +493,7 @@ async function renderOrderingView() {
   document.querySelectorAll('.rpos-qty-plus').forEach(el => el.addEventListener('click', () => updateQty(el.dataset.cartId, 1)));
   document.querySelectorAll('.rpos-qty-minus').forEach(el => el.addEventListener('click', () => requestQtyMinus(el.dataset.cartId)));
   document.querySelectorAll('.rpos-customize-item').forEach(el => el.addEventListener('click', () => openModifierModal(el.dataset.cartId)));
+  document.querySelectorAll('.rpos-modify-item').forEach(el => el.addEventListener('click', () => openModifyModal(el.dataset.cartId)));
   document.querySelectorAll('.rpos-course-select').forEach(el => el.addEventListener('change', e => { updateCartItem(el.dataset.cartId, { course: e.target.value || null }); }));
   document.querySelectorAll('.rpos-send-course').forEach(el => el.addEventListener('click', () => sendToKitchen(el.dataset.course || null)));
 
@@ -536,9 +587,76 @@ function openModifierModal(cartId) {
   }, 50);
 }
 
-// ── Void / cancel with mandatory reason (only enforced once an item has
-// actually been fired to the kitchen — cancelling something that never left
-// the cart has no kitchen/food-cost impact, so no audit friction there). ──
+// ── Modify a dish already sent to the kitchen — qty/modifiers/notes, gated
+// behind a mandatory reason (same audit-trail spirit as Cancel). Saving
+// voids the old kitchen instructions for this line and un-fires it, so the
+// updated version goes out fresh on the next Send to Kitchen. Blocked once
+// the kitchen has actually served it — at that point it's a new item, not
+// an edit. ──────────────────────────────────────────────────────────────
+async function openModifyModal(cartId) {
+  const item = store.cart.find(i => i.cartId === cartId);
+  if (!item) return;
+  const statusMap = await buildKitchenStatusMap();
+  const kStatus = summarizeCartIdStatus(statusMap.get(cartId));
+  if (kStatus === 'served') return showToast('Already served — cancel it and add a fresh item instead.', 'error');
+
+  const selected = new Set(item.modifiers || []);
+  openModal({
+    title: `<i class="fa-solid fa-pen mr-8"></i> Modify — ${escapeHtml(item.name)}`,
+    body: `
+      <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:12px;">Already sent to the kitchen${kStatus === 'ready' ? ' and marked ready' : ''}. Saving this re-sends updated instructions on the next Send to Kitchen.</div>
+      <div class="form-group">
+        <label class="form-label">Quantity</label>
+        <input class="form-input" id="rposModifyQty" type="number" min="0.001" step="1" value="${item.qty}" />
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">
+        ${COMMON_MODIFIERS.map(m => `
+          <button type="button" class="rpos-mod-chip ${selected.has(m) ? 'active' : ''}" data-mod="${escapeHtml(m)}"
+            style="padding:7px 12px; border-radius:999px; border:1px solid ${selected.has(m) ? 'var(--primary)' : 'var(--border)'}; background:${selected.has(m) ? 'var(--primary)' : 'var(--bg-elevated)'}; color:${selected.has(m) ? 'white' : 'inherit'}; font-size:12px; font-weight:600; cursor:pointer;">
+            ${escapeHtml(m)}
+          </button>
+        `).join('')}
+      </div>
+      <div class="form-group">
+        <label class="form-label">Special Instructions</label>
+        <textarea class="form-input" id="rposModifyNotes" rows="2">${escapeHtml(item.notes || '')}</textarea>
+      </div>
+      <div class="form-group mt-8">
+        <label class="form-label required">Reason for change</label>
+        <textarea class="form-input" id="rposModifyReason" rows="2" placeholder="e.g. Customer asked for less spicy after ordering" autofocus></textarea>
+      </div>
+    `,
+    footer: `
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="rposModifyConfirmBtn"><i class="fa-solid fa-rotate mr-4"></i> Save & Re-send</button>
+    `
+  });
+  setTimeout(() => {
+    document.querySelectorAll('.rpos-mod-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const m = chip.dataset.mod;
+        if (selected.has(m)) { selected.delete(m); chip.classList.remove('active'); chip.style.background = 'var(--bg-elevated)'; chip.style.color = 'inherit'; chip.style.borderColor = 'var(--border)'; }
+        else { selected.add(m); chip.classList.add('active'); chip.style.background = 'var(--primary)'; chip.style.color = 'white'; chip.style.borderColor = 'var(--primary)'; }
+      });
+    });
+    document.getElementById('rposModifyConfirmBtn')?.addEventListener('click', async () => {
+      const reason = document.getElementById('rposModifyReason')?.value.trim();
+      if (!reason) return showToast('Please enter a reason for the change', 'error');
+      const qty = Math.max(0.001, parseFloat(document.getElementById('rposModifyQty')?.value) || item.qty);
+      const notes = document.getElementById('rposModifyNotes')?.value.trim() || '';
+      logChange(item, reason, 'modify');
+      await voidCartItemInKots(cartId);
+      closeModal();
+      updateCartItem(cartId, { qty, modifiers: Array.from(selected), notes, sentToKitchen: false });
+      await persistOrderStateIfDineIn();
+      showToast('Updated — will go out on next Send to Kitchen', 'info');
+    });
+  }, 50);
+}
+
+// ── Cancel with mandatory reason (only enforced once an item has actually
+// been fired to the kitchen — cancelling something that never left the cart
+// has no kitchen/food-cost impact, so no audit friction there). ──────────
 function promptVoidReason(item, onConfirm) {
   openModal({
     title: `<i class="fa-solid fa-triangle-exclamation mr-8" style="color:var(--danger);"></i> Cancel Item`,
@@ -566,8 +684,27 @@ function promptVoidReason(item, onConfirm) {
   }, 50);
 }
 
-function logVoid(item, reason) {
-  voidLog.push({ name: item.name, qty: item.qty, reason, at: new Date().toISOString(), by: store.user?.name || store.user?.username || '' });
+function logChange(item, reason, type) {
+  changeLog.push({ type, name: item.name, qty: item.qty, reason, at: new Date().toISOString(), by: store.user?.name || store.user?.username || '' });
+}
+
+// Flags every not-yet-served KOT item matching this cartId (within the
+// current order session) as voided, so a cancelled/modified dish stops
+// silently blocking the "fully served" billing gate — and so the Kitchen
+// page immediately shows it as cancelled instead of still cooking it.
+async function voidCartItemInKots(cartId) {
+  if (!orderSessionId) return;
+  const kots = (await getKots()).filter(k => k.orderSessionId === orderSessionId);
+  for (const kot of kots) {
+    let changed = false;
+    (kot.items || []).forEach(i => {
+      if (i.cartId === cartId && i.itemStatus !== 'served' && i.itemStatus !== 'voided') { i.itemStatus = 'voided'; changed = true; }
+    });
+    if (changed) {
+      if ((kot.items || []).every(i => i.itemStatus === 'served' || i.itemStatus === 'voided')) kot.status = 'served';
+      await saveKot(kot);
+    }
+  }
 }
 
 function requestRemoveItem(cartId) {
@@ -575,7 +712,8 @@ function requestRemoveItem(cartId) {
   if (!item) return;
   if (item.sentToKitchen) {
     promptVoidReason(item, async (reason) => {
-      logVoid(item, reason);
+      logChange(item, reason, 'cancel');
+      await voidCartItemInKots(cartId);
       removeFromCart(cartId);
       await persistOrderStateIfDineIn();
     });
@@ -589,7 +727,8 @@ function requestQtyMinus(cartId) {
   if (!item) return;
   if (item.sentToKitchen && item.qty <= 1) {
     promptVoidReason(item, async (reason) => {
-      logVoid(item, reason);
+      logChange(item, reason, 'cancel');
+      await voidCartItemInKots(cartId);
       await updateQty(cartId, -1);
       await persistOrderStateIfDineIn();
     });
@@ -602,7 +741,7 @@ async function persistOrderStateIfDineIn() {
   if (orderType === 'dine-in' && selectedTable) {
     selectedTable = await saveTable({
       ...selectedTable,
-      currentOrder: { ...(selectedTable.currentOrder || {}), items: store.cart, orderType, guestCount, voidLog, waiterId: store.selectedStaff?.id || null, waiterName: store.selectedStaff?.name || null }
+      currentOrder: { ...(selectedTable.currentOrder || {}), items: store.cart, orderType, guestCount, changeLog, orderSessionId, waiterId: store.selectedStaff?.id || null, waiterName: store.selectedStaff?.name || null }
     });
   }
 }
@@ -619,10 +758,11 @@ async function sendToKitchen(courseFilter = null) {
     tableId: selectedTable?.id || null,
     tableName: selectedTable?.name || null,
     orderType,
+    orderSessionId,
     course: courseFilter || null,
     contactName: takeawayContact.name || '',
     waiterName: store.selectedStaff?.name || null,
-    items: unsent.map(i => ({ name: i.name, qty: i.qty, modifiers: i.modifiers || [], notes: i.notes || '', course: i.course || null, ready: false })),
+    items: unsent.map(i => ({ name: i.name, qty: i.qty, modifiers: i.modifiers || [], notes: i.notes || '', course: i.course || null, cartId: i.cartId, itemStatus: 'pending' })),
     branchId,
   });
 
@@ -633,7 +773,7 @@ async function sendToKitchen(courseFilter = null) {
       ...selectedTable,
       status: 'occupied',
       occupiedAt: selectedTable.occupiedAt || new Date().toISOString(),
-      currentOrder: { items: store.cart, orderType, guestCount, voidLog, waiterId: store.selectedStaff?.id || null, waiterName: store.selectedStaff?.name || null }
+      currentOrder: { items: store.cart, orderType, guestCount, changeLog, orderSessionId, waiterId: store.selectedStaff?.id || null, waiterName: store.selectedStaff?.name || null }
     });
   }
 
@@ -671,7 +811,8 @@ function renderKotHtml(kot, settings) {
 }
 
 // ── Bill Preview — a proforma print with no payment collection and no order
-// saved, so the customer can review the bill before it's finalized. ──────
+// saved, so the customer can review the bill before it's finalized. Not
+// gated on serve-status — a preview is purely informational. ────────────
 async function previewBill() {
   if (store.cart.length === 0) return;
   const settings = store.settings || await getSettings();
@@ -712,7 +853,9 @@ function renderProformaHtml(totals, settings, cur, tableLabel) {
 
 // ── Bill Now — a small self-contained payment panel (no shared payment-modal
 // component exists elsewhere in this codebase to reuse — see architecture
-// notes) — then hands off to the SAME confirmOrder() POS.js/QuickPOS.js use. ──
+// notes) — then hands off to the SAME confirmOrder() POS.js/QuickPOS.js use.
+// The button itself is only enabled once getOrderServeStatus() (checked in
+// renderOrderingView()) confirms every dish has been served. ────────────
 function openPaymentPanel() {
   const settings = store.settings || {};
   const totals = getCartTotals();
@@ -795,7 +938,7 @@ async function completeBill(payments) {
     contactPhone: takeawayContact.phone || undefined,
     deliveryAddress: orderType === 'delivery' ? (takeawayContact.address || undefined) : undefined,
     pickupTime: orderType === 'takeaway' ? (takeawayContact.pickupTime || undefined) : undefined,
-    voidLog: voidLog.length ? voidLog : undefined,
+    changeLog: changeLog.length ? changeLog : undefined,
   };
 
   const succeeded = await confirmOrder(payments, getCartTotals(), settings, cur, { isCredit: false, creditInfo: '' }, restaurantMeta);
@@ -816,159 +959,8 @@ async function completeBill(payments) {
   orderType = null;
   selectedTable = null;
   guestCount = null;
-  voidLog = [];
+  changeLog = [];
+  orderSessionId = null;
   setStaff(null);
   await renderRestaurantPOS(document.getElementById('page-container'));
-}
-
-// ── Kitchen view — a Kanban-style board (Pending → Preparing → Ready) so the
-// whole prep pipeline is visible at a glance, plus per-item ready-checkboxes
-// inside "Preparing" so a cook can tick off each dish as it's plated rather
-// than the ticket only ever having one all-or-nothing status. A ticket
-// auto-advances to Ready the moment its last item is ticked; "Mark All
-// Ready" is a shortcut for tickets nobody wants to track item-by-item. ──────
-const KITCHEN_COLUMNS = [
-  { status: 'pending', label: 'Pending', icon: 'fa-hourglass-start', color: 'var(--text-muted)' },
-  { status: 'preparing', label: 'Preparing', icon: 'fa-fire', color: 'var(--warning)' },
-  { status: 'ready', label: 'Ready for Pickup', icon: 'fa-bell-concierge', color: 'var(--success)' },
-];
-
-// Kitchen tickets move much faster than a table's whole occupied session, so
-// these thresholds are deliberately tighter than tableDisplay.js's (10/20min
-// here vs 30/60min there) — a ticket sitting 20+ minutes is a real problem.
-function kotTimerTier(ms) {
-  const mins = ms / 60000;
-  if (mins < 10) return { color: 'var(--success)', overdue: false };
-  if (mins < 20) return { color: 'var(--warning)', overdue: false };
-  return { color: 'var(--danger)', overdue: true };
-}
-
-async function renderKitchenView() {
-  const area = document.getElementById('rposContent');
-  if (!area) return;
-  const kots = (await getKots()).filter(k => k.status !== 'served');
-
-  area.innerHTML = `
-    <h2 style="font-size:16px; font-weight:800; margin-bottom:16px;">🍳 Kitchen — ${kots.length} active ticket${kots.length === 1 ? '' : 's'}</h2>
-    ${kots.length === 0 ? `
-      <div class="card" style="padding:40px; text-align:center; color:var(--text-muted);">Nothing pending — all caught up 🎉</div>
-    ` : `
-      <div class="rpos-kitchen-board">
-        ${KITCHEN_COLUMNS.map(col => {
-          const colKots = kots.filter(k => (k.status || 'pending') === col.status).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-          return `
-            <div class="rpos-kitchen-col">
-              <div class="rpos-kitchen-col-header" style="color:${col.color};">
-                <i class="fa-solid ${col.icon}"></i> ${col.label} <span class="rpos-kitchen-col-count">${colKots.length}</span>
-              </div>
-              <div class="rpos-kitchen-col-body">
-                ${colKots.length === 0 ? `<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:11px;">—</div>` : colKots.map(k => renderKotCard(k, col.status)).join('')}
-              </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `}
-    <style>
-      .rpos-kitchen-board { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; align-items:start; }
-      @media (max-width:900px) { .rpos-kitchen-board { grid-template-columns:1fr; } }
-      .rpos-kitchen-col-header { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px; }
-      .rpos-kitchen-col-count { margin-left:auto; background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; padding:1px 8px; font-size:11px; }
-      .rpos-kitchen-col-body { display:flex; flex-direction:column; gap:12px; }
-      .rpos-kot-item-row { display:flex; align-items:flex-start; gap:8px; padding:3px 0; }
-      .rpos-kot-item-row.done { opacity:.55; text-decoration:line-through; }
-    </style>
-  `;
-
-  wireKitchenCardListeners();
-  startKitchenTimerLoop();
-}
-
-function renderKotCard(k, status) {
-  const elapsed = Date.now() - new Date(k.createdAt).getTime();
-  const tier = kotTimerTier(elapsed);
-  const items = k.items || [];
-  const readyCount = items.filter(i => i.ready).length;
-  return `
-    <div class="card rpos-kot-card" style="padding:14px; border-left:4px solid ${tier.color};">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-        <div style="font-weight:800; font-size:13px;">${k.orderType === 'dine-in' ? escapeHtml(k.tableName || 'Table') : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}</div>
-        <div class="rpos-kot-timer" data-created-at="${k.createdAt}" style="font-size:11px; font-weight:800; color:${tier.color}; white-space:nowrap;">${formatElapsed(elapsed)}${tier.overdue ? ' ⚠' : ''}</div>
-      </div>
-      ${k.waiterName ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-user" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(k.waiterName)}</div>` : ''}
-      <div style="margin-top:10px; display:flex; flex-direction:column; gap:2px;">
-        ${items.map((i, idx) => `
-          <div class="rpos-kot-item-row ${i.ready ? 'done' : ''}">
-            ${status === 'preparing'
-              ? `<input type="checkbox" class="rpos-kot-item-check" data-kot-id="${k.id}" data-idx="${idx}" ${i.ready ? 'checked' : ''} style="margin-top:3px;" />`
-              : `<i class="fa-solid ${i.ready || status === 'ready' ? 'fa-check' : 'fa-circle'}" style="font-size:${i.ready || status === 'ready' ? '9px' : '5px'}; color:${i.ready || status === 'ready' ? 'var(--success)' : 'var(--text-muted)'}; margin-top:6px;"></i>`}
-            <div style="font-size:12px; flex:1;">
-              <b>${i.qty}x</b> ${escapeHtml(i.name)}
-              ${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted);">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(', ')}</div>` : ''}
-            </div>
-          </div>
-        `).join('')}
-      </div>
-      ${status === 'preparing' && items.length > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:8px;">${readyCount}/${items.length} items ready</div>` : ''}
-      <div style="margin-top:12px; display:flex; gap:8px;">
-        ${status === 'pending' ? `<button class="btn btn-secondary btn-sm rpos-kot-start" data-id="${k.id}" style="flex:1;"><i class="fa-solid fa-fire"></i> Start Preparing</button>` : ''}
-        ${status === 'preparing' ? `<button class="btn btn-ghost btn-sm rpos-kot-all-ready" data-id="${k.id}" style="flex:1;">Mark All Ready</button>` : ''}
-        ${status === 'ready' ? `<button class="btn btn-primary btn-sm rpos-kot-serve" data-id="${k.id}" style="flex:1;"><i class="fa-solid fa-check"></i> Serve Now</button>` : ''}
-      </div>
-    </div>
-  `;
-}
-
-function wireKitchenCardListeners() {
-  document.querySelectorAll('.rpos-kot-start').forEach(el => el.addEventListener('click', async () => {
-    await updateKotStatus(el.dataset.id, 'preparing');
-    await refreshKotBadge();
-    await renderKitchenView();
-  }));
-  document.querySelectorAll('.rpos-kot-serve').forEach(el => el.addEventListener('click', async () => {
-    await updateKotStatus(el.dataset.id, 'served');
-    showToast('Served 🎉', 'success');
-    await refreshKotBadge();
-    await renderKitchenView();
-  }));
-  document.querySelectorAll('.rpos-kot-all-ready').forEach(el => el.addEventListener('click', async () => {
-    const kots = await getKots();
-    const kot = kots.find(k => k.id === el.dataset.id);
-    if (!kot) return;
-    kot.items = (kot.items || []).map(i => ({ ...i, ready: true }));
-    kot.status = 'ready';
-    await saveKot(kot);
-    showToast('All items ready — moved to pickup 🔔', 'success');
-    await refreshKotBadge();
-    await renderKitchenView();
-  }));
-  document.querySelectorAll('.rpos-kot-item-check').forEach(el => el.addEventListener('change', async (e) => {
-    const kotId = el.dataset.kotId;
-    const idx = parseInt(el.dataset.idx, 10);
-    const kot = await toggleKotItemReady(kotId, idx, e.target.checked);
-    if (kot && kot.items.length > 0 && kot.items.every(i => i.ready)) {
-      await updateKotStatus(kotId, 'ready');
-      showToast('All items ready — moved to pickup 🔔', 'success');
-    }
-    await refreshKotBadge();
-    await renderKitchenView();
-  }));
-}
-
-function startKitchenTimerLoop() {
-  if (kitchenTimerInterval) clearInterval(kitchenTimerInterval);
-  kitchenTimerInterval = setInterval(() => {
-    const area = document.getElementById('rposContent');
-    if (!area) { clearInterval(kitchenTimerInterval); kitchenTimerInterval = null; return; }
-    const timers = area.querySelectorAll('.rpos-kot-timer');
-    if (timers.length === 0) { clearInterval(kitchenTimerInterval); kitchenTimerInterval = null; return; }
-    timers.forEach(el => {
-      const createdAt = el.dataset.createdAt;
-      if (!createdAt) return;
-      const ms = Date.now() - new Date(createdAt).getTime();
-      const tier = kotTimerTier(ms);
-      el.textContent = `${formatElapsed(ms)}${tier.overdue ? ' ⚠' : ''}`;
-      el.style.color = tier.color;
-    });
-  }, 15000);
 }

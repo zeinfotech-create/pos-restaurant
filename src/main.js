@@ -103,6 +103,7 @@ async function renderSidebar() {
       <button class="nav-item ${getCurrentPage().startsWith('dashboard') ? 'active' : ''}" data-page="dashboard"><i class="fa-solid fa-gauge-high"></i> <span>Dashboard</span></button>
       ${perms.pos ? `<button class="nav-item ${getCurrentPage().startsWith('restaurant-pos') ? 'active' : ''}" data-page="restaurant-pos"><i class="fa-solid fa-utensils"></i> <span>Restaurant POS</span></button>` : ''}
       ${perms.pos ? `<button class="nav-item ${getCurrentPage().startsWith('tables') ? 'active' : ''}" data-page="tables"><i class="fa-solid fa-chair"></i> <span>Tables</span></button>` : ''}
+      ${perms.pos ? `<button class="nav-item ${getCurrentPage().startsWith('kitchen') ? 'active' : ''}" data-page="kitchen"><i class="fa-solid fa-kitchen-set"></i> <span>Kitchen</span></button>` : ''}
 
       <span class="nav-section-label"><span>Inventory & CRM</span></span>
       ${perms.products ? `<button class="nav-item ${getCurrentPage().startsWith('catalog') ? 'active' : ''}" data-page="catalog"><i class="fa-solid fa-store"></i> <span>Catalog</span></button>` : ''}
@@ -560,7 +561,7 @@ async function renderTopbar() {
           <span>Quick Launcher</span>
         </div>
         <div class="shortcut-grid">
-          <div class="shortcut-item" onclick="window.navigate('restaurant-pos/kitchen')">
+          <div class="shortcut-item" onclick="window.navigate('kitchen')">
             <i class="fa-solid fa-kitchen-set"></i>
             <span class="shortcut-label">Kitchen</span>
           </div>

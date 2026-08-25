@@ -518,6 +518,7 @@ export async function hasPermission(action) {
       'catalog': 'products:view', // Read-only product browsing view
       'restaurant-pos': 'pos:access', // Same access as the regular POS screen
       'tables': 'pos:access', // Table management — same crowd that runs the register manages the floor
+      'kitchen': 'pos:access', // Kitchen prep board — same crowd, different station
     };
 
     const requiredPerm = modulePermissionMap[module];
@@ -4295,15 +4296,16 @@ export async function updateKotStatus(id, status) {
   return kot;
 }
 
-// Per-item prep tracking within one ticket — 'pending'/'preparing' KOTs use
-// this so a cook can tick off each dish as it's plated instead of the whole
-// ticket only ever having one all-or-nothing status. The caller (Kitchen
-// view) checks whether every item came back ready and promotes the whole
-// ticket to 'ready' itself — this just persists the one item's flag.
-export async function toggleKotItemReady(id, itemIndex, ready) {
+// Per-item prep tracking within one ticket — status is one of
+// 'pending' | 'ready' | 'served' | 'voided'. A dish can be served the
+// instant it's ready, independent of the rest of its ticket; RestaurantPOS.js
+// reads these directly (by orderSessionId/cartId) to gate billing until every
+// dish in the order is actually served, and to mark a cancelled/modified
+// dish 'voided' so it stops blocking that gate.
+export async function setKotItemStatus(id, itemIndex, status) {
   const kot = await getDataById('kots', id);
   if (!kot || !kot.items?.[itemIndex]) return null;
-  kot.items[itemIndex].ready = ready;
+  kot.items[itemIndex].itemStatus = status;
   await updateData('kots', kot);
   return kot;
 }
