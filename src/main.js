@@ -103,7 +103,9 @@ async function renderSidebar() {
       <button class="nav-item ${getCurrentPage().startsWith('dashboard') ? 'active' : ''}" data-page="dashboard"><i class="fa-solid fa-gauge-high"></i> <span>Dashboard</span></button>
       ${perms.pos ? `<button class="nav-item ${getCurrentPage().startsWith('pos') ? 'active' : ''}" data-page="pos"><i class="fa-solid fa-cash-register"></i> <span>POS</span></button>` : ''}
       ${perms.pos ? `<button class="nav-item ${getCurrentPage().startsWith('quick-pos') ? 'active' : ''}" data-page="quick-pos"><i class="fa-solid fa-bolt"></i> <span>Quick POS</span></button>` : ''}
-      
+      ${perms.pos ? `<button class="nav-item ${getCurrentPage().startsWith('restaurant-pos') ? 'active' : ''}" data-page="restaurant-pos"><i class="fa-solid fa-utensils"></i> <span>Restaurant POS</span></button>` : ''}
+      ${perms.pos ? `<button class="nav-item ${getCurrentPage().startsWith('tables') ? 'active' : ''}" data-page="tables"><i class="fa-solid fa-chair"></i> <span>Tables</span></button>` : ''}
+
       <span class="nav-section-label"><span>Inventory & CRM</span></span>
       ${perms.products ? `<button class="nav-item ${getCurrentPage().startsWith('catalog') ? 'active' : ''}" data-page="catalog"><i class="fa-solid fa-store"></i> <span>Catalog</span></button>` : ''}
       ${perms.products ? `<button class="nav-item ${getCurrentPage().startsWith('products') ? 'active' : ''}" data-page="products"><i class="fa-solid fa-box"></i> <span>Products</span></button>` : ''}
@@ -707,7 +709,7 @@ window.addEventListener('license-status-changed', () => {
   renderSidebar(); 
   // Re-trigger navigation to apply/remove blur restrictions instantly
   const cur = getCurrentPage().split('/')[0];
-  const standalonePages = ['login', 'onboarding', 'customer-display', 'quick-pos'];
+  const standalonePages = ['login', 'onboarding', 'customer-display', 'quick-pos', 'restaurant-pos'];
   if (!standalonePages.includes(cur)) {
     navigate(getCurrentPage());
   }

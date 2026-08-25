@@ -26,6 +26,8 @@ import { renderActivation } from './pages/Activation.js';
 import { renderStockTransfer } from './pages/StockTransfer.js';
 import { renderExpenses } from './pages/Expenses.js';
 import { renderAttendance } from './pages/Attendance.js';
+import { renderTables } from './pages/Tables.js';
+import { renderRestaurantPOS } from './pages/RestaurantPOS.js';
 
 const routes = {
     dashboard: renderDashboard,
@@ -52,6 +54,8 @@ const routes = {
     'stock-transfer': renderStockTransfer,
     expenses: renderExpenses,
     attendance: renderAttendance,
+    tables: renderTables,
+    'restaurant-pos': renderRestaurantPOS,
 };
 
 let currentPage = 'dashboard';
@@ -183,7 +187,7 @@ export async function navigate(page) {
     }
 
     // Handle Standalone Pages (No sidebar/topbar)
-    const standalonePages = ['customer-display', 'login', 'onboarding', 'activation', 'quick-pos'];
+    const standalonePages = ['customer-display', 'login', 'onboarding', 'activation', 'quick-pos', 'restaurant-pos'];
     const isStandalone = standalonePages.includes(mainPage);
 
     document.body.classList.toggle('standalone-view', isStandalone);
@@ -268,7 +272,9 @@ export async function navigate(page) {
         catalog: 'Product Catalog',
         'stock-transfer': 'Stock Transfer',
         expenses: 'Expenses',
-        attendance: 'Staff Attendance'
+        attendance: 'Staff Attendance',
+        tables: 'Tables',
+        'restaurant-pos': 'Restaurant POS'
     };
     const titleEl = document.getElementById('topbar-current-page') || document.querySelector('.topbar-title');
     if (titleEl) titleEl.textContent = titles[page] || titles[mainPage] || mainPage;

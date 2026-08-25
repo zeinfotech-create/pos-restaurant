@@ -735,7 +735,13 @@ export async function openCheckout() {
   setTimeout(attachListeners, 0);
 }
 
-export async function confirmOrder(payments, totals, settings, cur, creditData = { isCredit: false, creditInfo: '' }) {
+// `restaurantMeta` (optional, 6th param — none of the 3 existing call sites in
+// POS.js/QuickPOS.js/QuickCheckoutService.js pass a 6th arg, so this is purely
+// additive) carries { orderType: 'dine-in'|'takeaway'|'delivery', tableId, tableName }
+// from RestaurantPOS.js when billing a table/takeaway/delivery order — spread onto
+// the saved Order below so Orders.js can show/filter on it. null for every existing
+// retail sale, same as before this parameter existed.
+export async function confirmOrder(payments, totals, settings, cur, creditData = { isCredit: false, creditInfo: '' }, restaurantMeta = null) {
   // The page-mount check (POS.js/QuickPOS.js) only runs once when the POS
   // screen first loads — a shift closed from another terminal (or this same
   // one, another tab) while this cart was already open would otherwise still
@@ -778,7 +784,12 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
       isInstant: i.isInstant || false,
       preparedQty: i.preparedQty || 0,
       finalTax: parseFloat(finalTax.toFixed(2)),
-      unit: i.unit || 'pcs'
+      unit: i.unit || 'pcs',
+      // Restaurant module — item-level customization (e.g. "No Onion",
+      // "Extra Spicy") + a free-text note, set via RestaurantPOS.js's
+      // modifier picker. undefined/[] for every non-restaurant sale.
+      modifiers: i.modifiers || undefined,
+      notes: i.notes || undefined
     };
   });
 
@@ -826,7 +837,12 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
         stateCode: custStateCode
       } : null,
       isInterState,
-      status: creditData.isCredit ? 'credit' : 'completed'
+      status: creditData.isCredit ? 'credit' : 'completed',
+      ...(restaurantMeta ? {
+        orderType: restaurantMeta.orderType,
+        tableId: restaurantMeta.tableId || null,
+        tableName: restaurantMeta.tableName || null,
+      } : {})
     });
 
     if (store.selectedAppointmentId) {

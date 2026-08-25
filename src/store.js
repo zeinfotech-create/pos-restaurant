@@ -455,3 +455,29 @@ export function loadAppointmentIntoCart(data) {
     renderCartEvent();
 }
 
+/**
+ * Restaurant specific: load a table's in-progress order (or a fresh empty
+ * cart, for a brand-new dine-in/takeaway/delivery order) into the shared
+ * cart — same "clear everything, then load this concept's items" shape as
+ * loadAppointmentIntoCart() above, so it goes through the exact same
+ * checkout flow (confirmOrder(), stock deduction, staff commission, etc.)
+ * once billed. See RestaurantPOS.js.
+ */
+export function loadTableOrderIntoCart(table = null) {
+    store.cart = [];
+    store.discountRaw = 0;
+    store.discountType = 'flat';
+    store.discount = 0;
+    store.extraTaxRaw = 0;
+    store.extraTaxType = 'flat';
+    store.selectedCustomer = null;
+    store.selectedStaff = null;
+    store.selectedAppointmentId = null;
+
+    if (table?.currentOrder?.items?.length) {
+        store.cart = table.currentOrder.items.map(i => ({ ...i }));
+    }
+
+    renderCartEvent();
+}
+

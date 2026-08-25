@@ -39,4 +39,9 @@ module.exports = {
     // Staff Attendance (clock-in/out) — also single-branch, same treatment
     // as Expense above.
     Attendance: createGenericModel('Attendance'),
+    // Restaurant module: a table belongs to one branch's floor; a KOT
+    // belongs to whichever branch's kitchen it was sent to. Both single-branch,
+    // same treatment as Expense/Attendance — in branchScopedStores, not GlobalStores.
+    Table: createGenericModel('Table'),
+    Kot: createGenericModel('Kot'),
 };

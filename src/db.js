@@ -6,7 +6,7 @@ const DB_NAME = 'zepos_db';
 // at on a real device (IndexedDB versions only ever go up, never down —
 // opening with a lower version than what's already on disk throws immediately
 // and the whole app fails to initialize, before onboarding can even render).
-const DB_VERSION = 8;
+const DB_VERSION = 9; // 9: added pos_tables + pos_kots (restaurant module)
 
 class DbService {
   constructor() {
@@ -382,6 +382,12 @@ export const KEYS = {
   STOCK_TRANSFERS: 'pos_stock_transfers',
   EXPENSES: 'pos_expenses',
   ATTENDANCE: 'pos_attendance',
+  // Restaurant module: a table's live status (free/occupied/billed) + whatever
+  // order is currently open on it; a KOT is one "sent to kitchen" ticket
+  // (items only, no prices) generated from a table's (or a takeaway/delivery
+  // order's) cart at the moment it's sent — see RestaurantPOS.js.
+  TABLES: 'pos_tables',
+  KOTS: 'pos_kots',
   // Tombstones: track deleted record IDs so pos_full_state won't resurrect them
   DELETED_TOMBSTONES: 'pos_deleted_tombstones'
 };
@@ -510,6 +516,8 @@ export async function hasPermission(action) {
       'register': 'pos:access', // Register & Shifts — anyone who can use POS can access register
       'quick-pos': 'pos:access', // Same access as the regular POS screen, just a different layout
       'catalog': 'products:view', // Read-only product browsing view
+      'restaurant-pos': 'pos:access', // Same access as the regular POS screen
+      'tables': 'pos:access', // Table management — same crowd that runs the register manages the floor
     };
 
     const requiredPerm = modulePermissionMap[module];
@@ -4054,7 +4062,7 @@ export async function updateData(store, data, isSilent = false) {
     // never get an isSynced field set at all. Both are worth syncing: a
     // multi-branch owner reviewing "who imported what, when" or "was a
     // backup taken" shouldn't have to check that specific device.
-    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance'];
+    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots'];
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable
@@ -4077,7 +4085,7 @@ export async function updateData(store, data, isSilent = false) {
         // syncAllLocalData()'s own retry list, which did nothing since that
         // retry filters on isSynced !== true — a record already wrongly
         // marked true there is invisible to it too).
-        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance'];
+        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots'];
         if (syncStores.includes(store.toLowerCase())) {
           data.isSynced = false;
         } else {
@@ -4239,6 +4247,56 @@ export async function saveSubCategory(sub) {
 
 export async function deleteSubCategory(id) {
   await deleteData('sub_categories', id);
+}
+
+// ============================================================
+// Restaurant module — Tables + KOTs (Kitchen Order Tickets)
+// ============================================================
+// A Table doc holds its own live status and whatever order is currently in
+// progress on it (`currentOrder`), so multiple tables can each have their
+// own in-flight cart at once without touching the shared singleton
+// `store.cart` that POS.js/QuickPOS.js use — see RestaurantPOS.js for why.
+export async function getTables() {
+  return await db.getAll(KEYS.TABLES) || [];
+}
+
+export async function saveTable(table) {
+  if (!table.id) table.id = 'table-' + Date.now();
+  if (!table.status) table.status = 'free'; // 'free' | 'occupied' | 'billed'
+  await updateData('tables', table);
+  return table;
+}
+
+export async function deleteTable(id) {
+  await deleteData('tables', id);
+}
+
+// A KOT is a snapshot of items sent to the kitchen at one moment — items
+// only (name/qty/modifiers/notes), never prices. `orderType` is
+// 'dine-in' | 'takeaway' | 'delivery'; `tableId` is null for the latter two.
+export async function getKots() {
+  const kots = await db.getAll(KEYS.KOTS) || [];
+  return kots.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+export async function saveKot(kot) {
+  if (!kot.id) kot.id = 'kot-' + Date.now();
+  if (!kot.createdAt) kot.createdAt = new Date().toISOString();
+  if (!kot.status) kot.status = 'pending'; // 'pending' | 'preparing' | 'served'
+  await updateData('kots', kot);
+  return kot;
+}
+
+export async function updateKotStatus(id, status) {
+  const kot = await getDataById('kots', id);
+  if (!kot) return null;
+  kot.status = status;
+  await updateData('kots', kot);
+  return kot;
+}
+
+export async function deleteKot(id) {
+  await deleteData('kots', id);
 }
 
 export async function migrateCategories() {
