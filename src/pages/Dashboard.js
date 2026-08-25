@@ -205,8 +205,8 @@ export async function renderDashboard(container) {
             </div>
           ` : ''}
           ${await hasPermission('pos:access') ? `
-            <button class="btn btn-primary" onclick="window.navigate('pos')">
-              <i class="fa-solid fa-cash-register"></i> New Sale
+            <button class="btn btn-primary" onclick="window.navigate('restaurant-pos')">
+              <i class="fa-solid fa-utensils"></i> New Order
             </button>
           ` : ''}
         </div>
@@ -504,14 +504,14 @@ export async function renderDashboard(container) {
         <div class="font-bold mb-16" style="font-size:16px">Quick Actions</div>
         <div style="display:flex;flex-direction:column;gap:12px">
           ${await hasPermission('pos:access') ? `
-            <button class="dash-quick-action dash-qa-primary" onclick="window.navigate('pos')">
+            <button class="dash-quick-action dash-qa-primary" onclick="window.navigate('restaurant-pos')">
               <div class="dash-qa-icon-wrap">
-                <i class="fa-solid fa-cash-register"></i>
+                <i class="fa-solid fa-utensils"></i>
                 <div class="dash-qa-pulse"></div>
               </div>
               <div style="text-align:left;flex:1">
-                <div style="font-size:15px;font-weight:700">Open POS</div>
-                <div style="font-size:12px;opacity:0.7;font-weight:400">Start a new sale</div>
+                <div style="font-size:15px;font-weight:700">New Order</div>
+                <div style="font-size:12px;opacity:0.7;font-weight:400">Dine-in, takeaway or delivery</div>
               </div>
               <i class="fa-solid fa-arrow-right dash-qa-arrow"></i>
               <div class="dash-qa-shimmer"></div>

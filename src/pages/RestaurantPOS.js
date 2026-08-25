@@ -10,7 +10,7 @@
 // unaffected by anything here.
 // ============================================================
 
-import { getTables, saveTable, getCategories, getProducts, saveKot, getKots, updateKotStatus, getSettings, getCurrentBranch, getStaff } from '../db.js';
+import { getTables, saveTable, getCategories, getProducts, saveKot, getKots, updateKotStatus, toggleKotItemReady, getSettings, getCurrentBranch, getStaff } from '../db.js';
 import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff } from '../store.js';
 import { confirmOrder, printReceiptHtml } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
@@ -36,6 +36,7 @@ let voidLog = []; // {name, qty, reason, at, by} — audit trail for cancelled-a
 let takeawayContact = { name: '', phone: '', address: '', pickupTime: '' };
 let cartListenerRegistered = false;
 let tablesTimerInterval = null;
+let kitchenTimerInterval = null;
 
 export async function renderRestaurantPOS(container, subPage) {
   // Reset per-visit state every time the page is (re)entered fresh via nav
@@ -47,7 +48,12 @@ export async function renderRestaurantPOS(container, subPage) {
     cartListenerRegistered = true; // onCartUpdate() already de-dupes by function identity — this just avoids even attempting a re-registration (a new closure, so it WOULDN'T actually be de-duped) on every nav into this page
   }
 
-  if (subPage) {
+  if (subPage === 'kitchen') {
+    // A direct "Kitchen" quick-launch (topbar shortcut) — jump straight to
+    // the kitchen board without disturbing whatever order state (if any)
+    // was already in progress underneath it.
+    view = 'kitchen';
+  } else if (subPage) {
     // Came from Tables.js's own table click — jump straight into ordering
     // that table, re-reading its live status/currentOrder rather than
     // trusting anything the caller already had.
@@ -616,7 +622,7 @@ async function sendToKitchen(courseFilter = null) {
     course: courseFilter || null,
     contactName: takeawayContact.name || '',
     waiterName: store.selectedStaff?.name || null,
-    items: unsent.map(i => ({ name: i.name, qty: i.qty, modifiers: i.modifiers || [], notes: i.notes || '', course: i.course || null })),
+    items: unsent.map(i => ({ name: i.name, qty: i.qty, modifiers: i.modifiers || [], notes: i.notes || '', course: i.course || null, ready: false })),
     branchId,
   });
 
@@ -815,7 +821,28 @@ async function completeBill(payments) {
   await renderRestaurantPOS(document.getElementById('page-container'));
 }
 
-// ── Kitchen view — pending/preparing KOTs, advance status ─────────────────
+// ── Kitchen view — a Kanban-style board (Pending → Preparing → Ready) so the
+// whole prep pipeline is visible at a glance, plus per-item ready-checkboxes
+// inside "Preparing" so a cook can tick off each dish as it's plated rather
+// than the ticket only ever having one all-or-nothing status. A ticket
+// auto-advances to Ready the moment its last item is ticked; "Mark All
+// Ready" is a shortcut for tickets nobody wants to track item-by-item. ──────
+const KITCHEN_COLUMNS = [
+  { status: 'pending', label: 'Pending', icon: 'fa-hourglass-start', color: 'var(--text-muted)' },
+  { status: 'preparing', label: 'Preparing', icon: 'fa-fire', color: 'var(--warning)' },
+  { status: 'ready', label: 'Ready for Pickup', icon: 'fa-bell-concierge', color: 'var(--success)' },
+];
+
+// Kitchen tickets move much faster than a table's whole occupied session, so
+// these thresholds are deliberately tighter than tableDisplay.js's (10/20min
+// here vs 30/60min there) — a ticket sitting 20+ minutes is a real problem.
+function kotTimerTier(ms) {
+  const mins = ms / 60000;
+  if (mins < 10) return { color: 'var(--success)', overdue: false };
+  if (mins < 20) return { color: 'var(--warning)', overdue: false };
+  return { color: 'var(--danger)', overdue: true };
+}
+
 async function renderKitchenView() {
   const area = document.getElementById('rposContent');
   if (!area) return;
@@ -826,32 +853,122 @@ async function renderKitchenView() {
     ${kots.length === 0 ? `
       <div class="card" style="padding:40px; text-align:center; color:var(--text-muted);">Nothing pending — all caught up 🎉</div>
     ` : `
-      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:14px;">
-        ${kots.map(k => `
-          <div class="card" style="padding:16px; border-left:4px solid ${k.status === 'preparing' ? 'var(--warning)' : 'var(--primary)'};">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <div style="font-weight:800; font-size:13px;">${k.orderType === 'dine-in' ? escapeHtml(k.tableName || 'Table') : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}</div>
-              <div style="font-size:10px; color:var(--text-muted);">${new Date(k.createdAt).toLocaleTimeString()}</div>
+      <div class="rpos-kitchen-board">
+        ${KITCHEN_COLUMNS.map(col => {
+          const colKots = kots.filter(k => (k.status || 'pending') === col.status).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+          return `
+            <div class="rpos-kitchen-col">
+              <div class="rpos-kitchen-col-header" style="color:${col.color};">
+                <i class="fa-solid ${col.icon}"></i> ${col.label} <span class="rpos-kitchen-col-count">${colKots.length}</span>
+              </div>
+              <div class="rpos-kitchen-col-body">
+                ${colKots.length === 0 ? `<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:11px;">—</div>` : colKots.map(k => renderKotCard(k, col.status)).join('')}
+              </div>
             </div>
-            ${k.waiterName ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-user" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(k.waiterName)}</div>` : ''}
-            <div style="margin-top:10px; display:flex; flex-direction:column; gap:4px;">
-              ${k.items.map(i => `<div style="font-size:12px;"><b>${i.qty}x</b> ${escapeHtml(i.name)}${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted); padding-left:14px;">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(', ')}</div>` : ''}</div>`).join('')}
-            </div>
-            <div style="margin-top:12px; display:flex; gap:8px;">
-              ${k.status === 'pending' ? `<button class="btn btn-secondary btn-sm rpos-kot-advance" data-id="${k.id}" data-next="preparing" style="flex:1;">Start Preparing</button>` : ''}
-              ${k.status === 'preparing' ? `<button class="btn btn-primary btn-sm rpos-kot-advance" data-id="${k.id}" data-next="served" style="flex:1;">Mark Served</button>` : ''}
+          `;
+        }).join('')}
+      </div>
+    `}
+    <style>
+      .rpos-kitchen-board { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; align-items:start; }
+      @media (max-width:900px) { .rpos-kitchen-board { grid-template-columns:1fr; } }
+      .rpos-kitchen-col-header { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px; }
+      .rpos-kitchen-col-count { margin-left:auto; background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; padding:1px 8px; font-size:11px; }
+      .rpos-kitchen-col-body { display:flex; flex-direction:column; gap:12px; }
+      .rpos-kot-item-row { display:flex; align-items:flex-start; gap:8px; padding:3px 0; }
+      .rpos-kot-item-row.done { opacity:.55; text-decoration:line-through; }
+    </style>
+  `;
+
+  wireKitchenCardListeners();
+  startKitchenTimerLoop();
+}
+
+function renderKotCard(k, status) {
+  const elapsed = Date.now() - new Date(k.createdAt).getTime();
+  const tier = kotTimerTier(elapsed);
+  const items = k.items || [];
+  const readyCount = items.filter(i => i.ready).length;
+  return `
+    <div class="card rpos-kot-card" style="padding:14px; border-left:4px solid ${tier.color};">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <div style="font-weight:800; font-size:13px;">${k.orderType === 'dine-in' ? escapeHtml(k.tableName || 'Table') : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}</div>
+        <div class="rpos-kot-timer" data-created-at="${k.createdAt}" style="font-size:11px; font-weight:800; color:${tier.color}; white-space:nowrap;">${formatElapsed(elapsed)}${tier.overdue ? ' ⚠' : ''}</div>
+      </div>
+      ${k.waiterName ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-user" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(k.waiterName)}</div>` : ''}
+      <div style="margin-top:10px; display:flex; flex-direction:column; gap:2px;">
+        ${items.map((i, idx) => `
+          <div class="rpos-kot-item-row ${i.ready ? 'done' : ''}">
+            ${status === 'preparing'
+              ? `<input type="checkbox" class="rpos-kot-item-check" data-kot-id="${k.id}" data-idx="${idx}" ${i.ready ? 'checked' : ''} style="margin-top:3px;" />`
+              : `<i class="fa-solid ${i.ready || status === 'ready' ? 'fa-check' : 'fa-circle'}" style="font-size:${i.ready || status === 'ready' ? '9px' : '5px'}; color:${i.ready || status === 'ready' ? 'var(--success)' : 'var(--text-muted)'}; margin-top:6px;"></i>`}
+            <div style="font-size:12px; flex:1;">
+              <b>${i.qty}x</b> ${escapeHtml(i.name)}
+              ${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted);">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(', ')}</div>` : ''}
             </div>
           </div>
         `).join('')}
       </div>
-    `}
+      ${status === 'preparing' && items.length > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:8px;">${readyCount}/${items.length} items ready</div>` : ''}
+      <div style="margin-top:12px; display:flex; gap:8px;">
+        ${status === 'pending' ? `<button class="btn btn-secondary btn-sm rpos-kot-start" data-id="${k.id}" style="flex:1;"><i class="fa-solid fa-fire"></i> Start Preparing</button>` : ''}
+        ${status === 'preparing' ? `<button class="btn btn-ghost btn-sm rpos-kot-all-ready" data-id="${k.id}" style="flex:1;">Mark All Ready</button>` : ''}
+        ${status === 'ready' ? `<button class="btn btn-primary btn-sm rpos-kot-serve" data-id="${k.id}" style="flex:1;"><i class="fa-solid fa-check"></i> Serve Now</button>` : ''}
+      </div>
+    </div>
   `;
+}
 
-  document.querySelectorAll('.rpos-kot-advance').forEach(el => {
-    el.addEventListener('click', async () => {
-      await updateKotStatus(el.dataset.id, el.dataset.next);
-      await refreshKotBadge();
-      await renderKitchenView();
+function wireKitchenCardListeners() {
+  document.querySelectorAll('.rpos-kot-start').forEach(el => el.addEventListener('click', async () => {
+    await updateKotStatus(el.dataset.id, 'preparing');
+    await refreshKotBadge();
+    await renderKitchenView();
+  }));
+  document.querySelectorAll('.rpos-kot-serve').forEach(el => el.addEventListener('click', async () => {
+    await updateKotStatus(el.dataset.id, 'served');
+    showToast('Served 🎉', 'success');
+    await refreshKotBadge();
+    await renderKitchenView();
+  }));
+  document.querySelectorAll('.rpos-kot-all-ready').forEach(el => el.addEventListener('click', async () => {
+    const kots = await getKots();
+    const kot = kots.find(k => k.id === el.dataset.id);
+    if (!kot) return;
+    kot.items = (kot.items || []).map(i => ({ ...i, ready: true }));
+    kot.status = 'ready';
+    await saveKot(kot);
+    showToast('All items ready — moved to pickup 🔔', 'success');
+    await refreshKotBadge();
+    await renderKitchenView();
+  }));
+  document.querySelectorAll('.rpos-kot-item-check').forEach(el => el.addEventListener('change', async (e) => {
+    const kotId = el.dataset.kotId;
+    const idx = parseInt(el.dataset.idx, 10);
+    const kot = await toggleKotItemReady(kotId, idx, e.target.checked);
+    if (kot && kot.items.length > 0 && kot.items.every(i => i.ready)) {
+      await updateKotStatus(kotId, 'ready');
+      showToast('All items ready — moved to pickup 🔔', 'success');
+    }
+    await refreshKotBadge();
+    await renderKitchenView();
+  }));
+}
+
+function startKitchenTimerLoop() {
+  if (kitchenTimerInterval) clearInterval(kitchenTimerInterval);
+  kitchenTimerInterval = setInterval(() => {
+    const area = document.getElementById('rposContent');
+    if (!area) { clearInterval(kitchenTimerInterval); kitchenTimerInterval = null; return; }
+    const timers = area.querySelectorAll('.rpos-kot-timer');
+    if (timers.length === 0) { clearInterval(kitchenTimerInterval); kitchenTimerInterval = null; return; }
+    timers.forEach(el => {
+      const createdAt = el.dataset.createdAt;
+      if (!createdAt) return;
+      const ms = Date.now() - new Date(createdAt).getTime();
+      const tier = kotTimerTier(ms);
+      el.textContent = `${formatElapsed(ms)}${tier.overdue ? ' ⚠' : ''}`;
+      el.style.color = tier.color;
     });
-  });
+  }, 15000);
 }

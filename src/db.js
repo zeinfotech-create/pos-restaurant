@@ -4295,6 +4295,19 @@ export async function updateKotStatus(id, status) {
   return kot;
 }
 
+// Per-item prep tracking within one ticket — 'pending'/'preparing' KOTs use
+// this so a cook can tick off each dish as it's plated instead of the whole
+// ticket only ever having one all-or-nothing status. The caller (Kitchen
+// view) checks whether every item came back ready and promotes the whole
+// ticket to 'ready' itself — this just persists the one item's flag.
+export async function toggleKotItemReady(id, itemIndex, ready) {
+  const kot = await getDataById('kots', id);
+  if (!kot || !kot.items?.[itemIndex]) return null;
+  kot.items[itemIndex].ready = ready;
+  await updateData('kots', kot);
+  return kot;
+}
+
 export async function deleteKot(id) {
   await deleteData('kots', id);
 }

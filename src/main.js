@@ -101,8 +101,6 @@ async function renderSidebar() {
     <nav class="sidebar-nav">
       <span class="nav-section-label"><span>Main</span></span>
       <button class="nav-item ${getCurrentPage().startsWith('dashboard') ? 'active' : ''}" data-page="dashboard"><i class="fa-solid fa-gauge-high"></i> <span>Dashboard</span></button>
-      ${perms.pos ? `<button class="nav-item ${getCurrentPage().startsWith('pos') ? 'active' : ''}" data-page="pos"><i class="fa-solid fa-cash-register"></i> <span>POS</span></button>` : ''}
-      ${perms.pos ? `<button class="nav-item ${getCurrentPage().startsWith('quick-pos') ? 'active' : ''}" data-page="quick-pos"><i class="fa-solid fa-bolt"></i> <span>Quick POS</span></button>` : ''}
       ${perms.pos ? `<button class="nav-item ${getCurrentPage().startsWith('restaurant-pos') ? 'active' : ''}" data-page="restaurant-pos"><i class="fa-solid fa-utensils"></i> <span>Restaurant POS</span></button>` : ''}
       ${perms.pos ? `<button class="nav-item ${getCurrentPage().startsWith('tables') ? 'active' : ''}" data-page="tables"><i class="fa-solid fa-chair"></i> <span>Tables</span></button>` : ''}
 
@@ -526,9 +524,9 @@ async function renderTopbar() {
         </div>
         <div class="quick-add-menu hidden" id="quickAddMenu">
           <div class="quick-add-header">Quick Actions</div>
-          <div class="quick-add-item" onclick="window.navigate('pos')">
-            <i class="fa-solid fa-cash-register"></i>
-            <span>New Sale (POS)</span>
+          <div class="quick-add-item" onclick="window.navigate('restaurant-pos')">
+            <i class="fa-solid fa-utensils"></i>
+            <span>New Order</span>
           </div>
           <div class="quick-add-item" onclick="window.navigate('customers/add')">
             <i class="fa-solid fa-user-plus"></i>
@@ -562,9 +560,13 @@ async function renderTopbar() {
           <span>Quick Launcher</span>
         </div>
         <div class="shortcut-grid">
-          <div class="shortcut-item" onclick="window.navigate('quick-pos')">
-            <i class="fa-solid fa-bolt"></i>
-            <span class="shortcut-label">Quick POS</span>
+          <div class="shortcut-item" onclick="window.navigate('restaurant-pos/kitchen')">
+            <i class="fa-solid fa-kitchen-set"></i>
+            <span class="shortcut-label">Kitchen</span>
+          </div>
+          <div class="shortcut-item" onclick="window.navigate('tables')">
+            <i class="fa-solid fa-chair"></i>
+            <span class="shortcut-label">Tables</span>
           </div>
           <div class="shortcut-item" id="shortcut-customer-screen">
             <i class="fa-solid fa-display"></i>
@@ -1788,7 +1790,7 @@ window.__testOpenShift = async () => {
 window.addEventListener('keydown', (e) => {
   if (e.altKey && e.key.toLowerCase() === 'q') {
     e.preventDefault();
-    import('./router.js').then(m => m.navigate('quick-pos'));
+    import('./router.js').then(m => m.navigate('restaurant-pos'));
   }
 });
 
