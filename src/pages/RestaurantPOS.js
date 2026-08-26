@@ -334,7 +334,7 @@ async function renderPickerView() {
           guestCount = count; // fresh table has no currentOrder to read a guest count from
           updateBackButtonLabel();
           await renderOrderingView();
-        });
+        }, tableDisplayCapacity(table, allTables));
       }
     });
   });
@@ -432,13 +432,18 @@ function startCounterOrdersTimerLoop() {
   }, 30000);
 }
 
-function promptGuestCount(onConfirm) {
+// `capacity`, when given, is checked against what's entered — exceeding it
+// isn't blocked outright (a shop might genuinely pull up an extra chair),
+// but it needs an explicit confirmation instead of silently being accepted,
+// with merging tables offered as the proper alternative for a larger party.
+function promptGuestCount(onConfirm, capacity = null) {
   openModal({
     title: '<i class="fa-solid fa-users mr-8"></i> Party Size',
     body: `
       <div class="form-group">
         <label class="form-label">Number of guests</label>
         <input class="form-input" id="rposGuestCountInput" type="number" min="1" value="2" autofocus />
+        ${capacity ? `<p style="font-size:11px; color:var(--text-muted); margin-top:6px;">This table seats up to ${capacity}. For a larger party, merge tables from the Tables page first.</p>` : ''}
       </div>
     `,
     footer: `
@@ -449,8 +454,16 @@ function promptGuestCount(onConfirm) {
   setTimeout(() => {
     const input = document.getElementById('rposGuestCountInput');
     input?.focus(); input?.select();
-    const confirm = () => {
+    const confirm = async () => {
       const count = Math.max(1, parseInt(input?.value, 10) || 1);
+      if (capacity && count > capacity) {
+        const proceed = await showConfirm({
+          title: 'Party size exceeds seating',
+          message: `This table seats up to ${capacity}, but ${count} guests were entered. Continue anyway, or cancel and merge tables from the Tables page for a larger party?`,
+          okText: 'Continue Anyway'
+        });
+        if (!proceed) return;
+      }
       closeModal();
       onConfirm(count);
     };
@@ -672,7 +685,7 @@ async function renderOrderingView() {
       guestCount = count;
       await persistOrderState();
       await renderOrderingView();
-    });
+    }, selectedTable ? tableDisplayCapacity(selectedTable, allTables) : null);
   });
   // 'input' keeps takeawayContact live as the cashier types (so an
   // immediately-following Send/Bill click always reads the latest value);
