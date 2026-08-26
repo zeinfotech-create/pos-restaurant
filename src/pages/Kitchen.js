@@ -130,7 +130,15 @@ function renderSyncStatus() {
   if (!el) return;
   const online = syncEngine.isConnected;
   el.style.color = online ? 'var(--success)' : 'var(--danger)';
-  el.innerHTML = `<i class="fa-solid fa-circle" style="font-size:7px;"></i> ${online ? 'Live' : 'Reconnecting…'}`;
+  // Showing the connected tenant key (truncated) only on the popped-out/
+  // mobile route is a debug aid, not a UX feature — it's what actually
+  // makes a "Live but shows nothing" report diagnosable from a screenshot
+  // alone: 'LOCAL_EXE' here means this device registered as an unclaimed
+  // placeholder, not this shop's real tenant, and would never see the
+  // main POS's data no matter how "Live" it looks.
+  const isPopout = location.hash.startsWith('#kitchen-display') || location.hash.startsWith('#kd');
+  const keyBadge = isPopout && syncEngine.licenseKey ? ` <span style="opacity:.5; font-weight:600;">(${syncEngine.licenseKey})</span>` : '';
+  el.innerHTML = `<i class="fa-solid fa-circle" style="font-size:7px;"></i> ${online ? 'Live' : 'Reconnecting…'}${keyBadge}`;
 }
 
 async function renderKitchenContent() {

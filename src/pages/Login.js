@@ -264,7 +264,20 @@ export function renderLogin(container) {
               const currentSettings = await getSettings();
               const userLicenseKey = res.licenseKey || res.user?.licenseKey;
               if (userLicenseKey && userLicenseKey !== 'LOCAL_EXE' && !currentSettings.licenseKey) {
-                updateSettings({
+                // MUST be awaited — a device with only one branch auto-skips
+                // the branch-picker step (see below) straight to
+                // finalizeLogin(), which can reach the 1.5s reload timer
+                // almost immediately. This write firing-and-forgetting
+                // raced that reload on a fresh device (a phone hitting
+                // kd/kitchen-display with no prior local settings at all):
+                // the reload's init() read whatever was in IndexedDB
+                // BEFORE this write actually landed, still saw no
+                // licenseKey, and registered its WebSocket connection under
+                // the 'LOCAL_EXE' placeholder tenant forever — a real
+                // shop's data, sent from a device that HAS the correct key
+                // (the main POS), never reaching a Kitchen Display stuck
+                // registered under the wrong tenant.
+                await updateSettings({
                   licenseKey: userLicenseKey,
                   networkId: res.networkId || userLicenseKey
                 });
