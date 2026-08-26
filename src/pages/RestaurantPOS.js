@@ -956,6 +956,31 @@ async function renderOrderingView() {
 
   document.getElementById('rposPreviewBillBtn')?.addEventListener('click', previewBill);
   document.getElementById('rposBillBtn')?.addEventListener('click', openPaymentPanel);
+  registerOrderingViewLiveRefresh();
+}
+
+let orderingViewLiveListenerRegistered = false;
+// Marking a dish served happens on the KITCHEN side — Kitchen.js's own
+// board, or the popped-out Kitchen Display window, both completely outside
+// this screen — without this, a cart item's "In kitchen queue"/"Served"
+// badge and the Bill Now button's disabled state only ever updated on the
+// NEXT unrelated action that happened to re-render this view (a qty
+// tap, a search keystroke), not the moment the dish was actually served.
+// Same 'storage-change' (this device) + 'data-synced' (arrived via LAN
+// sync from a separate device) pairing as Kitchen.js's and the box
+// picker's own live refresh, for the same reason. Guarded/self-checking
+// the same way, since this page has no unmount hook to unregister it with.
+function registerOrderingViewLiveRefresh() {
+  if (orderingViewLiveListenerRegistered) return;
+  const onKotChange = (e) => {
+    if (e.detail?.store !== 'kots') return;
+    if (!(view === 'ordering')) return;
+    if (!document.getElementById('rposContent')) return;
+    renderOrderingView();
+  };
+  window.addEventListener('storage-change', onKotChange);
+  window.addEventListener('data-synced', onKotChange);
+  orderingViewLiveListenerRegistered = true;
 }
 
 // Recovery action for the 'not_found' kitchen-status case — un-fires the
