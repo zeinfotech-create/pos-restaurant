@@ -12,7 +12,7 @@
 import { getKots, updateKotStatus, setKotItemStatus, saveKot } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
-import { formatElapsed, pillHtml } from '../utils/tableDisplay.js';
+import { formatElapsed } from '../utils/tableDisplay.js';
 
 let kitchenTimerInterval = null;
 let liveListenerRegistered = false;
@@ -161,7 +161,7 @@ function ticketHeader(k) {
     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
       <div style="font-weight:800; font-size:13px; display:flex; align-items:center; gap:6px;">
         ${k.tableName ? escapeHtml(k.tableName) : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}
-        ${isAddOn ? pillHtml(`ADD-ON #${k.waveNumber}`, 'var(--warning)', null, { icon: 'fa-circle-plus', filled: true }) : ''}
+        ${isAddOn ? `<span style="font-size:9.5px; font-weight:800; color:var(--warning); white-space:nowrap;"><i class="fa-solid fa-circle-plus" style="margin-right:3px;"></i>ADD-ON #${k.waveNumber}</span>` : ''}
       </div>
       <div class="rpos-kot-timer" data-created-at="${k.createdAt}" style="font-size:11px; font-weight:800; color:${tier.color}; white-space:nowrap;">${formatElapsed(elapsed)}${tier.overdue ? ' ⚠' : ''}</div>
     </div>
@@ -174,7 +174,7 @@ function newTicketItemLine(i) {
   return `
     <div style="display:flex; align-items:center; gap:8px; ${i.itemStatus === 'voided' ? 'opacity:.55;' : ''}">
       <div style="flex:1; font-size:12px; ${i.itemStatus === 'voided' ? 'text-decoration:line-through;' : ''}"><b>${i.qty}x</b> ${escapeHtml(i.name)}${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted); padding-left:14px;">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(', ')}</div>` : ''}</div>
-      ${i.itemStatus === 'voided' ? pillHtml('Cancelled', 'var(--danger)', 'rgba(239,68,68,0.12)', { icon: 'fa-ban' }) : ''}
+      ${i.itemStatus === 'voided' ? `<span style="font-size:10px; font-weight:700; color:var(--danger); white-space:nowrap;"><i class="fa-solid fa-ban"></i> Cancelled</span>` : ''}
     </div>
   `;
 }
@@ -239,8 +239,8 @@ function activeItemRow(k, i, idx, meta) {
         <div style="font-size:12px; ${i.itemStatus === 'served' || i.itemStatus === 'voided' ? 'text-decoration:line-through;' : ''}"><b>${i.qty}x</b> ${escapeHtml(i.name)}</div>
         ${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted);">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(', ')}</div>` : ''}
       </div>
-      ${i.itemStatus === 'voided' ? pillHtml('Cancelled', 'var(--danger)', 'rgba(239,68,68,0.12)', { icon: 'fa-ban' }) : ''}
-      ${i.itemStatus === 'served' ? pillHtml(meta.doneLabel, 'var(--primary)', 'rgba(100,116,139,0.1)', { icon: 'fa-check-double' }) : ''}
+      ${i.itemStatus === 'voided' ? `<span style="font-size:10px; font-weight:700; color:var(--danger); white-space:nowrap;"><i class="fa-solid fa-ban"></i> Cancelled</span>` : ''}
+      ${i.itemStatus === 'served' ? `<span style="font-size:10px; font-weight:700; color:var(--primary); white-space:nowrap;"><i class="fa-solid fa-check-double"></i> ${meta.doneLabel}</span>` : ''}
       ${(!i.itemStatus || i.itemStatus === 'pending') ? `<button class="btn btn-ghost btn-sm rpos-item-ready" data-kot-id="${k.id}" data-idx="${idx}" style="font-size:11px; white-space:nowrap;">Ready</button>` : ''}
       ${i.itemStatus === 'ready' ? `<button class="btn btn-primary btn-sm rpos-item-serve" data-kot-id="${k.id}" data-idx="${idx}" style="font-size:11px; white-space:nowrap;"><i class="fa-solid ${meta.icon}"></i> ${meta.verb}</button>` : ''}
     </div>

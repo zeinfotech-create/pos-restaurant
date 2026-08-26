@@ -31,7 +31,7 @@ import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, pillHtml, formatElapsed, timerTier } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier } from '../utils/tableDisplay.js';
 
 // A fixed, common set of toggle-able modifiers — every menu item shares the
 // same list rather than per-product-configured modifier groups. Simpler to
@@ -42,18 +42,15 @@ const COURSES = ['Starters', 'Mains', 'Desserts', 'Other'];
 
 
 const KITCHEN_ITEM_META = {
-  pending: { label: 'In kitchen queue', icon: 'fa-hourglass-half', color: 'var(--text-muted)', bg: 'rgba(100,116,139,0.12)' },
-  ready: { label: 'Ready — pickup!', icon: 'fa-bell', color: 'var(--success)', bg: 'rgba(34,197,94,0.12)' },
-  // bg is a neutral gray tint (not a --primary-derived one) since --primary
-  // is themeable and a hardcoded rgba approximation of it would look wrong
-  // on any theme that retints --primary away from indigo.
-  served: { label: 'Served', icon: 'fa-check-double', color: 'var(--primary)', bg: 'rgba(100,116,139,0.1)' },
+  pending: { label: 'In kitchen queue', icon: 'fa-hourglass-half', color: 'var(--text-muted)' },
+  ready: { label: 'Ready — pickup!', icon: 'fa-bell', color: 'var(--success)' },
+  served: { label: 'Served', icon: 'fa-check-double', color: 'var(--primary)' },
   // A "sent" item that genuinely has no matching KOT entry anywhere — should
   // never happen if sendToKitchen() and Kitchen.js stay in sync, but if it
   // ever does, this makes the mismatch visible and one-click recoverable
   // (Resend) instead of silently looking like a normal queued item forever
   // while actually blocking Bill Now for a ticket the kitchen never sees.
-  not_found: { label: 'Not showing in Kitchen — resend', icon: 'fa-triangle-exclamation', color: 'var(--danger)', bg: 'rgba(239,68,68,0.12)' },
+  not_found: { label: 'Not showing in Kitchen — resend', icon: 'fa-triangle-exclamation', color: 'var(--danger)' },
 };
 
 let view = 'picker'; // 'picker' | 'ordering'
@@ -814,8 +811,8 @@ async function renderOrderingView() {
               const meta = KITCHEN_ITEM_META[kStatus] || KITCHEN_ITEM_META.pending;
               sentBadge = `
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  ${pillHtml(`${sentQty}x ${meta.label}${i.course ? ` · ${escapeHtml(i.course)}` : ''}`, meta.color, meta.bg, { icon: meta.icon })}
-                  ${pendingQty > 0 ? pillHtml(`+${pendingQty} new`, 'var(--warning)', 'rgba(245,158,11,0.12)') : ''}
+                  <span style="font-size:10px; font-weight:700; color:${meta.color};"><i class="fa-solid ${meta.icon}"></i> ${sentQty}x ${meta.label}${i.course ? ` · ${escapeHtml(i.course)}` : ''}</span>
+                  ${pendingQty > 0 ? `<span style="font-size:10px; font-weight:700; color:var(--warning);">+${pendingQty} new</span>` : ''}
                   ${kStatus === 'not_found' ? `<button class="btn-icon rpos-resend-item" data-cart-id="${i.cartId}" title="Resend to kitchen"><i class="fa-solid fa-rotate-right" style="font-size:10px; color:var(--danger);"></i></button>` : ''}
                   ${pendingQty <= 0 && kStatus !== 'served' && kStatus !== 'not_found' ? `<button class="btn-icon rpos-modify-item" data-cart-id="${i.cartId}" title="Modify"><i class="fa-solid fa-pen" style="font-size:10px;"></i></button>` : ''}
                 </div>
