@@ -107,10 +107,21 @@ export async function renderRestaurantPOS(container, subPage) {
   await render(container);
 }
 
+// A cart item saved by a build before per-quantity sent-tracking existed
+// only has the old `sentToKitchen` boolean — treat that as "the whole
+// current quantity was already sent" so a table/order resumed mid-flight
+// on this build doesn't suddenly think everything needs re-sending.
+function migrateLegacySentFlags() {
+  store.cart.forEach(i => {
+    if (i.sentQty === undefined && i.sentToKitchen) i.sentQty = i.qty;
+  });
+}
+
 async function enterTable(table) {
   selectedTable = table;
   orderType = 'dine-in';
   loadTableOrderIntoCart(table);
+  migrateLegacySentFlags();
   // Dine-in orders use the table's OWN id as their session key — stable and
   // deterministic, rather than a freshly-generated random one. A table can
   // only ever have one current order, so its id is already a perfectly good
@@ -153,6 +164,7 @@ async function enterCounterOrder(order) {
   };
   changeLog = order.changeLog || [];
   loadTableOrderIntoCart(order.items?.length ? { currentOrder: { items: order.items } } : null);
+  migrateLegacySentFlags();
   if (order.waiterId) {
     const waiter = (await getStaff()).find(s => s.id === order.waiterId);
     setStaff(waiter || null);
@@ -524,7 +536,7 @@ async function getOrderServeStatus() {
   const kitchenStatusMap = await buildKitchenStatusMap();
   let outstanding = 0;
   store.cart.forEach(i => {
-    if (!i.sentToKitchen) { outstanding++; return; }
+    if (i.qty > (i.sentQty || 0)) { outstanding++; return; } // still has an un-sent pending portion
     if (summarizeCartIdStatus(kitchenStatusMap.get(i.cartId)) !== 'served') outstanding++;
   });
   return { kitchenStatusMap, outstanding, fullyServed: store.cart.length > 0 && outstanding === 0 };
@@ -544,8 +556,12 @@ async function renderOrderingView() {
   const search = menuSearch.trim().toLowerCase();
   const products = (await getProducts()).filter(p => (!activeCategory || p.category === activeCategory) && (!search || (p.name || '').toLowerCase().includes(search)));
   const totals = getCartTotals();
-  const unsent = store.cart.filter(i => !i.sentToKitchen);
-  const coursesPresent = [...new Set(unsent.map(i => i.course).filter(Boolean))];
+  // "Unsent" means QUANTITY still owed to the kitchen, not just whether the
+  // line has ever been sent at all — a line already partly sent (e.g. 1 of
+  // an eventual 3 went out already) still shows up here for the remaining
+  // 2, so a second Send never re-fires what's already on its way.
+  const pendingItems = store.cart.filter(i => i.qty > (i.sentQty || 0));
+  const coursesPresent = [...new Set(pendingItems.map(i => i.course).filter(Boolean))];
   const serveStatus = await getOrderServeStatus();
 
   area.innerHTML = `
@@ -592,7 +608,24 @@ async function renderOrderingView() {
       <div class="card" style="padding:16px; position:sticky; top:0;">
         <div style="font-size:13px; font-weight:800; margin-bottom:10px;">🛒 Order (${store.cart.length} item${store.cart.length === 1 ? '' : 's'})</div>
         <div style="max-height:36vh; overflow-y:auto;">
-          ${store.cart.length === 0 ? `<div style="text-align:center; padding:24px; color:var(--text-muted); font-size:12px;">No items yet — tap a menu item to add it</div>` : store.cart.map(i => `
+          ${store.cart.length === 0 ? `<div style="text-align:center; padding:24px; color:var(--text-muted); font-size:12px;">No items yet — tap a menu item to add it</div>` : store.cart.map(i => {
+            const sentQty = i.sentQty || 0;
+            const pendingQty = Math.max(0, parseFloat((i.qty - sentQty).toFixed(3)));
+            let sentBadge = '';
+            if (sentQty > 0) {
+              const kStatus = summarizeCartIdStatus(serveStatus.kitchenStatusMap.get(i.cartId));
+              if (kStatus === 'not_found') console.error(`[RestaurantPOS] "${i.name}" is marked sent but has no matching KOT entry (orderSessionId=${orderSessionId}) — offering Resend.`);
+              const meta = KITCHEN_ITEM_META[kStatus] || KITCHEN_ITEM_META.pending;
+              sentBadge = `
+                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                  <span style="font-size:10px; font-weight:700; color:${meta.color};"><i class="fa-solid ${meta.icon}"></i> ${sentQty}x ${meta.label}${i.course ? ` · ${escapeHtml(i.course)}` : ''}</span>
+                  ${pendingQty > 0 ? `<span style="font-size:10px; font-weight:700; color:var(--warning);">+${pendingQty} new</span>` : ''}
+                  ${kStatus === 'not_found' ? `<button class="btn-icon rpos-resend-item" data-cart-id="${i.cartId}" title="Resend to kitchen"><i class="fa-solid fa-rotate-right" style="font-size:10px; color:var(--danger);"></i></button>` : ''}
+                  ${pendingQty <= 0 && kStatus !== 'served' && kStatus !== 'not_found' ? `<button class="btn-icon rpos-modify-item" data-cart-id="${i.cartId}" title="Modify"><i class="fa-solid fa-pen" style="font-size:10px;"></i></button>` : ''}
+                </div>
+              `;
+            }
+            return `
             <div class="rpos-cart-item">
               <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
                 <div style="font-size:12.5px; font-weight:700; flex:1;">${escapeHtml(i.name)}</div>
@@ -600,33 +633,24 @@ async function renderOrderingView() {
               </div>
               ${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(' · ')}</div>` : ''}
               <div style="display:flex; align-items:center; justify-content:space-between; margin-top:6px; flex-wrap:wrap; gap:6px;">
-                ${i.sentToKitchen ? (() => {
-                  const kStatus = summarizeCartIdStatus(serveStatus.kitchenStatusMap.get(i.cartId));
-                  if (kStatus === 'not_found') console.error(`[RestaurantPOS] "${i.name}" is marked sent but has no matching KOT entry (orderSessionId=${orderSessionId}) — offering Resend.`);
-                  const meta = KITCHEN_ITEM_META[kStatus] || KITCHEN_ITEM_META.pending;
-                  return `
-                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                      <span style="font-size:10px; font-weight:700; color:${meta.color};"><i class="fa-solid ${meta.icon}"></i> ${meta.label}${i.course ? ` · ${escapeHtml(i.course)}` : ''} · x${i.qty}</span>
-                      ${kStatus === 'not_found' ? `<button class="btn-icon rpos-resend-item" data-cart-id="${i.cartId}" title="Resend to kitchen"><i class="fa-solid fa-rotate-right" style="font-size:10px; color:var(--danger);"></i></button>` : ''}
-                      ${kStatus !== 'served' && kStatus !== 'not_found' ? `<button class="btn-icon rpos-modify-item" data-cart-id="${i.cartId}" title="Modify"><i class="fa-solid fa-pen" style="font-size:10px;"></i></button>` : ''}
-                    </div>
-                  `;
-                })() : `
-                  <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                    <button class="btn-icon rpos-qty-minus" data-cart-id="${i.cartId}"><i class="fa-solid fa-minus" style="font-size:10px;"></i></button>
-                    <span style="font-size:12px; font-weight:700; min-width:18px; text-align:center;">${i.qty}</span>
-                    <button class="btn-icon rpos-qty-plus" data-cart-id="${i.cartId}"><i class="fa-solid fa-plus" style="font-size:10px;"></i></button>
+                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                  <button class="btn-icon rpos-qty-minus" data-cart-id="${i.cartId}"><i class="fa-solid fa-minus" style="font-size:10px;"></i></button>
+                  <span style="font-size:12px; font-weight:700; min-width:18px; text-align:center;">${i.qty}</span>
+                  <button class="btn-icon rpos-qty-plus" data-cart-id="${i.cartId}"><i class="fa-solid fa-plus" style="font-size:10px;"></i></button>
+                  ${sentQty <= 0 ? `
                     <button class="btn-icon rpos-customize-item" data-cart-id="${i.cartId}" title="Customize"><i class="fa-solid fa-sliders" style="font-size:10px;"></i></button>
                     <select class="form-input rpos-course-select" data-cart-id="${i.cartId}" style="font-size:10px; padding:2px 4px; max-width:82px;">
                       <option value="">Course</option>
                       ${COURSES.map(c => `<option value="${c}" ${i.course === c ? 'selected' : ''}>${c}</option>`).join('')}
                     </select>
-                  </div>
-                `}
+                  ` : ''}
+                </div>
+                ${sentBadge}
                 <div style="font-size:12px; font-weight:800;">${cur}${(i.price * i.qty).toFixed(2)}</div>
               </div>
             </div>
-          `).join('')}
+          `;
+          }).join('')}
         </div>
         <div style="border-top:1px solid var(--border); margin-top:12px; padding-top:10px; display:flex; flex-direction:column; gap:4px; font-size:12px;">
           <div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>Subtotal</span><span>${cur}${totals.subtotal.toFixed(2)}</span></div>
@@ -636,7 +660,7 @@ async function renderOrderingView() {
           <div style="display:flex; justify-content:space-between; font-size:15px; font-weight:800; margin-top:4px; padding-top:6px; border-top:1px solid var(--border);"><span>Total</span><span>${cur}${totals.total.toFixed(2)}</span></div>
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
-          ${renderSendControls(unsent, coursesPresent)}
+          ${renderSendControls(pendingItems, coursesPresent)}
           <button class="btn btn-ghost" id="rposPreviewBillBtn" ${store.cart.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-print"></i> Preview Bill</button>
           <button class="btn btn-ghost" id="rposSplitBillBtn" ${store.cart.length === 0 || !serveStatus.fullyServed ? 'disabled' : ''}><i class="fa-solid fa-scissors"></i> Split Bill</button>
           <button class="btn btn-primary" id="rposBillBtn" ${store.cart.length === 0 || !serveStatus.fullyServed ? 'disabled' : ''}><i class="fa-solid fa-receipt"></i> Bill Now — ${cur}${totals.total.toFixed(2)}</button>
@@ -653,13 +677,11 @@ async function renderOrderingView() {
     el.addEventListener('click', async () => {
       const product = products.find(p => String(p.id) === el.dataset.id);
       if (!product) return;
+      // addToCart() just increments qty on the existing line — sentQty is
+      // untouched, so the increase automatically becomes a new pending
+      // delta the next Send to Kitchen picks up. Nothing already sent gets
+      // touched or re-fired, so quantities can never double up.
       addToCart(product);
-      // If this line had already been fired to the kitchen, adding more of
-      // it "un-fires" the whole line again — the kitchen needs to know
-      // about the extra quantity, so it goes out on the next Send.
-      const cartId = variantCartId(product);
-      const item = store.cart.find(i => i.cartId === cartId);
-      if (item?.sentToKitchen) { item.sentToKitchen = false; await renderOrderingView(); }
     });
   });
   document.querySelectorAll('.rpos-remove-item').forEach(el => el.addEventListener('click', () => requestRemoveItem(el.dataset.cartId)));
@@ -709,9 +731,6 @@ async function renderOrderingView() {
   document.getElementById('rposBillBtn')?.addEventListener('click', () => openPaymentPanel());
 }
 
-function variantCartId(product, variant = null) {
-  return variant ? `${product.id}_${variant.name}` : String(product.id);
-}
 
 // Recovery action for the 'not_found' kitchen-status case — un-fires the
 // item locally so the next Send to Kitchen creates a fresh, properly-linked
@@ -719,7 +738,7 @@ function variantCartId(product, variant = null) {
 async function resendItem(cartId) {
   const item = store.cart.find(i => i.cartId === cartId);
   if (!item) return;
-  item.sentToKitchen = false;
+  item.sentQty = 0;
   showToast('Ready to resend — tap Send to Kitchen again.', 'info');
   await renderOrderingView();
 }
@@ -728,17 +747,17 @@ async function resendItem(cartId) {
 // them (per-item Course pickers) — until then this stays the plain single
 // "Send to Kitchen" button so a shop that doesn't care about courses sees no
 // extra complexity.
-function renderSendControls(unsent, coursesPresent) {
-  if (unsent.length === 0) {
+function renderSendControls(pendingItems, coursesPresent) {
+  if (pendingItems.length === 0) {
     return store.cart.length === 0 ? '' : `<button class="btn btn-secondary" disabled><i class="fa-solid fa-check"></i> All Sent to Kitchen</button>`;
   }
   if (coursesPresent.length === 0) {
-    return `<button class="btn btn-secondary rpos-send-course" data-course=""><i class="fa-solid fa-kitchen-set"></i> Send to Kitchen (${unsent.length})</button>`;
+    return `<button class="btn btn-secondary rpos-send-course" data-course=""><i class="fa-solid fa-kitchen-set"></i> Send to Kitchen (${pendingItems.length})</button>`;
   }
   return `
     <div style="display:flex; gap:6px; flex-wrap:wrap;">
-      <button class="btn btn-secondary btn-sm rpos-send-course" data-course="" style="flex:1 1 100%;"><i class="fa-solid fa-kitchen-set"></i> Send All Pending (${unsent.length})</button>
-      ${coursesPresent.map(c => `<button class="btn btn-ghost btn-sm rpos-send-course" data-course="${escapeHtml(c)}" style="flex:1;">${escapeHtml(c)} (${unsent.filter(i => i.course === c).length})</button>`).join('')}
+      <button class="btn btn-secondary btn-sm rpos-send-course" data-course="" style="flex:1 1 100%;"><i class="fa-solid fa-kitchen-set"></i> Send All Pending (${pendingItems.length})</button>
+      ${coursesPresent.map(c => `<button class="btn btn-ghost btn-sm rpos-send-course" data-course="${escapeHtml(c)}" style="flex:1;">${escapeHtml(c)} (${pendingItems.filter(i => i.course === c).length})</button>`).join('')}
     </div>
   `;
 }
@@ -844,7 +863,7 @@ async function openModifyModal(cartId) {
       logChange(item, reason, 'modify');
       await voidCartItemInKots(cartId);
       closeModal();
-      updateCartItem(cartId, { qty, modifiers: Array.from(selected), notes, sentToKitchen: false });
+      updateCartItem(cartId, { qty, modifiers: Array.from(selected), notes, sentQty: 0 });
       await persistOrderState();
       showToast('Updated — will go out on next Send to Kitchen', 'info');
     });
@@ -907,7 +926,7 @@ async function voidCartItemInKots(cartId) {
 function requestRemoveItem(cartId) {
   const item = store.cart.find(i => i.cartId === cartId);
   if (!item) return;
-  if (item.sentToKitchen) {
+  if ((item.sentQty || 0) > 0) {
     promptVoidReason(item, async (reason) => {
       logChange(item, reason, 'cancel');
       await voidCartItemInKots(cartId);
@@ -922,10 +941,16 @@ function requestRemoveItem(cartId) {
 function requestQtyMinus(cartId) {
   const item = store.cart.find(i => i.cartId === cartId);
   if (!item) return;
-  if (item.sentToKitchen && item.qty <= 1) {
+  const nextQty = parseFloat((item.qty - 1).toFixed(3));
+  if ((item.sentQty || 0) > 0 && nextQty < item.sentQty) {
+    // This reduction eats into what's already been sent — needs a reason,
+    // and the old kitchen ticket (sized for the higher quantity) is now
+    // wrong, so void it entirely; whatever quantity remains goes out fresh
+    // on the next Send rather than trying to shrink an already-fired ticket.
     promptVoidReason(item, async (reason) => {
       logChange(item, reason, 'cancel');
       await voidCartItemInKots(cartId);
+      item.sentQty = 0;
       await updateQty(cartId, -1);
       await persistOrderState();
     });
@@ -958,8 +983,16 @@ async function persistOrderState() {
 // ── Send to Kitchen — optionally scoped to one course, so Starters can go
 // out well ahead of Mains instead of the whole order firing at once. ──────
 async function sendToKitchen(courseFilter = null) {
-  const unsent = store.cart.filter(i => !i.sentToKitchen && (!courseFilter || i.course === courseFilter));
-  if (unsent.length === 0) return;
+  // Send exactly the un-sent DELTA of each line, not its whole current
+  // quantity — a line already partly sent (say 1 of an eventual 3) only
+  // owes the kitchen 2 more, never the full 3 again. This is what actually
+  // fixes double-counting when more of an already-fired item gets added:
+  // the earlier ticket for the first 1 stays exactly as it was, and this
+  // send only ever asks for what genuinely hasn't gone out yet.
+  const pending = store.cart
+    .map(i => ({ item: i, sendQty: Math.max(0, parseFloat((i.qty - (i.sentQty || 0)).toFixed(3))) }))
+    .filter(({ item, sendQty }) => sendQty > 0 && (!courseFilter || item.course === courseFilter));
+  if (pending.length === 0) return;
   const branchId = store.branch?.id || (await getCurrentBranch())?.id || 'b1';
   const settings = store.settings || await getSettings();
 
@@ -979,7 +1012,7 @@ async function sendToKitchen(courseFilter = null) {
       course: courseFilter || null,
       contactName: takeawayContact.name || '',
       waiterName: store.selectedStaff?.name || null,
-      items: unsent.map(i => ({ name: i.name, qty: i.qty, modifiers: i.modifiers || [], notes: i.notes || '', course: i.course || null, cartId: i.cartId, itemStatus: 'pending' })),
+      items: pending.map(({ item, sendQty }) => ({ name: item.name, qty: sendQty, modifiers: item.modifiers || [], notes: item.notes || '', course: item.course || null, cartId: item.cartId, itemStatus: 'pending' })),
       branchId,
     });
   } catch (err) {
@@ -992,7 +1025,7 @@ async function sendToKitchen(courseFilter = null) {
     return;
   }
 
-  unsent.forEach(i => { i.sentToKitchen = true; });
+  pending.forEach(({ item }) => { item.sentQty = item.qty; });
 
   try {
     if (orderType === 'dine-in' && selectedTable) {
