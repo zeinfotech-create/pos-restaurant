@@ -158,7 +158,7 @@ async function renderKitchenContent() {
             ${pendingGroups.length === 0 ? emptyCol() : pendingGroups.map(renderNewTicketGroup).join('')}
           </div>
         </div>
-        <div class="rpos-kitchen-col">
+        <div class="rpos-kitchen-col rpos-kitchen-col-divided">
           <div class="rpos-kitchen-col-header" style="color:var(--warning);"><i class="fa-solid fa-fire"></i> In Kitchen <span class="rpos-kitchen-col-count">${active.length}</span></div>
           <div class="rpos-kitchen-active-grid">
             ${activeGroups.length === 0 ? emptyCol() : activeGroups.map(renderActiveTicketGroup).join('')}
@@ -172,8 +172,13 @@ async function renderKitchenContent() {
          stacked list left most of the screen empty even with several
          tickets on the board; a 50/50 split (not the old 1fr/2fr) means
          neither column looks lopsided when the other is quiet. */
-      .rpos-kitchen-board { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
-      @media (max-width:900px) { .rpos-kitchen-board { grid-template-columns:1fr; } }
+      .rpos-kitchen-board { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
+      @media (max-width:900px) { .rpos-kitchen-board { grid-template-columns:1fr; } .rpos-kitchen-col-divided { padding-left:0; border-left:none; } }
+      /* A visible seam between the two halves, not just whitespace — on a
+         wide Kitchen Display screen "New Tickets" and "In Kitchen" read as
+         two distinct working areas rather than one board that happens to
+         wrap oddly in the middle. */
+      .rpos-kitchen-col-divided { padding-left:20px; border-left:1px solid var(--border); }
       .rpos-kitchen-col-header { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px; border-radius:8px; padding:4px 6px; margin-left:-6px; }
       .rpos-kitchen-col-count { margin-left:auto; background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; padding:1px 8px; font-size:11px; }
       .rpos-kitchen-col-body, .rpos-kitchen-active-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:12px; align-items:start; }
