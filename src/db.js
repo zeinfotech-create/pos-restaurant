@@ -6,7 +6,7 @@ const DB_NAME = 'zepos_db';
 // at on a real device (IndexedDB versions only ever go up, never down —
 // opening with a lower version than what's already on disk throws immediately
 // and the whole app fails to initialize, before onboarding can even render).
-const DB_VERSION = 10; // 9: added pos_tables + pos_kots (restaurant module); 10: added pos_counter_orders (multiple concurrent takeaway/delivery orders)
+const DB_VERSION = 11; // 9: added pos_tables + pos_kots (restaurant module); 10: added pos_counter_orders (multiple concurrent takeaway/delivery orders); 11: re-bump — a dev session had already opened at v10 before pos_counter_orders existed in this file, permanently skipping its creation (IndexedDB upgrades are one-way); this re-triggers onupgradeneeded so any install stuck in that partial state (not just one machine) gets the missing store created — createObjectStore() is already guarded per-key, so this is a no-op for anyone who upgraded cleanly
 
 class DbService {
   constructor() {
