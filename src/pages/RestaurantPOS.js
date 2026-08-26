@@ -262,6 +262,15 @@ async function render(container) {
       .rpos-box-exit { animation:rposBoxBilled 620ms cubic-bezier(.4,0,.2,1) forwards; pointer-events:none; }
       @keyframes rposBoxEnter { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
       .rpos-box-enter { animation:rposBoxEnter 240ms ease; }
+      /* A box that's fully served — every dish actually eaten-ready, not
+         just cooked — gets a slow, continuous glow so it visually stands
+         apart from the rest of the table's still-in-progress boxes without
+         the cashier needing to open each one to check. */
+      @keyframes rposBoxReadyPulse {
+        0%, 100% { box-shadow:0 0 0 0 rgba(34,197,94,0.35); }
+        50%      { box-shadow:0 0 0 7px rgba(34,197,94,0); }
+      }
+      .rpos-box-ready { animation:rposBoxReadyPulse 1.8s ease-in-out infinite; }
     </style>
   `;
 
@@ -432,6 +441,10 @@ async function renderTablePartyPicker(table) {
   const parties = (await getCounterOrders()).filter(o => o.tableId === table.id).sort((a, b) => (a.partyNumber || 0) - (b.partyNumber || 0));
   const usedSeats = parties.reduce((s, p) => s + (p.guestCount || 0), 0);
   const remaining = Math.max(0, capacity - usedSeats);
+  // Checked per-box (not just "has this box been opened and looked at") so
+  // a box that finished cooking while the cashier was elsewhere in the app
+  // still shows up here as ready the moment this screen is looked at.
+  const partiesWithStatus = await Promise.all(parties.map(async p => ({ p, serve: await getPartyServeStatus(p) })));
 
   area.innerHTML = `
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
@@ -439,14 +452,15 @@ async function renderTablePartyPicker(table) {
       <button class="btn btn-ghost btn-sm" id="rposBackToTablesBtn"><i class="fa-solid fa-arrow-left"></i> All Tables</button>
     </div>
     <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); gap:14px;">
-      ${parties.map(p => {
+      ${partiesWithStatus.map(({ p, serve }) => {
         const elapsed = Date.now() - new Date(p.createdAt).getTime();
+        const ready = serve.fullyServed;
         return `
-          <div class="rpos-table-card rpos-box-enter" data-id="${p.id}" style="background:${STATUS_META.occupied.bg}; border:1px solid var(--border);">
-            <div style="font-weight:800; font-size:15px;">Box ${p.partyNumber || '?'}</div>
+          <div class="rpos-table-card rpos-box-enter ${ready ? 'rpos-box-ready' : ''}" data-id="${p.id}" style="background:${ready ? 'rgba(34,197,94,0.1)' : STATUS_META.occupied.bg}; border:1px solid ${ready ? 'var(--success)' : 'var(--border)'};">
+            <div style="font-weight:800; font-size:15px; display:flex; align-items:center; gap:6px;">Box ${p.partyNumber || '?'}${ready ? ' <i class="fa-solid fa-receipt" style="font-size:12px; color:var(--success);"></i>' : ''}</div>
             <div style="font-size:11px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-users" style="margin-right:4px; opacity:.5;"></i>${p.guestCount || '—'} guests · ${p.items?.length || 0} item(s)</div>
             <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
-              <div class="rpos-box-status" style="font-size:11px; font-weight:700; color:${STATUS_META.occupied.color};"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>In progress</div>
+              <div class="rpos-box-status" style="font-size:11px; font-weight:700; color:${ready ? 'var(--success)' : STATUS_META.occupied.color};"><i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '11px' : '6px'}; margin-right:5px;"></i>${ready ? 'Ready to Bill' : 'In progress'}</div>
               <div class="rpos-table-timer" data-created-at="${p.createdAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>
             </div>
           </div>
@@ -478,6 +492,24 @@ async function renderTablePartyPicker(table) {
     }, remaining, `${remaining} seat${remaining === 1 ? '' : 's'} left on this table`);
   });
   startTablesTimerLoop();
+  registerPartyPickerLiveRefresh();
+}
+
+let partyPickerLiveListenerRegistered = false;
+// Kitchen staff marking a dish served (or another till adding/billing a box)
+// happens completely outside this screen — without this, "Ready to Bill"
+// would only ever update the next time the cashier happens to navigate away
+// and back. Guarded/self-checking the same way Kitchen.js's own live
+// refresh is, since this page has no unmount hook to unregister it with.
+function registerPartyPickerLiveRefresh() {
+  if (partyPickerLiveListenerRegistered) return;
+  window.addEventListener('storage-change', (e) => {
+    if (e.detail?.store !== 'kots' && e.detail?.store !== 'counter_orders') return;
+    if (!(view === 'picker' && drillTable)) return;
+    if (!document.getElementById('rposContent')) return;
+    renderTablePartyPicker(drillTable);
+  });
+  partyPickerLiveListenerRegistered = true;
 }
 
 // ── Takeaway/Delivery picker: a list of open orders of this type + a way to
@@ -606,18 +638,18 @@ function promptGuestCount(onConfirm, capacity = null, capacityLabel = null) {
 // and creates a fresh one on the next Send — so this maps each cartId to
 // the *array* of every entry it has ever had, and summarizeCartIdStatus()
 // below only calls it "served" once every non-voided entry is served. ─────
-async function buildKitchenStatusMap() {
+async function buildKitchenStatusMapFor(sessionId, tableId = null) {
   const map = new Map();
-  if (!orderSessionId) return map;
+  if (!sessionId) return map;
   const kots = (await getKots()).filter(k =>
-    k.orderSessionId === orderSessionId ||
+    k.orderSessionId === sessionId ||
     // Backward compatibility for a dine-in order resumed from a build where
     // orderSessionId was the TABLE's id (before table sharing existed, one
     // order per table) rather than this specific box's own id — without
     // this, every KOT sent under that older scheme would look orphaned the
     // moment this build's box-based ids take over.
-    (selectedTable && k.orderSessionId === selectedTable.id) ||
-    (!k.orderSessionId && orderType === 'dine-in' && selectedTable && k.tableId === selectedTable.id)
+    (tableId && k.orderSessionId === tableId) ||
+    (!k.orderSessionId && tableId && k.tableId === tableId)
   );
   kots.forEach(kot => (kot.items || []).forEach(i => {
     if (!i.cartId) return;
@@ -626,6 +658,14 @@ async function buildKitchenStatusMap() {
     map.set(i.cartId, arr);
   }));
   return map;
+}
+
+// The currently-open order's status map — a thin wrapper over
+// buildKitchenStatusMapFor() bound to this module's live orderSessionId/
+// selectedTable, kept as its own function since it's called from many spots
+// in the ordering view without needing to thread those two through.
+async function buildKitchenStatusMap() {
+  return buildKitchenStatusMapFor(orderSessionId, selectedTable?.id || null);
 }
 
 function summarizeCartIdStatus(statuses) {
@@ -650,6 +690,23 @@ async function getOrderServeStatus() {
     if (summarizeCartIdStatus(kitchenStatusMap.get(i.cartId)) !== 'served') outstanding++;
   });
   return { kitchenStatusMap, outstanding, fullyServed: store.cart.length > 0 && outstanding === 0 };
+}
+
+// Same "is everything actually served" check as getOrderServeStatus(), but
+// for a party/box that ISN'T the one currently open in the cart — reads its
+// own saved `items` snapshot against its own KOTs instead of `store.cart`.
+// Lets the box picker mark a box "Ready to Bill" the moment its kitchen
+// work is genuinely done, without the cashier needing to open it first.
+async function getPartyServeStatus(party) {
+  const items = party.items || [];
+  if (items.length === 0) return { outstanding: 0, fullyServed: false }; // nothing ordered yet isn't "ready to bill" either
+  const kitchenStatusMap = await buildKitchenStatusMapFor(party.id, party.tableId);
+  let outstanding = 0;
+  items.forEach(i => {
+    if (i.qty > (i.sentQty || 0)) { outstanding++; return; }
+    if (summarizeCartIdStatus(kitchenStatusMap.get(i.cartId)) !== 'served') outstanding++;
+  });
+  return { outstanding, fullyServed: outstanding === 0 };
 }
 
 // ── Ordering view: menu + cart ────────────────────────────────────────────
