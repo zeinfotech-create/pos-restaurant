@@ -327,7 +327,7 @@ function renderNewTicketGroup(group) {
   if (group.length === 1) {
     const k = group[0];
     return `
-      <div class="card rpos-kot-card" style="padding:14px; border-left:4px solid var(--text-muted);">
+      <div class="card rpos-kot-card" style="padding:14px;">
         ${ticketHeader(k)}
         <div style="margin-top:10px; display:flex; flex-direction:column; gap:2px;">
           ${(k.items || []).map(newTicketItemLine).join('')}
@@ -338,7 +338,7 @@ function renderNewTicketGroup(group) {
   }
   const orderLabel = group[0].tableName ? escapeHtml(group[0].tableName) : (group[0].orderType || '').toUpperCase();
   return `
-    <div class="card rpos-kot-card" style="padding:14px; border-left:4px solid var(--text-muted);">
+    <div class="card rpos-kot-card" style="padding:14px;">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
         <div style="font-weight:800; font-size:13px;">${orderLabel}</div>
         <span class="rpos-kitchen-col-count">${group.length} tickets</span>
@@ -400,7 +400,7 @@ function renderActiveTicketGroup(group) {
     const items = k.items || [];
     const meta = serveActionMeta(k.orderType);
     return `
-      <div class="card rpos-kot-card" style="padding:14px; border-left:4px solid var(--warning);">
+      <div class="card rpos-kot-card" style="padding:14px;">
         ${ticketHeader(k)}
         <div style="margin-top:10px; display:flex; flex-direction:column;">
           ${items.map((i, idx) => activeItemRow(k, i, idx, meta)).join('')}
@@ -411,7 +411,7 @@ function renderActiveTicketGroup(group) {
   }
   const orderLabel = group[0].tableName ? escapeHtml(group[0].tableName) : (group[0].orderType || '').toUpperCase();
   return `
-    <div class="card rpos-kot-card" style="padding:14px; border-left:4px solid var(--warning);">
+    <div class="card rpos-kot-card" style="padding:14px;">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
         <div style="font-weight:800; font-size:13px;">${orderLabel}</div>
         <span class="rpos-kitchen-col-count">${group.length} tickets</span>
