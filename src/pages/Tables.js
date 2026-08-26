@@ -11,7 +11,7 @@ import { getTables, saveTable, deleteTable, getCounterOrders } from '../db.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, pillHtml, formatElapsed, timerTier } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier } from '../utils/tableDisplay.js';
 
 let timerInterval = null;
 
@@ -53,7 +53,7 @@ async function renderTablesContent() {
     ` : grouped.map(({ section, tables: sectionTables }) => `
       <div style="margin-bottom:22px;">
         ${grouped.length > 1 ? `<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid var(--border);"><span style="font-size:12px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeAttr(section)}</span><span style="font-size:10.5px; color:var(--text-muted); background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; padding:1px 8px;">${sectionTables.length}</span></div>` : ''}
-        <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:14px;">
+        <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:14px;">
           ${sectionTables.map(t => renderTableCard(t, allTables, allParties)).join('')}
         </div>
       </div>
@@ -70,7 +70,6 @@ async function renderTablesContent() {
          "which tables are free" first, not a wall of identical buttons. */
       .table-card-actions { opacity:.4; transition:opacity .15s ease; }
       .table-card:hover .table-card-actions, .table-card:focus-within .table-card-actions { opacity:1; }
-      .table-card-badge { width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; box-shadow:0 2px 6px rgba(0,0,0,.18); }
     </style>
   `;
 
@@ -78,26 +77,24 @@ async function renderTablesContent() {
   startTimerLoop();
 }
 
-const STATUS_ICON = { free: 'fa-check', occupied: 'fa-utensils', full: 'fa-lock' };
-
 function renderTableCard(t, allTables, allParties) {
   const occ = tableOccupancy(t, allParties);
   const displayCap = tableDisplayCapacity(t, allTables);
-  const statusKey = tableStatusKey(occ, displayCap);
-  const status = STATUS_META[statusKey];
+  const status = STATUS_META[tableStatusKey(occ, displayCap)];
   const displayName = tableDisplayName(t, allTables);
   const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
   const hasMerge = t.mergedTableIds?.length > 0;
+  // Name gets its own full-width row rather than sharing one with the
+  // action buttons — three 36px .btn-icon buttons (the app's fixed
+  // icon-button size everywhere else) already eat well over 100px on
+  // their own, and squeezing the name into whatever was left made it
+  // disappear entirely on a narrow card rather than just truncate.
+  // Stacking makes that structurally impossible: each row only ever has
+  // one thing competing for its width.
   return `
-    <div class="table-card" data-id="${t.id}" style="padding:16px 18px; border-radius:16px; border:1px solid var(--border); border-left:4px solid ${status.color}; background:${status.bg}; cursor:pointer;">
+    <div class="table-card" data-id="${t.id}" style="padding:16px 18px; border-radius:14px; border:1px solid var(--border); border-left:4px solid ${status.color}; background:${status.bg}; cursor:pointer;">
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
-        <div style="display:flex; align-items:center; gap:11px; min-width:0;">
-          <div class="table-card-badge" style="background:${status.color}; color:white;"><i class="fa-solid ${STATUS_ICON[statusKey] || 'fa-chair'}"></i></div>
-          <div style="min-width:0;">
-            <div style="font-size:16px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeAttr(displayName)}</div>
-            <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">Seats ${displayCap}</div>
-          </div>
-        </div>
+        <div style="font-size:17px; font-weight:800; overflow-wrap:break-word;">${escapeAttr(displayName)}</div>
         <div class="table-card-actions" style="display:flex; gap:4px; flex-shrink:0;" onclick="event.stopPropagation()">
           <button class="btn-icon edit-table-btn" data-id="${t.id}" title="Edit"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
           ${hasMerge
@@ -106,11 +103,14 @@ function renderTableCard(t, allTables, allParties) {
           <button class="btn-icon del-table-btn" data-id="${t.id}" title="Delete"><i class="fa-solid fa-trash" style="font-size:10px; color:var(--danger)"></i></button>
         </div>
       </div>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${displayCap}</div>
       <div style="margin-top:14px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
-        ${pillHtml(occ.isOccupied ? `${occ.usedSeats}/${displayCap} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : status.label, status.color, null, { filled: true })}
-        ${elapsed !== null ? `<div class="table-timer" data-occupied-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color}; white-space:nowrap;">${formatElapsed(elapsed)}</div>` : ''}
+        <div style="font-size:11px; font-weight:700; color:${status.color};">
+          <i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px"></i>${occ.isOccupied ? `${occ.usedSeats}/${displayCap} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : status.label}
+        </div>
+        ${elapsed !== null ? `<div class="table-timer" data-occupied-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
       </div>
-      ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:7px;"><i class="fa-solid fa-utensils" style="margin-right:4px; opacity:.5;"></i>${occ.totalItems} item(s)</div>` : ''}
+      ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;">${occ.totalItems} item(s)</div>` : ''}
       ${capacityBarHtml(occ.usedSeats, displayCap, status.color)}
     </div>
   `;

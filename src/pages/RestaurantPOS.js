@@ -40,11 +40,6 @@ import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, gro
 const COMMON_MODIFIERS = ['No Onion', 'No Garlic', 'Extra Spicy', 'Less Spicy', 'Extra Cheese', 'Less Sugar', 'No Ice'];
 const COURSES = ['Starters', 'Mains', 'Desserts', 'Other'];
 
-// Small icon per table status — same set Tables.js's card grid uses, kept
-// as its own copy here (rather than exported/shared) since it's a purely
-// decorative page-local constant, not shared domain logic like the rest of
-// tableDisplay.js's exports.
-const STATUS_ICON = { free: 'fa-check', occupied: 'fa-utensils', full: 'fa-lock' };
 
 const KITCHEN_ITEM_META = {
   pending: { label: 'In kitchen queue', icon: 'fa-hourglass-half', color: 'var(--text-muted)', bg: 'rgba(100,116,139,0.12)' },
@@ -402,15 +397,10 @@ async function renderPickerView() {
             const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
             return `
               <div class="rpos-table-card" data-id="${t.id}" style="background:${status.bg}; border:1px solid var(--border); border-left:4px solid ${status.color};">
-                <div style="display:flex; align-items:center; gap:10px;">
-                  <div style="width:34px; height:34px; border-radius:50%; background:${status.color}; color:white; display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; box-shadow:0 2px 6px rgba(0,0,0,.18);"><i class="fa-solid ${STATUS_ICON[statusKey] || 'fa-chair'}"></i></div>
-                  <div style="min-width:0;">
-                    <div style="font-weight:800; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(tableDisplayName(t, allTables))}</div>
-                    <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">Seats ${capacity}</div>
-                  </div>
-                </div>
+                <div style="font-weight:800; font-size:16px;">${escapeHtml(tableDisplayName(t, allTables))}</div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${capacity}</div>
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
-                  ${pillHtml(occ.isOccupied ? `${occ.usedSeats}/${capacity} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : status.label, status.color, null, { filled: true })}
+                  <div style="font-size:11px; font-weight:700; color:${status.color};"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>${occ.isOccupied ? `${occ.usedSeats}/${capacity} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : status.label}</div>
                   ${elapsed !== null ? `<div class="rpos-table-timer" data-created-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color}; white-space:nowrap;">${formatElapsed(elapsed)}</div>` : ''}
                 </div>
                 ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;">${occ.totalItems} item(s)</div>` : ''}
@@ -479,15 +469,10 @@ async function renderTablePartyPicker(table) {
         const ready = serve.fullyServed;
         return `
           <div class="rpos-table-card rpos-box-enter ${ready ? 'rpos-box-ready' : ''}" data-id="${p.id}" style="background:${ready ? 'rgba(34,197,94,0.1)' : STATUS_META.occupied.bg}; border:1px solid ${ready ? 'var(--success)' : 'var(--border)'}; border-left:4px solid ${ready ? 'var(--success)' : STATUS_META.occupied.color};">
-            <div style="display:flex; align-items:center; gap:10px;">
-              <div style="width:34px; height:34px; border-radius:50%; background:${ready ? 'var(--success)' : STATUS_META.occupied.color}; color:white; display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; box-shadow:0 2px 6px rgba(0,0,0,.18);"><i class="fa-solid ${ready ? 'fa-receipt' : 'fa-utensils'}"></i></div>
-              <div style="min-width:0;">
-                <div style="font-weight:800; font-size:15px;">Box ${p.partyNumber || '?'}</div>
-                <div style="font-size:11px; color:var(--text-muted); margin-top:1px;"><i class="fa-solid fa-users" style="margin-right:4px; opacity:.5;"></i>${p.guestCount || '—'} guests · ${p.items?.length || 0} item(s)</div>
-              </div>
-            </div>
+            <div style="font-weight:800; font-size:16px;">Box ${p.partyNumber || '?'}</div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-users" style="margin-right:4px; opacity:.5;"></i>${p.guestCount || '—'} guests · ${p.items?.length || 0} item(s)</div>
             <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
-              <span class="rpos-box-status" style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:800; padding:2px 8px; border-radius:999px; white-space:nowrap; background:${ready ? 'rgba(34,197,94,0.14)' : 'rgba(245,158,11,0.14)'}; color:${ready ? 'var(--success)' : STATUS_META.occupied.color};"><i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '10px' : '6px'};"></i>${ready ? 'Ready to Bill' : 'In progress'}</span>
+              <div class="rpos-box-status" style="font-size:11px; font-weight:700; color:${ready ? 'var(--success)' : STATUS_META.occupied.color};"><i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '11px' : '6px'}; margin-right:5px;"></i>${ready ? 'Ready to Bill' : 'In progress'}</div>
               <div class="rpos-table-timer" data-created-at="${p.createdAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color}; white-space:nowrap;">${formatElapsed(elapsed)}</div>
             </div>
           </div>
@@ -565,18 +550,13 @@ async function renderCounterOrderPicker() {
           const elapsed = Date.now() - new Date(o.createdAt).getTime();
           return `
             <div class="rpos-table-card" data-id="${o.id}" style="background:rgba(59,130,246,0.06); border:1px solid var(--border); border-left:4px solid var(--warning);">
-              <div style="display:flex; align-items:center; gap:10px;">
-                <div style="width:34px; height:34px; border-radius:50%; background:var(--warning); color:white; display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; box-shadow:0 2px 6px rgba(0,0,0,.18);"><i class="fa-solid ${icon}"></i></div>
-                <div style="min-width:0;">
-                  <div style="font-weight:800; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(counterOrderLabel(o))}</div>
-                  <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">${o.items?.length || 0} item(s)</div>
-                </div>
-              </div>
+              <div style="font-weight:800; font-size:16px;"><i class="fa-solid ${icon}" style="opacity:.4; margin-right:6px; font-size:13px;"></i>${escapeHtml(counterOrderLabel(o))}</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${o.items?.length || 0} item(s)</div>
               <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
-                ${pillHtml('In progress', 'var(--warning)', null, { filled: true, icon: 'fa-circle' })}
+                <div style="font-size:11px; font-weight:700; color:var(--warning);"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>In progress</div>
                 <div class="rpos-counter-order-timer" data-created-at="${o.createdAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color}; white-space:nowrap;">${formatElapsed(elapsed)}</div>
               </div>
-              ${o.contactPhone ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:7px;"><i class="fa-solid fa-phone" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(o.contactPhone)}</div>` : ''}
+              ${o.contactPhone ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;"><i class="fa-solid fa-phone" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(o.contactPhone)}</div>` : ''}
             </div>
           `;
         }).join('')}
@@ -1425,16 +1405,9 @@ function animateBoxExit(partyId) {
   return new Promise(resolve => {
     const card = document.querySelector(`#rposContent .rpos-table-card[data-id="${partyId}"]`);
     if (!card) return resolve();
-    // .rpos-box-status is a light-tint pill (bg baked into its own inline
-    // style, not the "filled" solid variant) — its background is updated
-    // here too, not just the text color, so "Billed" never ends up as
-    // green text sitting on the card's previous orange "in progress" tint.
     const statusLine = card.querySelector('.rpos-box-status');
-    if (statusLine) {
-      statusLine.innerHTML = '<i class="fa-solid fa-check"></i>Billed';
-      statusLine.style.color = 'var(--success)';
-      statusLine.style.background = 'rgba(34,197,94,0.14)';
-    }
+    if (statusLine) statusLine.innerHTML = '<i class="fa-solid fa-check" style="margin-right:5px;"></i>Billed';
+    if (statusLine) statusLine.style.color = 'var(--success)';
     card.classList.add('rpos-box-exit');
     let done = false;
     const finish = () => { if (done) return; done = true; resolve(); };
