@@ -27,6 +27,19 @@ function kotTimerTier(ms) {
   return { color: 'var(--danger)', overdue: true };
 }
 
+// "Serve" only makes sense for dine-in (a waiter carrying food to a seated
+// table) — a takeaway/delivery order doesn't get "served", it gets packed
+// into a bag or handed off to a rider, so the action + completed-state
+// wording (and icon) tracks the order type instead of always saying Serve.
+const SERVE_ACTION_META = {
+  'dine-in': { verb: 'Serve', doneLabel: 'Served', icon: 'fa-bell' },
+  takeaway: { verb: 'Mark Packed', doneLabel: 'Packed', icon: 'fa-bag-shopping' },
+  delivery: { verb: 'Mark Dispatched', doneLabel: 'Dispatched', icon: 'fa-motorcycle' },
+};
+function serveActionMeta(orderType) {
+  return SERVE_ACTION_META[orderType] || SERVE_ACTION_META['dine-in'];
+}
+
 export async function renderKitchen(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -133,6 +146,7 @@ function renderActiveTicketCard(k) {
   const resolvableCount = items.filter(i => i.itemStatus !== 'voided').length;
   const servedCount = items.filter(i => i.itemStatus === 'served').length;
   const anyReady = items.some(i => i.itemStatus === 'ready');
+  const meta = serveActionMeta(k.orderType);
   return `
     <div class="card rpos-kot-card" style="padding:14px; border-left:4px solid var(--warning);">
       ${ticketHeader(k)}
@@ -144,15 +158,15 @@ function renderActiveTicketCard(k) {
               ${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted);">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(', ')}</div>` : ''}
             </div>
             ${i.itemStatus === 'voided' ? `<span style="font-size:10px; font-weight:700; color:var(--danger); white-space:nowrap;"><i class="fa-solid fa-ban"></i> Cancelled</span>` : ''}
-            ${i.itemStatus === 'served' ? `<span style="font-size:10px; font-weight:700; color:var(--primary); white-space:nowrap;"><i class="fa-solid fa-check-double"></i> Served</span>` : ''}
+            ${i.itemStatus === 'served' ? `<span style="font-size:10px; font-weight:700; color:var(--primary); white-space:nowrap;"><i class="fa-solid fa-check-double"></i> ${meta.doneLabel}</span>` : ''}
             ${(!i.itemStatus || i.itemStatus === 'pending') ? `<button class="btn btn-ghost btn-sm rpos-item-ready" data-kot-id="${k.id}" data-idx="${idx}" style="font-size:11px; white-space:nowrap;">Ready</button>` : ''}
-            ${i.itemStatus === 'ready' ? `<button class="btn btn-primary btn-sm rpos-item-serve" data-kot-id="${k.id}" data-idx="${idx}" style="font-size:11px; white-space:nowrap;"><i class="fa-solid fa-bell"></i> Serve</button>` : ''}
+            ${i.itemStatus === 'ready' ? `<button class="btn btn-primary btn-sm rpos-item-serve" data-kot-id="${k.id}" data-idx="${idx}" style="font-size:11px; white-space:nowrap;"><i class="fa-solid ${meta.icon}"></i> ${meta.verb}</button>` : ''}
           </div>
         `).join('')}
       </div>
       <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
-        <div style="font-size:10.5px; color:var(--text-muted);">${servedCount}/${resolvableCount} served</div>
-        ${anyReady ? `<button class="btn btn-ghost btn-sm rpos-serve-all-ready" data-id="${k.id}" style="font-size:11px;">Serve All Ready</button>` : ''}
+        <div style="font-size:10.5px; color:var(--text-muted);">${servedCount}/${resolvableCount} ${meta.doneLabel.toLowerCase()}</div>
+        ${anyReady && k.orderType === 'dine-in' ? `<button class="btn btn-ghost btn-sm rpos-serve-all-ready" data-id="${k.id}" style="font-size:11px;">Serve All Ready</button>` : ''}
       </div>
     </div>
   `;
@@ -187,7 +201,7 @@ async function serveItem(kotId, idx) {
   if (!kot || !kot.items?.[idx]) return;
   kot.items[idx].itemStatus = 'served';
   await finalizeKotIfComplete(kot);
-  showToast(`${kot.items[idx].name} served 🎉`, 'success');
+  showToast(`${kot.items[idx].name} ${serveActionMeta(kot.orderType).doneLabel.toLowerCase()} 🎉`, 'success');
   await renderKitchenContent();
 }
 
