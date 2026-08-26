@@ -53,7 +53,14 @@ export async function renderKitchen(container) {
   // decides whether "Open in New Window" makes sense to offer (no point
   // offering it from inside the window it would open).
   const isPopout = location.hash.startsWith('#kitchen-display');
-  container.innerHTML = `
+  // #page-container's own padding (24px, normally) is forced to 0 for every
+  // STANDALONE page — and 'kitchen-display' only just became one (see
+  // router.js) — so the popped-out window's content sat flush against the
+  // window edge with no padding anywhere. The normal in-app 'kitchen' tab
+  // is NOT standalone, so #page-container already gives it that same
+  // 24px on its own — adding it again here too would double it up, so
+  // this wrapper (and its padding) only applies to the popout.
+  const headerHtml = `
     <div class="page-header">
       <div>
         <div class="page-title">Kitchen</div>
@@ -66,6 +73,7 @@ export async function renderKitchen(container) {
     </div>
     <div id="kitchenContent"></div>
   `;
+  container.innerHTML = isPopout ? `<div style="padding:24px;">${headerHtml}</div>` : headerHtml;
 
   // Opens the SAME board in its own dedicated BrowserWindow (main.cjs's
   // window-open handler gives it a real frame + maximizes it, and its own
