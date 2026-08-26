@@ -334,13 +334,36 @@ async function renderPickerView() {
   if (!area) return;
 
   if (!orderType) {
+    // "ethulaiyachum order iruka ilayanu mention pannanum" — before picking
+    // a type, show whether it already has anything open, so staff don't
+    // have to click in just to find out. Same open-order count Takeaway/
+    // Delivery's own picker (renderCounterOrderPicker) and dine-in's table
+    // grid both already compute from getCounterOrders() — just surfaced a
+    // level earlier here.
+    const openOrders = await getCounterOrders();
+    const orderTypeCount = {
+      'dine-in': openOrders.filter(o => o.orderType === 'dine-in').length,
+      takeaway: openOrders.filter(o => o.orderType === 'takeaway').length,
+      delivery: openOrders.filter(o => o.orderType === 'delivery').length,
+    };
+    const orderTypeCard = (type, icon, label) => {
+      const count = orderTypeCount[type];
+      return `
+        <div class="rpos-order-type-btn" data-type="${type}" style="position:relative;">
+          ${count > 0 ? `<span class="rpos-kot-badge" style="position:absolute; top:10px; right:10px;">${count}</span>` : ''}
+          <i class="fa-solid ${icon}" style="font-size:28px; color:var(--primary);"></i>
+          <div style="margin-top:10px; font-weight:700;">${label}</div>
+          <div style="margin-top:3px; font-size:11px; color:var(--text-muted);">${count > 0 ? `${count} open` : 'Nothing open'}</div>
+        </div>
+      `;
+    };
     area.innerHTML = `
       <div style="max-width:700px; margin:60px auto; text-align:center;">
         <h2 style="font-size:20px; font-weight:800; margin-bottom:24px;">What kind of order is this?</h2>
         <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:16px;">
-          <div class="rpos-order-type-btn" data-type="dine-in"><i class="fa-solid fa-utensils" style="font-size:28px; color:var(--primary);"></i><div style="margin-top:10px; font-weight:700;">Dine-in</div></div>
-          <div class="rpos-order-type-btn" data-type="takeaway"><i class="fa-solid fa-bag-shopping" style="font-size:28px; color:var(--primary);"></i><div style="margin-top:10px; font-weight:700;">Takeaway</div></div>
-          <div class="rpos-order-type-btn" data-type="delivery"><i class="fa-solid fa-motorcycle" style="font-size:28px; color:var(--primary);"></i><div style="margin-top:10px; font-weight:700;">Delivery</div></div>
+          ${orderTypeCard('dine-in', 'fa-utensils', 'Dine-in')}
+          ${orderTypeCard('takeaway', 'fa-bag-shopping', 'Takeaway')}
+          ${orderTypeCard('delivery', 'fa-motorcycle', 'Delivery')}
         </div>
       </div>
     `;
