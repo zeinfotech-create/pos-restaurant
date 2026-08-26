@@ -89,19 +89,21 @@ function renderTableCard(t, allTables, allParties) {
   const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
   const hasMerge = t.mergedTableIds?.length > 0;
   return `
-    <div class="table-card" data-id="${t.id}" style="position:relative; padding:16px 18px; border-radius:16px; border:1px solid var(--border); border-left:4px solid ${status.color}; background:${status.bg}; cursor:pointer;">
-      <div class="table-card-actions" style="position:absolute; top:12px; right:12px; display:flex; gap:4px;" onclick="event.stopPropagation()">
-        <button class="btn-icon edit-table-btn" data-id="${t.id}" title="Edit"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
-        ${hasMerge
-          ? `<button class="btn-icon unmerge-table-btn" data-id="${t.id}" title="Unmerge"><i class="fa-solid fa-object-ungroup" style="font-size:10px"></i></button>`
-          : (!occ.isOccupied ? `<button class="btn-icon merge-table-btn" data-id="${t.id}" title="Merge with another table"><i class="fa-solid fa-object-group" style="font-size:10px"></i></button>` : '')}
-        <button class="btn-icon del-table-btn" data-id="${t.id}" title="Delete"><i class="fa-solid fa-trash" style="font-size:10px; color:var(--danger)"></i></button>
-      </div>
-      <div style="display:flex; align-items:center; gap:11px; padding-right:28px;">
-        <div class="table-card-badge" style="background:${status.color}; color:white;"><i class="fa-solid ${STATUS_ICON[statusKey] || 'fa-chair'}"></i></div>
-        <div style="min-width:0;">
-          <div style="font-size:16px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeAttr(displayName)}</div>
-          <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">Seats ${displayCap}</div>
+    <div class="table-card" data-id="${t.id}" style="padding:16px 18px; border-radius:16px; border:1px solid var(--border); border-left:4px solid ${status.color}; background:${status.bg}; cursor:pointer;">
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
+        <div style="display:flex; align-items:center; gap:11px; min-width:0;">
+          <div class="table-card-badge" style="background:${status.color}; color:white;"><i class="fa-solid ${STATUS_ICON[statusKey] || 'fa-chair'}"></i></div>
+          <div style="min-width:0;">
+            <div style="font-size:16px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeAttr(displayName)}</div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">Seats ${displayCap}</div>
+          </div>
+        </div>
+        <div class="table-card-actions" style="display:flex; gap:4px; flex-shrink:0;" onclick="event.stopPropagation()">
+          <button class="btn-icon edit-table-btn" data-id="${t.id}" title="Edit"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
+          ${hasMerge
+            ? `<button class="btn-icon unmerge-table-btn" data-id="${t.id}" title="Unmerge"><i class="fa-solid fa-object-ungroup" style="font-size:10px"></i></button>`
+            : (!occ.isOccupied ? `<button class="btn-icon merge-table-btn" data-id="${t.id}" title="Merge with another table"><i class="fa-solid fa-object-group" style="font-size:10px"></i></button>` : '')}
+          <button class="btn-icon del-table-btn" data-id="${t.id}" title="Delete"><i class="fa-solid fa-trash" style="font-size:10px; color:var(--danger)"></i></button>
         </div>
       </div>
       <div style="margin-top:14px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
