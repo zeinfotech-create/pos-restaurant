@@ -52,6 +52,29 @@ export function occupiedElapsedMs(table) {
   return Date.now() - new Date(table.occupiedAt).getTime();
 }
 
+// A table's occupancy is derived live from whatever CounterOrder docs
+// reference it as `tableId` — table SHARING (multiple independent parties,
+// each their own order/bill, on one physical table's capacity) means a
+// table can have 0, 1, or several of these at once, so there's no single
+// "is this table occupied" flag to trust on the Table doc itself anymore.
+// `allParties` is every CounterOrder currently open (across every table);
+// pass the same array in for every table you're computing this for in one
+// render rather than re-fetching per table.
+export function tableOccupancy(table, allParties) {
+  const parties = allParties.filter(p => p.tableId === table.id);
+  const usedSeats = parties.reduce((sum, p) => sum + (p.guestCount || 0), 0);
+  const totalItems = parties.reduce((sum, p) => sum + (p.items?.length || 0), 0);
+  const oldest = parties.reduce((oldest, p) => (!oldest || new Date(p.createdAt) < new Date(oldest.createdAt)) ? p : oldest, null);
+  return {
+    parties,
+    isOccupied: parties.length > 0,
+    partyCount: parties.length,
+    usedSeats,
+    totalItems,
+    oldestCreatedAt: oldest?.createdAt || null,
+  };
+}
+
 export function formatElapsed(ms) {
   const mins = Math.max(0, Math.floor(ms / 60000));
   if (mins < 60) return `${mins}m`;

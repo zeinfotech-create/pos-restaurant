@@ -6,6 +6,17 @@
 // The Kitchen prep board itself lives in its own page (Kitchen.js) — this
 // file only reads live per-item kitchen status to gate billing and to offer
 // cancel/modify on already-sent items.
+//
+// A physical table can host more than one independent party at once (table
+// SHARING — a 4-seat table can have a 2-guest box and, once seated, a
+// second 2-guest box, each its own order and bill) — so a dine-in "order in
+// progress" is really the exact same CounterOrder concept takeaway/delivery
+// already uses, just with a `tableId` attached. There is no more
+// table.currentOrder — a table's occupancy/seat usage is always derived
+// live from whichever CounterOrder docs reference it (see
+// utils/tableDisplay.js's tableOccupancy()), never stored on the table
+// itself, so it can never drift out of sync with reality.
+//
 // Deliberately a NEW, separate page rather than a modification of
 // POS.js/QuickPOS.js — it reuses their underlying plumbing (store.js's cart
 // operations, CheckoutService.confirmOrder(), the print pipeline) but never
@@ -13,14 +24,14 @@
 // unaffected by anything here.
 // ============================================================
 
-import { getTables, saveTable, getCategories, getProducts, saveKot, getKots, getSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder } from '../db.js';
+import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder } from '../db.js';
 import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff } from '../store.js';
 import { confirmOrder, printReceiptHtml } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, occupiedElapsedMs, formatElapsed, timerTier } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, formatElapsed, timerTier } from '../utils/tableDisplay.js';
 
 // A fixed, common set of toggle-able modifiers — every menu item shares the
 // same list rather than per-product-configured modifier groups. Simpler to
@@ -43,13 +54,14 @@ const KITCHEN_ITEM_META = {
 
 let view = 'picker'; // 'picker' | 'ordering'
 let orderType = null; // 'dine-in' | 'takeaway' | 'delivery'
-let selectedTable = null; // full table doc, dine-in only
-let selectedCounterOrder = null; // full counter-order doc, takeaway/delivery only — the equivalent of selectedTable for order types with no physical table, so more than one can be open at once
+let selectedTable = null; // full table doc — dine-in only, purely for capacity/name/section, never holds order data itself
+let drillTable = null; // dine-in only — a table whose box picker is currently showing (null = show the full table grid instead)
+let selectedCounterOrder = null; // the ACTUAL in-progress order for every order type now — a dine-in "box", a takeaway order, or a delivery order all live here
 let activeCategory = null;
 let menuSearch = '';
 let guestCount = null; // dine-in only
 let changeLog = []; // {type:'cancel'|'modify', name, qty, reason, at, by} — audit trail for anything edited after being fired to the kitchen
-let orderSessionId = null; // ties every KOT sent during this one order together — the table's own id for dine-in, the counter order's own id for takeaway/delivery, always deterministic
+let orderSessionId = null; // ties every KOT sent during this one order together — always the current order's own persisted id, deterministic
 let takeawayContact = { name: '', phone: '', address: '', pickupTime: '' };
 let cartListenerRegistered = false;
 let tablesTimerInterval = null;
@@ -61,12 +73,23 @@ function backButtonLabel() {
 }
 
 // A takeaway/delivery order's display name — the contact name once given,
-// otherwise a stable per-type number assigned when it was created. Also
-// what gets stamped onto its KOTs' tableName field, so Kitchen.js can tell
-// two simultaneous takeaway (or delivery) tickets apart.
+// otherwise a stable per-type number assigned when it was created.
 function counterOrderLabel(order) {
   if (order.contactName) return order.contactName;
   return `${order.orderType === 'delivery' ? 'Delivery' : 'Takeaway'} #${order.orderNumber || '?'}`;
+}
+
+// The current order's display label, for KOTs/receipts/the ordering-view
+// header — a table name (plus "Box N" once that table has more than one
+// party sharing it) for dine-in, or the counter-order label otherwise. This
+// is what lets Kitchen.js and printed tickets tell two boxes on the same
+// table, or two simultaneous takeaway orders, apart.
+function currentOrderLabel(allTables) {
+  if (selectedTable) {
+    const base = tableDisplayName(selectedTable, allTables);
+    return selectedCounterOrder?.partyNumber ? `${base} · Box ${selectedCounterOrder.partyNumber}` : base;
+  }
+  return selectedCounterOrder ? counterOrderLabel(selectedCounterOrder) : null;
 }
 
 export async function renderRestaurantPOS(container, subPage) {
@@ -80,23 +103,25 @@ export async function renderRestaurantPOS(container, subPage) {
   }
 
   if (subPage) {
-    // Came from Tables.js's own table click — jump straight into ordering
-    // that table, re-reading its live status/currentOrder rather than
-    // trusting anything the caller already had.
+    // Came from Tables.js's own table click — jump straight into that
+    // table's box picker (or a fresh box if it's empty), re-reading live
+    // occupancy rather than trusting anything the caller already had.
     const table = (await getTables()).find(t => t.id === subPage);
     if (table) {
-      await enterTable(table);
+      orderType = 'dine-in';
+      await openTable(table);
     }
   } else {
     // Every order type persists its own resumable record now — a table's
-    // currentOrder, or a takeaway/delivery order's own CounterOrder doc — so
-    // a plain nav into this page can always safely reset to the picker.
-    // Anything genuinely in progress is sitting right there to resume, never
-    // silently thrown away just because the cashier stepped away to check
-    // Kitchen and came back.
+    // box is just a CounterOrder with a tableId, exactly like a takeaway/
+    // delivery order — so a plain nav into this page can always safely
+    // reset to the picker. Anything genuinely in progress is sitting right
+    // there to resume, never silently thrown away just because the cashier
+    // stepped away to check Kitchen and came back.
     view = 'picker';
     orderType = null;
     selectedTable = null;
+    drillTable = null;
     selectedCounterOrder = null;
     guestCount = null;
     changeLog = [];
@@ -109,53 +134,23 @@ export async function renderRestaurantPOS(container, subPage) {
 
 // A cart item saved by a build before per-quantity sent-tracking existed
 // only has the old `sentToKitchen` boolean — treat that as "the whole
-// current quantity was already sent" so a table/order resumed mid-flight
-// on this build doesn't suddenly think everything needs re-sending.
+// current quantity was already sent" so an order resumed mid-flight on this
+// build doesn't suddenly think everything needs re-sending.
 function migrateLegacySentFlags() {
   store.cart.forEach(i => {
     if (i.sentQty === undefined && i.sentToKitchen) i.sentQty = i.qty;
   });
 }
 
-async function enterTable(table) {
-  selectedTable = table;
-  orderType = 'dine-in';
-  loadTableOrderIntoCart(table);
-  migrateLegacySentFlags();
-  // Dine-in orders use the table's OWN id as their session key — stable and
-  // deterministic, rather than a freshly-generated random one. A table can
-  // only ever have one current order, so its id is already a perfectly good
-  // session key; deriving it this way (instead of storing a separately
-  // generated id that has to be found again later) means a table's
-  // already-sent KOTs can never end up orphaned from the bill-gate just
-  // because they were sent by an earlier build that didn't have this field
-  // yet — exactly the failure mode a random per-session id would hit on
-  // first resume after an upgrade.
-  orderSessionId = table.id;
-  if (table.currentOrder) {
-    guestCount = table.currentOrder.guestCount || null;
-    changeLog = table.currentOrder.changeLog || table.currentOrder.voidLog || [];
-    if (table.currentOrder.waiterId) {
-      const waiter = (await getStaff()).find(s => s.id === table.currentOrder.waiterId);
-      setStaff(waiter || null);
-    } else {
-      setStaff(null);
-    }
-  } else {
-    changeLog = [];
-    setStaff(null);
-  }
-  view = 'ordering';
-}
-
-// Resume an existing takeaway/delivery order — the counter-order equivalent
-// of enterTable(). orderSessionId is the order's own id, same deterministic
-// pattern as dine-in, so it can never drift from what its KOTs were saved
-// with.
-async function enterCounterOrder(order) {
+// Resume an existing order — a dine-in box (pass `table`) or a takeaway/
+// delivery order (leave `table` null). orderSessionId is the order's own
+// id, always, so it can never drift from what its KOTs were saved with.
+async function enterCounterOrder(order, table = null) {
   selectedCounterOrder = order;
+  selectedTable = table;
   orderType = order.orderType;
   orderSessionId = order.id;
+  guestCount = order.guestCount || null;
   takeawayContact = {
     name: order.contactName || '',
     phone: order.contactPhone || '',
@@ -174,15 +169,45 @@ async function enterCounterOrder(order) {
   view = 'ordering';
 }
 
-// Creates a brand-new takeaway/delivery order slot and enters it — the
-// counter-order equivalent of picking a free table. orderNumber is just a
-// display label (see counterOrderLabel()), never used to identify the order
-// itself — only `id` is.
+// Creates a brand-new takeaway/delivery order slot and enters it. orderNumber
+// is just a display label (see counterOrderLabel()), never used to identify
+// the order itself — only `id` is.
 async function startNewCounterOrder(type) {
   const existing = await getCounterOrders();
   const orderNumber = existing.filter(o => o.orderType === type).length + 1;
   const order = await saveCounterOrder({ orderType: type, orderNumber, items: [], contactName: '', contactPhone: '', deliveryAddress: '', pickupTime: '', changeLog: [] });
   await enterCounterOrder(order);
+}
+
+// Creates a brand-new dine-in box on `table` and enters it. partyNumber is
+// scoped per table (1 for the table's first box, 2 for its second, …) —
+// again just a display label, stamped onto every KOT this box sends so
+// Kitchen.js and printed tickets can tell two boxes on the same table apart.
+async function startNewParty(table, count) {
+  const existingAtTable = (await getCounterOrders()).filter(o => o.tableId === table.id);
+  const partyNumber = existingAtTable.length + 1;
+  const order = await saveCounterOrder({ orderType: 'dine-in', tableId: table.id, partyNumber, guestCount: count, items: [], changeLog: [] });
+  await enterCounterOrder(order, table);
+}
+
+// Clicking a table from the grid — jump straight to a fresh box if it's
+// currently empty (matching how a host stand normally seats a table with
+// no extra friction), otherwise show its box picker so an existing party
+// can be resumed or a new one added within the remaining capacity.
+async function openTable(table) {
+  const allTables = await getTables();
+  const capacity = tableDisplayCapacity(table, allTables);
+  const parties = (await getCounterOrders()).filter(o => o.tableId === table.id);
+  if (parties.length === 0) {
+    promptGuestCount(async (count) => {
+      await startNewParty(table, count);
+      updateBackButtonLabel();
+      await renderOrderingView();
+    }, capacity);
+    return;
+  }
+  drillTable = table;
+  view = 'picker';
 }
 
 // Sub-view handlers that switch `view` and re-render only their own
@@ -214,6 +239,8 @@ async function render(container) {
       .rpos-order-type-btn:hover { border-color:var(--primary); transform:translateY(-2px); }
       .rpos-table-card { padding:16px; border-radius:12px; cursor:pointer; transition:all .15s; }
       .rpos-table-card:hover { transform:translateY(-2px); }
+      .rpos-add-party-card { cursor:pointer; transition:all .15s; }
+      .rpos-add-party-card:hover { border-color:var(--primary); transform:translateY(-2px); }
       .rpos-layout { display:grid; grid-template-columns: 1fr 380px; gap:16px; height:100%; align-items:start; }
       @media (max-width: 900px) { .rpos-layout { grid-template-columns: 1fr; } }
       .rpos-cat-tab { padding:8px 16px; border-radius:999px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; font-size:12px; font-weight:700; white-space:nowrap; }
@@ -243,12 +270,24 @@ async function refreshKotBadge() {
 function handleBack() {
   const container = document.getElementById('page-container');
   if (view === 'ordering') {
-    // Every order type persists its own record now (a table's currentOrder,
-    // or a takeaway/delivery order's own doc) — stepping back never loses
-    // anything, it's one click away again from the picker.
+    if (orderType === 'dine-in' && selectedTable) {
+      // Step back to THIS table's box picker, not the whole table grid —
+      // there's likely another box (or a free seat) at the same table.
+      drillTable = selectedTable;
+      view = 'picker';
+      selectedCounterOrder = null;
+      guestCount = null;
+      changeLog = [];
+      orderSessionId = null;
+      setStaff(null);
+      return render(container);
+    }
+    // Every order type persists its own record now — stepping back never
+    // loses anything, it's one click away again from the picker.
     view = 'picker';
     orderType = null;
     selectedTable = null;
+    drillTable = null;
     selectedCounterOrder = null;
     guestCount = null;
     changeLog = [];
@@ -259,7 +298,8 @@ function handleBack() {
   navigate('dashboard');
 }
 
-// ── Picker view: order type, then (for dine-in) the table grid ───────────
+// ── Picker view: order type, then (for dine-in) the table grid or a table's
+// own box picker — for takeaway/delivery, the list of open orders. ────────
 async function renderPickerView() {
   const area = document.getElementById('rposContent');
   if (!area) return;
@@ -285,18 +325,24 @@ async function renderPickerView() {
   }
 
   if (orderType !== 'dine-in') {
-    // Takeaway/delivery — same picker pattern as dine-in tables: a list of
-    // whatever's already open (so more than one can be handled at once,
-    // each billed independently) plus a way to start a brand-new one.
+    // Takeaway/delivery — a list of whatever's already open (so more than
+    // one can be handled at once, each billed independently) plus a way to
+    // start a brand-new one.
     await renderCounterOrderPicker();
     return;
   }
 
-  // orderType === 'dine-in', no table chosen yet — show the table grid,
-  // grouped by section, with an occupied-timer badge on busy tables.
+  if (drillTable) {
+    await renderTablePartyPicker(drillTable);
+    return;
+  }
+
+  // orderType === 'dine-in', no table drilled into yet — show the table
+  // grid, grouped by section, occupancy derived live from open boxes.
   const allTables = await getTables();
   const tables = visibleTables(allTables).sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
   const grouped = groupBySection(tables);
+  const allParties = (await getCounterOrders()).filter(o => o.orderType === 'dine-in');
 
   area.innerHTML = `
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
@@ -312,17 +358,19 @@ async function renderPickerView() {
         ${grouped.length > 1 ? `<div style="font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeHtml(section)}</div>` : ''}
         <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr)); gap:14px;">
           ${sectionTables.map(t => {
-            const status = STATUS_META[t.status] || STATUS_META.free;
-            const elapsed = t.status === 'occupied' ? occupiedElapsedMs(t) : null;
+            const occ = tableOccupancy(t, allParties);
+            const status = occ.isOccupied ? STATUS_META.occupied : STATUS_META.free;
+            const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
+            const capacity = tableDisplayCapacity(t, allTables);
             return `
               <div class="rpos-table-card" data-id="${t.id}" style="background:${status.bg}; border:1px solid var(--border);">
                 <div style="font-weight:800; font-size:15px;"><i class="fa-solid fa-chair" style="opacity:.4; margin-right:6px; font-size:12px;"></i>${escapeHtml(tableDisplayName(t, allTables))}</div>
-                <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${tableDisplayCapacity(t, allTables)}</div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${capacity}</div>
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
-                  <div style="font-size:11px; font-weight:700; color:${status.color};"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>${status.label}${t.status === 'occupied' && t.currentOrder?.items?.length ? ` · ${t.currentOrder.items.length} item(s)` : ''}</div>
-                  ${elapsed !== null ? `<div class="rpos-table-timer" data-occupied-at="${t.occupiedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
+                  <div style="font-size:11px; font-weight:700; color:${status.color};"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>${occ.isOccupied ? `${occ.usedSeats}/${capacity} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : status.label}</div>
+                  ${elapsed !== null ? `<div class="rpos-table-timer" data-created-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
                 </div>
-                ${t.currentOrder?.guestCount ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:4px;"><i class="fa-solid fa-users" style="margin-right:4px; opacity:.5;"></i>${t.currentOrder.guestCount} guests</div>` : ''}
+                ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:4px;">${occ.totalItems} item(s)</div>` : ''}
               </div>
             `;
           }).join('')}
@@ -334,20 +382,10 @@ async function renderPickerView() {
     el.addEventListener('click', async () => {
       const table = tables.find(t => t.id === el.dataset.id);
       if (!table) return;
-      if (table.currentOrder) {
-        await enterTable(table);
-        updateBackButtonLabel();
-        await renderOrderingView();
-      } else {
-        // Fresh order on a free table — capture party size before landing on
-        // the menu, matching how a host stand normally seats a table.
-        promptGuestCount(async (count) => {
-          await enterTable(table);
-          guestCount = count; // fresh table has no currentOrder to read a guest count from
-          updateBackButtonLabel();
-          await renderOrderingView();
-        }, tableDisplayCapacity(table, allTables));
-      }
+      await openTable(table);
+      updateBackButtonLabel();
+      if (view === 'ordering') await renderOrderingView();
+      else await renderPickerView();
     });
   });
   startTablesTimerLoop();
@@ -361,19 +399,78 @@ function startTablesTimerLoop() {
     const timers = area.querySelectorAll('.rpos-table-timer');
     if (timers.length === 0) { clearInterval(tablesTimerInterval); tablesTimerInterval = null; return; }
     timers.forEach(el => {
-      const occupiedAt = el.dataset.occupiedAt;
-      if (!occupiedAt) return;
-      const ms = Date.now() - new Date(occupiedAt).getTime();
+      const createdAt = el.dataset.createdAt;
+      if (!createdAt) return;
+      const ms = Date.now() - new Date(createdAt).getTime();
       el.textContent = formatElapsed(ms);
       el.style.color = timerTier(ms).color;
     });
   }, 30000);
 }
 
+// ── A single table's box picker — every independent party currently seated
+// there, each its own resumable order, plus "+ Add Party" while seats
+// remain within the table's (or merged group's) total capacity. ──────────
+async function renderTablePartyPicker(table) {
+  const area = document.getElementById('rposContent');
+  if (!area) return;
+  const allTables = await getTables();
+  const capacity = tableDisplayCapacity(table, allTables);
+  const parties = (await getCounterOrders()).filter(o => o.tableId === table.id).sort((a, b) => (a.partyNumber || 0) - (b.partyNumber || 0));
+  const usedSeats = parties.reduce((s, p) => s + (p.guestCount || 0), 0);
+  const remaining = Math.max(0, capacity - usedSeats);
+
+  area.innerHTML = `
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+      <h2 style="font-size:16px; font-weight:800;"><i class="fa-solid fa-chair"></i> ${escapeHtml(tableDisplayName(table, allTables))} — ${usedSeats}/${capacity} seated</h2>
+      <button class="btn btn-ghost btn-sm" id="rposBackToTablesBtn"><i class="fa-solid fa-arrow-left"></i> All Tables</button>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); gap:14px;">
+      ${parties.map(p => {
+        const elapsed = Date.now() - new Date(p.createdAt).getTime();
+        return `
+          <div class="rpos-table-card" data-id="${p.id}" style="background:${STATUS_META.occupied.bg}; border:1px solid var(--border);">
+            <div style="font-weight:800; font-size:15px;">Box ${p.partyNumber || '?'}</div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-users" style="margin-right:4px; opacity:.5;"></i>${p.guestCount || '—'} guests · ${p.items?.length || 0} item(s)</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
+              <div style="font-size:11px; font-weight:700; color:${STATUS_META.occupied.color};"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>In progress</div>
+              <div class="rpos-table-timer" data-created-at="${p.createdAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+      ${remaining > 0 ? `
+        <div class="rpos-table-card rpos-add-party-card" id="rposAddPartyCard" style="border:2px dashed var(--border); display:flex; align-items:center; justify-content:center; text-align:center; color:var(--primary); font-weight:700;">
+          <div><i class="fa-solid fa-plus" style="font-size:20px; display:block; margin-bottom:6px;"></i>Add Party<div style="font-size:10.5px; font-weight:600; opacity:.7;">${remaining} seat${remaining === 1 ? '' : 's'} left</div></div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  document.getElementById('rposBackToTablesBtn')?.addEventListener('click', async () => { drillTable = null; await renderPickerView(); });
+  document.querySelectorAll('.rpos-table-card[data-id]').forEach(el => {
+    el.addEventListener('click', async () => {
+      const party = parties.find(p => p.id === el.dataset.id);
+      if (!party) return;
+      await enterCounterOrder(party, table);
+      updateBackButtonLabel();
+      await renderOrderingView();
+    });
+  });
+  document.getElementById('rposAddPartyCard')?.addEventListener('click', () => {
+    promptGuestCount(async (count) => {
+      await startNewParty(table, count);
+      updateBackButtonLabel();
+      await renderOrderingView();
+    }, remaining, `${remaining} seat${remaining === 1 ? '' : 's'} left on this table`);
+  });
+  startTablesTimerLoop();
+}
+
 // ── Takeaway/Delivery picker: a list of open orders of this type + a way to
-// start a new one — the counter-order equivalent of the dine-in table grid,
-// so several takeaway (or delivery) orders can be open and billed
-// independently instead of the page only ever tracking one at a time. ────
+// start a new one — so several takeaway (or delivery) orders can be open
+// and billed independently instead of the page only ever tracking one at a
+// time. ────────────────────────────────────────────────────────────────
 async function renderCounterOrderPicker() {
   const area = document.getElementById('rposContent');
   if (!area) return;
@@ -446,16 +543,17 @@ function startCounterOrdersTimerLoop() {
 
 // `capacity`, when given, is checked against what's entered — exceeding it
 // isn't blocked outright (a shop might genuinely pull up an extra chair),
-// but it needs an explicit confirmation instead of silently being accepted,
-// with merging tables offered as the proper alternative for a larger party.
-function promptGuestCount(onConfirm, capacity = null) {
+// but it needs an explicit confirmation instead of silently being accepted.
+// `capacityLabel` overrides the default "seats up to N" wording — used when
+// `capacity` actually means "seats left on this table", not its total.
+function promptGuestCount(onConfirm, capacity = null, capacityLabel = null) {
   openModal({
     title: '<i class="fa-solid fa-users mr-8"></i> Party Size',
     body: `
       <div class="form-group">
         <label class="form-label">Number of guests</label>
         <input class="form-input" id="rposGuestCountInput" type="number" min="1" value="2" autofocus />
-        ${capacity ? `<p style="font-size:11px; color:var(--text-muted); margin-top:6px;">This table seats up to ${capacity}. For a larger party, merge tables from the Tables page first.</p>` : ''}
+        ${capacity ? `<p style="font-size:11px; color:var(--text-muted); margin-top:6px;">${capacityLabel || `This table seats up to ${capacity}.`}</p>` : ''}
       </div>
     `,
     footer: `
@@ -471,7 +569,7 @@ function promptGuestCount(onConfirm, capacity = null) {
       if (capacity && count > capacity) {
         const proceed = await showConfirm({
           title: 'Party size exceeds seating',
-          message: `This table seats up to ${capacity}, but ${count} guests were entered. Continue anyway, or cancel and merge tables from the Tables page for a larger party?`,
+          message: `Only ${capacity} seat${capacity === 1 ? '' : 's'} available here, but ${count} guests were entered. Continue anyway, or cancel and seat the extra guests as a separate party/table?`,
           okText: 'Continue Anyway'
         });
         if (!proceed) return;
@@ -500,13 +598,12 @@ async function buildKitchenStatusMap() {
   if (!orderSessionId) return map;
   const kots = (await getKots()).filter(k =>
     k.orderSessionId === orderSessionId ||
-    // Backward compatibility: a KOT sent before orderSessionId existed on
-    // this build has no orderSessionId at all — for dine-in, still match it
-    // by table (orderSessionId IS the tableId now — see enterTable()) so a
-    // ticket sent by an older version doesn't get permanently orphaned from
-    // the bill-gate just because it predates this field. Items that also
-    // predate cartId still can't be linked precisely (see the 'not_found'
-    // recovery path below), but the KOT itself is at least considered.
+    // Backward compatibility for a dine-in order resumed from a build where
+    // orderSessionId was the TABLE's id (before table sharing existed, one
+    // order per table) rather than this specific box's own id — without
+    // this, every KOT sent under that older scheme would look orphaned the
+    // moment this build's box-based ids take over.
+    (selectedTable && k.orderSessionId === selectedTable.id) ||
     (!k.orderSessionId && orderType === 'dine-in' && selectedTable && k.tableId === selectedTable.id)
   );
   kots.forEach(kot => (kot.items || []).forEach(i => {
@@ -552,11 +649,11 @@ async function renderOrderingView() {
   const categories = await getCategories();
   const staffList = await getStaff();
   const allTables = orderType === 'dine-in' ? await getTables() : [];
-  const tableLabel = selectedTable ? tableDisplayName(selectedTable, allTables) : null;
+  const orderLabel = currentOrderLabel(allTables);
   const search = menuSearch.trim().toLowerCase();
   const products = (await getProducts()).filter(p => (!activeCategory || p.category === activeCategory) && (!search || (p.name || '').toLowerCase().includes(search)));
   const totals = getCartTotals();
-  // "Unsent" means QUANTITY still owed to the kitchen, not just whether the
+  // "Pending" means QUANTITY still owed to the kitchen, not just whether the
   // line has ever been sent at all — a line already partly sent (e.g. 1 of
   // an eventual 3 went out already) still shows up here for the remaining
   // 2, so a second Send never re-fires what's already on its way.
@@ -570,8 +667,8 @@ async function renderOrderingView() {
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
           <div style="font-size:14px; font-weight:800; display:flex; align-items:center; gap:8px;">
             ${orderType === 'dine-in'
-              ? `<i class="fa-solid fa-chair"></i> ${escapeHtml(tableLabel || 'Table')}`
-              : `<i class="fa-solid ${orderType === 'delivery' ? 'fa-motorcycle' : 'fa-bag-shopping'}"></i> ${escapeHtml(selectedCounterOrder ? counterOrderLabel(selectedCounterOrder) : (orderType === 'delivery' ? 'Delivery' : 'Takeaway'))}`}
+              ? `<i class="fa-solid fa-chair"></i> ${escapeHtml(orderLabel || 'Table')}`
+              : `<i class="fa-solid ${orderType === 'delivery' ? 'fa-motorcycle' : 'fa-bag-shopping'}"></i> ${escapeHtml(orderLabel || (orderType === 'delivery' ? 'Delivery' : 'Takeaway'))}`}
             ${orderType === 'dine-in' ? `<button class="btn-icon" id="rposEditGuestsBtn" style="font-size:11px; font-weight:600; color:var(--text-muted);" title="Edit party size"><i class="fa-solid fa-users" style="margin-right:4px;"></i>${guestCount || '—'}<i class="fa-solid fa-pen" style="font-size:9px; margin-left:4px; opacity:.5;"></i></button>` : ''}
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
@@ -662,7 +759,6 @@ async function renderOrderingView() {
         <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
           ${renderSendControls(pendingItems, coursesPresent)}
           <button class="btn btn-ghost" id="rposPreviewBillBtn" ${store.cart.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-print"></i> Preview Bill</button>
-          <button class="btn btn-ghost" id="rposSplitBillBtn" ${store.cart.length === 0 || !serveStatus.fullyServed ? 'disabled' : ''}><i class="fa-solid fa-scissors"></i> Split Bill</button>
           <button class="btn btn-primary" id="rposBillBtn" ${store.cart.length === 0 || !serveStatus.fullyServed ? 'disabled' : ''}><i class="fa-solid fa-receipt"></i> Bill Now — ${cur}${totals.total.toFixed(2)}</button>
           ${store.cart.length > 0 && !serveStatus.fullyServed ? `<div style="font-size:11px; color:var(--warning); text-align:center; display:flex; align-items:center; justify-content:center; gap:6px;"><i class="fa-solid fa-hourglass-half"></i> ${serveStatus.outstanding} dish${serveStatus.outstanding === 1 ? '' : 'es'} still not served — check Kitchen</div>` : ''}
         </div>
@@ -704,11 +800,18 @@ async function renderOrderingView() {
     setStaff(staff || null);
   });
   document.getElementById('rposEditGuestsBtn')?.addEventListener('click', () => {
-    promptGuestCount(async (count) => {
-      guestCount = count;
-      await persistOrderState();
-      await renderOrderingView();
-    }, selectedTable ? tableDisplayCapacity(selectedTable, allTables) : null);
+    if (!selectedTable) return;
+    const capacity = tableDisplayCapacity(selectedTable, allTables);
+    (async () => {
+      const otherParties = (await getCounterOrders()).filter(o => o.tableId === selectedTable.id && o.id !== selectedCounterOrder?.id);
+      const usedByOthers = otherParties.reduce((s, p) => s + (p.guestCount || 0), 0);
+      const remaining = Math.max(0, capacity - usedByOthers);
+      promptGuestCount(async (count) => {
+        guestCount = count;
+        await persistOrderState();
+        await renderOrderingView();
+      }, remaining, `${remaining} seat${remaining === 1 ? '' : 's'} available for this box (table seats ${capacity} total).`);
+    })();
   });
   // 'input' keeps takeawayContact live as the cashier types (so an
   // immediately-following Send/Bill click always reads the latest value);
@@ -725,12 +828,8 @@ async function renderOrderingView() {
   document.getElementById('rposPickupTime')?.addEventListener('change', () => persistOrderState());
 
   document.getElementById('rposPreviewBillBtn')?.addEventListener('click', previewBill);
-  document.getElementById('rposSplitBillBtn')?.addEventListener('click', openSplitBillModal);
-  // Wrapped, not passed directly — openPaymentPanel(presetSplitCount) would
-  // otherwise receive the click Event itself as its first argument.
-  document.getElementById('rposBillBtn')?.addEventListener('click', () => openPaymentPanel());
+  document.getElementById('rposBillBtn')?.addEventListener('click', openPaymentPanel);
 }
-
 
 // Recovery action for the 'not_found' kitchen-status case — un-fires the
 // item locally so the next Send to Kitchen creates a fresh, properly-linked
@@ -959,25 +1058,22 @@ function requestQtyMinus(cartId) {
   }
 }
 
+// Every order type — a dine-in box or a takeaway/delivery order — is a
+// CounterOrder now, so there's exactly one save path regardless of type.
 async function persistOrderState() {
-  if (orderType === 'dine-in' && selectedTable) {
-    selectedTable = await saveTable({
-      ...selectedTable,
-      currentOrder: { ...(selectedTable.currentOrder || {}), items: store.cart, orderType, guestCount, changeLog, orderSessionId, waiterId: store.selectedStaff?.id || null, waiterName: store.selectedStaff?.name || null }
-    });
-  } else if (orderType && orderType !== 'dine-in' && selectedCounterOrder) {
-    selectedCounterOrder = await saveCounterOrder({
-      ...selectedCounterOrder,
-      items: store.cart,
-      contactName: takeawayContact.name || '',
-      contactPhone: takeawayContact.phone || '',
-      deliveryAddress: takeawayContact.address || '',
-      pickupTime: takeawayContact.pickupTime || '',
-      changeLog,
-      waiterId: store.selectedStaff?.id || null,
-      waiterName: store.selectedStaff?.name || null,
-    });
-  }
+  if (!selectedCounterOrder) return;
+  selectedCounterOrder = await saveCounterOrder({
+    ...selectedCounterOrder,
+    items: store.cart,
+    guestCount: orderType === 'dine-in' ? guestCount : undefined,
+    contactName: orderType !== 'dine-in' ? (takeawayContact.name || '') : undefined,
+    contactPhone: orderType !== 'dine-in' ? (takeawayContact.phone || '') : undefined,
+    deliveryAddress: orderType === 'delivery' ? (takeawayContact.address || '') : undefined,
+    pickupTime: orderType === 'takeaway' ? (takeawayContact.pickupTime || '') : undefined,
+    changeLog,
+    waiterId: store.selectedStaff?.id || null,
+    waiterName: store.selectedStaff?.name || null,
+  });
 }
 
 // ── Send to Kitchen — optionally scoped to one course, so Starters can go
@@ -996,11 +1092,12 @@ async function sendToKitchen(courseFilter = null) {
   const branchId = store.branch?.id || (await getCurrentBranch())?.id || 'b1';
   const settings = store.settings || await getSettings();
 
-  // The KOT's own display label — the table's name for dine-in, or the
-  // specific counter order's label for takeaway/delivery, so Kitchen.js can
-  // tell two simultaneous takeaway (or delivery) tickets apart instead of
-  // both just saying "TAKEAWAY".
-  const ticketLabel = selectedTable?.name || (selectedCounterOrder ? counterOrderLabel(selectedCounterOrder) : null);
+  // The KOT's own display label — this box's table (+ box number, if the
+  // table has more than one) for dine-in, or the counter order's label for
+  // takeaway/delivery, so Kitchen.js can tell two simultaneous tickets on
+  // the same table (or two takeaway orders) apart.
+  const allTables = orderType === 'dine-in' ? await getTables() : [];
+  const ticketLabel = currentOrderLabel(allTables);
 
   let kot;
   try {
@@ -1028,21 +1125,12 @@ async function sendToKitchen(courseFilter = null) {
   pending.forEach(({ item }) => { item.sentQty = item.qty; });
 
   try {
-    if (orderType === 'dine-in' && selectedTable) {
-      selectedTable = await saveTable({
-        ...selectedTable,
-        status: 'occupied',
-        occupiedAt: selectedTable.occupiedAt || new Date().toISOString(),
-        currentOrder: { items: store.cart, orderType, guestCount, changeLog, orderSessionId, waiterId: store.selectedStaff?.id || null, waiterName: store.selectedStaff?.name || null }
-      });
-    } else if (orderType && selectedCounterOrder) {
-      await persistOrderState();
-    }
+    await persistOrderState();
   } catch (err) {
     // The KOT itself already saved — the kitchen WILL see it. Only the
-    // order's own status/items snapshot failed to persist, which
-    // self-corrects on the very next save (any later Send/Modify/Cancel/
-    // Bill re-saves it) — a warning, not a hard stop.
+    // order's own items snapshot failed to persist, which self-corrects on
+    // the very next save (any later Send/Modify/Cancel/Bill re-saves it) —
+    // a warning, not a hard stop.
     console.error('[RestaurantPOS] sendToKitchen: order-state save failed', err);
     showToast('Sent to kitchen, but the order status may be out of date — it will self-correct shortly.', 'warning');
   }
@@ -1089,9 +1177,7 @@ async function previewBill() {
   const cur = settings.currency || '₹';
   const totals = getCartTotals();
   const allTables = orderType === 'dine-in' ? await getTables() : [];
-  const orderLabel = selectedTable
-    ? tableDisplayName(selectedTable, allTables)
-    : (selectedCounterOrder ? counterOrderLabel(selectedCounterOrder) : null);
+  const orderLabel = currentOrderLabel(allTables);
   await printReceiptHtml(renderProformaHtml(totals, settings, cur, orderLabel), 'Bill Preview');
 }
 
@@ -1128,26 +1214,12 @@ function renderProformaHtml(totals, settings, cur, orderLabel) {
 // notes) — then hands off to the SAME confirmOrder() POS.js/QuickPOS.js use.
 // The button itself is only enabled once getOrderServeStatus() (checked in
 // renderOrderingView()) confirms every dish has been served. ────────────
-function openPaymentPanel(presetSplitCount = 1) {
+function openPaymentPanel() {
   const settings = store.settings || {};
   const totals = getCartTotals();
   const cur = settings.currency || '₹';
   const methods = (settings.paymentMethods?.length ? settings.paymentMethods : ['Cash']);
-  // "Split Evenly" pre-fills N equal payment rows instead of one full-total
-  // row — still a single order/receipt, just collected as N separate
-  // payments (e.g. each guest pays their own share). The last row absorbs
-  // whatever a few cents of rounding leaves over so the rows always sum to
-  // exactly the total.
-  let rows;
-  if (presetSplitCount > 1) {
-    const share = Math.round((totals.total / presetSplitCount) * 100) / 100;
-    rows = Array.from({ length: presetSplitCount }, (_, idx) => ({
-      method: methods[idx % methods.length],
-      amount: idx === presetSplitCount - 1 ? Math.round((totals.total - share * (presetSplitCount - 1)) * 100) / 100 : share
-    }));
-  } else {
-    rows = [{ method: methods[0], amount: totals.total }];
-  }
+  let rows = [{ method: methods[0], amount: totals.total }];
 
   const renderRows = () => {
     const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
@@ -1210,45 +1282,32 @@ function openPaymentPanel(presetSplitCount = 1) {
   });
 }
 
-// Shared by both a normal single-order bill and every flavor of split bill
-// — the restaurantMeta CheckoutService.confirmOrder() expects, built fresh
-// each time since orderLabel needs the current table list.
-async function buildRestaurantMeta() {
+async function completeBill(payments) {
+  const settings = store.settings || await getSettings();
+  const cur = settings.currency || '₹';
   const allTables = orderType === 'dine-in' ? await getTables() : [];
-  const orderLabel = selectedTable
-    ? tableDisplayName(selectedTable, allTables)
-    : (selectedCounterOrder ? counterOrderLabel(selectedCounterOrder) : null);
-  return {
-    meta: {
-      orderType,
-      tableId: selectedTable?.id || null,
-      tableName: orderLabel,
-      guestCount: guestCount || null,
-      contactName: takeawayContact.name || undefined,
-      contactPhone: takeawayContact.phone || undefined,
-      deliveryAddress: orderType === 'delivery' ? (takeawayContact.address || undefined) : undefined,
-      pickupTime: orderType === 'takeaway' ? (takeawayContact.pickupTime || undefined) : undefined,
-      changeLog: changeLog.length ? changeLog : undefined,
-    },
-    allTables,
+  const orderLabel = currentOrderLabel(allTables);
+  const restaurantMeta = {
+    orderType,
+    tableId: selectedTable?.id || null,
+    tableName: orderLabel,
+    guestCount: guestCount || null,
+    contactName: takeawayContact.name || undefined,
+    contactPhone: takeawayContact.phone || undefined,
+    deliveryAddress: orderType === 'delivery' ? (takeawayContact.address || undefined) : undefined,
+    pickupTime: orderType === 'takeaway' ? (takeawayContact.pickupTime || undefined) : undefined,
+    changeLog: changeLog.length ? changeLog : undefined,
   };
-}
 
-// The shared tail once billing is fully done — free the table (and anything
-// merged into it) or clear the counter-order slot, then reset back to the
-// picker. Used by both a normal single-order bill and after every check of
-// a split bill has been paid.
-async function finishOrderAfterBilling(allTables) {
-  if (orderType === 'dine-in' && selectedTable) {
-    // Billing ends the dine-in session for every table involved, including
-    // any merged into this one — all of them go back to free together.
-    const freedIds = [selectedTable.id, ...(selectedTable.mergedTableIds || [])];
-    for (const id of freedIds) {
-      const t = allTables.find(x => x.id === id) || (id === selectedTable.id ? selectedTable : null);
-      if (t) await saveTable({ ...t, status: 'free', occupiedAt: null, currentOrder: null, mergedTableIds: [], mergedInto: null });
-    }
-  } else if (selectedCounterOrder) {
-    // Billed — this order slot is done, same as a table going back to free.
+  const succeeded = await confirmOrder(payments, getCartTotals(), settings, cur, { isCredit: false, creditInfo: '' }, restaurantMeta);
+  if (!succeeded) return; // confirmOrder() already showed its own error toast
+
+  // Billed — this box/order is done. The table (or any other box sharing
+  // it) isn't touched at all: occupancy is always derived live from
+  // whichever CounterOrder docs still reference a table, so removing just
+  // this one is enough for it to correctly stop counting toward that
+  // table's used seats, whether or not other boxes are still active there.
+  if (selectedCounterOrder) {
     await deleteCounterOrder(selectedCounterOrder.id);
   }
 
@@ -1256,219 +1315,11 @@ async function finishOrderAfterBilling(allTables) {
   view = 'picker';
   orderType = null;
   selectedTable = null;
+  drillTable = null;
   selectedCounterOrder = null;
   guestCount = null;
   changeLog = [];
   orderSessionId = null;
   setStaff(null);
   await renderRestaurantPOS(document.getElementById('page-container'));
-}
-
-async function completeBill(payments) {
-  const settings = store.settings || await getSettings();
-  const cur = settings.currency || '₹';
-  const { meta, allTables } = await buildRestaurantMeta();
-
-  const succeeded = await confirmOrder(payments, getCartTotals(), settings, cur, { isCredit: false, creditInfo: '' }, meta);
-  if (!succeeded) return; // confirmOrder() already showed its own error toast
-
-  await finishOrderAfterBilling(allTables);
-}
-
-// ── Split Bill ─────────────────────────────────────────────────────────
-// Two modes: "Evenly" just pre-fills N equal payment rows on the SAME
-// single order (openPaymentPanel's presetSplitCount) — quick, one receipt.
-// "By Item" genuinely creates a separate order/receipt per check, so each
-// guest's items and discounts are their own record — walks confirmOrder()
-// once per check, temporarily swapping store.cart to just that check's
-// items each time (confirmOrder() reads store.cart directly, same as
-// POS.js/QuickPOS.js do for a normal single sale).
-function openSplitBillModal() {
-  if (store.cart.length === 0) return;
-  let mode = 'even';
-  let splitCount = 2;
-  const assignments = new Map(); // cartId -> check index, 'item' mode only
-
-  const renderBody = () => {
-    const cur = (store.settings || {}).currency || '₹';
-    const totals = getCartTotals();
-    return `
-      <div style="display:flex; gap:8px; margin-bottom:14px;">
-        <button type="button" class="btn ${mode === 'even' ? 'btn-primary' : 'btn-ghost'} btn-sm rpos-split-mode" data-mode="even" style="flex:1;">Split Evenly</button>
-        <button type="button" class="btn ${mode === 'item' ? 'btn-primary' : 'btn-ghost'} btn-sm rpos-split-mode" data-mode="item" style="flex:1;">Split by Item</button>
-      </div>
-      <div class="form-group">
-        <label class="form-label">${mode === 'even' ? 'Number of ways' : 'Number of checks'}</label>
-        <input type="number" class="form-input" id="rposSplitCount" min="2" max="10" value="${splitCount}" style="max-width:100px;" />
-      </div>
-      ${mode === 'even' ? `
-        <div style="margin-top:10px; font-size:12.5px; color:var(--text-muted);">Each pays about <b>${cur}${(totals.total / splitCount).toFixed(2)}</b> — one order, collected as ${splitCount} separate payments.</div>
-      ` : `
-        <div style="margin-top:4px; font-size:11.5px; color:var(--text-muted);">Assign every item to a check — each check bills and prints as its own separate order.</div>
-        <div style="margin-top:10px; display:flex; flex-direction:column; gap:6px; max-height:260px; overflow-y:auto;">
-          ${store.cart.map(i => `
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; border:1px solid var(--border); border-radius:8px;">
-              <div style="font-size:12.5px; flex:1;"><b>${i.qty}x</b> ${escapeHtml(i.name)}</div>
-              <select class="form-input rpos-split-assign" data-cart-id="${i.cartId}" style="max-width:110px; font-size:12px;">
-                <option value="">Unassigned</option>
-                ${Array.from({ length: splitCount }, (_, idx) => `<option value="${idx}" ${assignments.get(i.cartId) === idx ? 'selected' : ''}>Check ${idx + 1}</option>`).join('')}
-              </select>
-            </div>
-          `).join('')}
-        </div>
-      `}
-    `;
-  };
-
-  openModal({
-    title: '<i class="fa-solid fa-scissors mr-8"></i> Split Bill',
-    body: `<div id="rposSplitBody">${renderBody()}</div>`,
-    footer: `
-      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" id="rposSplitContinueBtn">Continue</button>
-    `
-  });
-
-  const rebind = () => {
-    const bodyEl = document.getElementById('rposSplitBody');
-    if (bodyEl) bodyEl.innerHTML = renderBody();
-    document.querySelectorAll('.rpos-split-mode').forEach(el => el.addEventListener('click', () => { mode = el.dataset.mode; rebind(); }));
-    document.getElementById('rposSplitCount')?.addEventListener('input', e => {
-      splitCount = Math.max(2, Math.min(10, parseInt(e.target.value, 10) || 2));
-      if (mode === 'item') { for (const [cartId, idx] of assignments) { if (idx >= splitCount) assignments.delete(cartId); } }
-      rebind();
-    });
-    document.querySelectorAll('.rpos-split-assign').forEach(el => el.addEventListener('change', e => {
-      const idx = e.target.value === '' ? null : parseInt(e.target.value, 10);
-      if (idx === null) assignments.delete(el.dataset.cartId); else assignments.set(el.dataset.cartId, idx);
-    }));
-  };
-  setTimeout(rebind, 50);
-
-  document.getElementById('rposSplitContinueBtn')?.addEventListener('click', async () => {
-    if (mode === 'even') {
-      closeModal();
-      openPaymentPanel(splitCount);
-      return;
-    }
-    // 'item' mode — every item must be assigned before splitting for real.
-    const unassigned = store.cart.filter(i => !assignments.has(i.cartId));
-    if (unassigned.length > 0) {
-      return showToast(`Assign every item to a check first (${unassigned.length} left unassigned).`, 'error');
-    }
-    const checks = [];
-    for (let idx = 0; idx < splitCount; idx++) {
-      const items = store.cart.filter(i => assignments.get(i.cartId) === idx);
-      if (items.length > 0) checks.push({ index: idx, items });
-    }
-    closeModal();
-    await runItemSplitChecks(checks);
-  });
-}
-
-// Walks each check one at a time — a payment modal per check, then its own
-// confirmOrder() call (its own stock deduction, commission, receipt). Stops
-// and reports how far it got if a check is cancelled or fails, rather than
-// silently skipping ahead — a half-billed table needs the cashier's eyes.
-async function runItemSplitChecks(checks) {
-  const settings = store.settings || await getSettings();
-  const cur = settings.currency || '₹';
-  const waiter = store.selectedStaff; // confirmOrder() clears this on success — reapply before each check
-  const { meta, allTables } = await buildRestaurantMeta();
-
-  for (let i = 0; i < checks.length; i++) {
-    const check = checks[i];
-    store.cart = check.items;
-    setStaff(waiter);
-    const totals = getCartTotals();
-    const payments = await collectSplitPayment(check.index + 1, checks.length, totals.total, cur, settings);
-    if (!payments) {
-      // Stopped partway — put back everything from THIS check onward (not
-      // yet billed) as the live cart, persist that as the order's new
-      // state, and stay right here so the cashier can retry or fall back
-      // to a normal Bill Now for what's left.
-      store.cart = checks.slice(i).flatMap(c => c.items);
-      await persistOrderState();
-      showToast('Split billing stopped — remaining items are still unbilled.', 'warning');
-      await renderOrderingView();
-      return;
-    }
-    const succeeded = await confirmOrder(payments, totals, settings, cur, { isCredit: false, creditInfo: '' }, meta);
-    if (!succeeded) {
-      store.cart = checks.slice(i).flatMap(c => c.items);
-      await persistOrderState();
-      showToast(`Check ${check.index + 1} failed — remaining items are still unbilled.`, 'error');
-      await renderOrderingView();
-      return;
-    }
-  }
-
-  await finishOrderAfterBilling(allTables);
-}
-
-// Promise-based payment collection for one split check — same split-by-
-// payment-method UI as the normal Bill Now panel, just scoped to one
-// check's amount and resolving instead of calling completeBill() directly.
-function collectSplitPayment(checkNum, totalChecks, amountDue, cur, settings) {
-  return new Promise(resolve => {
-    const methods = (settings.paymentMethods?.length ? settings.paymentMethods : ['Cash']);
-    let rows = [{ method: methods[0], amount: amountDue }];
-
-    const renderRows = () => {
-      const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-      const balance = Math.round((amountDue - sum) * 100) / 100;
-      return `
-        <div id="rposSplitPayRows" style="display:flex; flex-direction:column; gap:8px;">
-          ${rows.map((r, i) => `
-            <div style="display:flex; gap:8px;">
-              <select class="form-input rpos-split-pay-method" data-idx="${i}" style="flex:1;">
-                ${methods.map(m => `<option value="${escapeHtml(m)}" ${r.method === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
-              </select>
-              <input type="number" class="form-input rpos-split-pay-amount" data-idx="${i}" value="${r.amount}" style="max-width:110px;" />
-              ${rows.length > 1 ? `<button type="button" class="btn-icon rpos-split-pay-remove" data-idx="${i}"><i class="fa-solid fa-xmark" style="color:var(--danger);"></i></button>` : ''}
-            </div>
-          `).join('')}
-        </div>
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
-          <button type="button" class="btn btn-ghost btn-sm" id="rposSplitAddSplitBtn"><i class="fa-solid fa-plus"></i> Add Split</button>
-          <div style="font-size:12px; font-weight:700; color:${Math.abs(balance) < 0.01 ? 'var(--success)' : 'var(--danger)'};">Balance: ${cur}${balance.toFixed(2)}</div>
-        </div>
-      `;
-    };
-
-    openModal({
-      title: `<i class="fa-solid fa-receipt mr-8"></i> Check ${checkNum} of ${totalChecks} — ${cur}${amountDue.toFixed(2)}`,
-      body: `<div id="rposSplitPayBody">${renderRows()}</div>`,
-      footer: `
-        <button class="btn btn-ghost" id="rposSplitPayCancelBtn">Stop Split Billing</button>
-        <button class="btn btn-primary" id="rposSplitPayConfirmBtn" style="min-width:140px;"><i class="fa-solid fa-check mr-4"></i> Confirm Payment</button>
-      `
-    });
-
-    const rebind = () => {
-      const bodyEl = document.getElementById('rposSplitPayBody');
-      if (bodyEl) bodyEl.innerHTML = renderRows();
-      document.querySelectorAll('.rpos-split-pay-method').forEach(el => el.addEventListener('change', e => { rows[+el.dataset.idx].method = e.target.value; }));
-      document.querySelectorAll('.rpos-split-pay-amount').forEach(el => el.addEventListener('input', e => { rows[+el.dataset.idx].amount = Number(e.target.value) || 0; rebind(); }));
-      document.querySelectorAll('.rpos-split-pay-remove').forEach(el => el.addEventListener('click', () => { rows.splice(+el.dataset.idx, 1); rebind(); }));
-      document.getElementById('rposSplitAddSplitBtn')?.addEventListener('click', () => {
-        const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-        const remaining = Math.max(0, Math.round((amountDue - sum) * 100) / 100);
-        const usedMethods = rows.map(r => r.method);
-        const nextMethod = methods.find(m => !usedMethods.includes(m)) || methods[0];
-        rows.push({ method: nextMethod, amount: remaining });
-        rebind();
-      });
-    };
-    setTimeout(rebind, 50);
-
-    document.getElementById('rposSplitPayCancelBtn')?.addEventListener('click', () => { closeModal(); resolve(null); });
-    document.getElementById('rposSplitPayConfirmBtn')?.addEventListener('click', () => {
-      const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-      if (Math.abs(sum - amountDue) > 0.01) return showToast("Payment amount must match this check's total.", 'error');
-      const payments = rows.filter(r => r.amount > 0).map(r => ({ method: r.method, amount: Number(r.amount) }));
-      closeModal();
-      resolve(payments);
-    });
-  });
 }

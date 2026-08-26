@@ -7,11 +7,11 @@
 // does the actual selling.
 // ============================================================
 
-import { getTables, saveTable, deleteTable } from '../db.js';
+import { getTables, saveTable, deleteTable, getCounterOrders } from '../db.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, occupiedElapsedMs, formatElapsed, timerTier } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, formatElapsed, timerTier } from '../utils/tableDisplay.js';
 
 let timerInterval = null;
 
@@ -38,6 +38,10 @@ async function renderTablesContent() {
   const allTables = await getTables();
   const tables = visibleTables(allTables).sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
   const grouped = groupBySection(tables);
+  // Occupancy is derived live from open dine-in CounterOrders (table
+  // SHARING means a table can have several independent parties/"boxes" at
+  // once) — never trusted off the table doc itself, see tableOccupancy().
+  const allParties = (await getCounterOrders()).filter(o => o.orderType === 'dine-in');
 
   area.innerHTML = `
     ${tables.length === 0 ? `
@@ -50,7 +54,7 @@ async function renderTablesContent() {
       <div style="margin-bottom:22px;">
         ${grouped.length > 1 ? `<div style="font-size:12px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeAttr(section)}</div>` : ''}
         <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:14px;">
-          ${sectionTables.map(t => renderTableCard(t, allTables)).join('')}
+          ${sectionTables.map(t => renderTableCard(t, allTables, allParties)).join('')}
         </div>
       </div>
     `).join('')}
@@ -63,11 +67,12 @@ async function renderTablesContent() {
   startTimerLoop();
 }
 
-function renderTableCard(t, allTables) {
-  const status = STATUS_META[t.status] || STATUS_META.free;
+function renderTableCard(t, allTables, allParties) {
+  const occ = tableOccupancy(t, allParties);
+  const status = occ.isOccupied ? STATUS_META.occupied : STATUS_META.free;
   const displayName = tableDisplayName(t, allTables);
   const displayCap = tableDisplayCapacity(t, allTables);
-  const elapsed = t.status === 'occupied' ? occupiedElapsedMs(t) : null;
+  const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
   const hasMerge = t.mergedTableIds?.length > 0;
   return `
     <div class="table-card" data-id="${t.id}" style="padding:18px; border-radius:14px; border:1px solid var(--border); background:${status.bg}; cursor:pointer; transition:all 0.15s;">
@@ -80,17 +85,16 @@ function renderTableCard(t, allTables) {
           <button class="btn-icon edit-table-btn" data-id="${t.id}" title="Edit"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
           ${hasMerge
             ? `<button class="btn-icon unmerge-table-btn" data-id="${t.id}" title="Unmerge"><i class="fa-solid fa-object-ungroup" style="font-size:10px"></i></button>`
-            : (t.status !== 'occupied' ? `<button class="btn-icon merge-table-btn" data-id="${t.id}" title="Merge with another table"><i class="fa-solid fa-object-group" style="font-size:10px"></i></button>` : '')}
+            : (!occ.isOccupied ? `<button class="btn-icon merge-table-btn" data-id="${t.id}" title="Merge with another table"><i class="fa-solid fa-object-group" style="font-size:10px"></i></button>` : '')}
           <button class="btn-icon del-table-btn" data-id="${t.id}" title="Delete"><i class="fa-solid fa-trash" style="font-size:10px; color:var(--danger)"></i></button>
         </div>
       </div>
       <div style="margin-top:14px; display:flex; align-items:center; justify-content:space-between;">
         <div style="font-size:11px; font-weight:700; color:${status.color};">
-          <i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px"></i>${status.label}
-          ${t.status === 'occupied' && t.currentOrder?.items?.length ? ` · ${t.currentOrder.items.length} item(s)` : ''}
-          ${t.currentOrder?.guestCount ? ` · ${t.currentOrder.guestCount}👤` : ''}
+          <i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px"></i>${occ.isOccupied ? `${occ.usedSeats}/${displayCap} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : status.label}
+          ${occ.totalItems > 0 ? ` · ${occ.totalItems} item(s)` : ''}
         </div>
-        ${elapsed !== null ? `<div class="table-timer" data-occupied-at="${t.occupiedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
+        ${elapsed !== null ? `<div class="table-timer" data-occupied-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
       </div>
     </div>
   `;
@@ -235,7 +239,8 @@ async function setupTablesListeners() {
   document.querySelectorAll('.del-table-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const table = (await getTables()).find(t => t.id === btn.dataset.id);
-      if (table?.status === 'occupied') {
+      const hasOpenParty = (await getCounterOrders()).some(o => o.orderType === 'dine-in' && o.tableId === table?.id);
+      if (hasOpenParty) {
         return showToast('This table has an order in progress — bill or clear it first.', 'error');
       }
       if (table?.mergedTableIds?.length || table?.mergedInto) {
@@ -259,7 +264,8 @@ async function setupTablesListeners() {
       const allTables = await getTables();
       const primary = allTables.find(t => t.id === btn.dataset.id);
       if (!primary) return;
-      const candidates = allTables.filter(t => t.id !== primary.id && t.status !== 'merged' && t.status !== 'occupied' && !t.mergedTableIds?.length);
+      const occupiedTableIds = new Set((await getCounterOrders()).filter(o => o.orderType === 'dine-in').map(o => o.tableId));
+      const candidates = allTables.filter(t => t.id !== primary.id && t.status !== 'merged' && !occupiedTableIds.has(t.id) && !t.mergedTableIds?.length);
       if (candidates.length === 0) {
         return showToast('No other free tables available to merge with.', 'info');
       }
