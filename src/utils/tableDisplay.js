@@ -96,6 +96,30 @@ export function tableOccupancy(table, allParties) {
   };
 }
 
+// A slim rounded fill bar for seats-used-vs-capacity — reused by both
+// Tables.js's card grid and RestaurantPOS.js's table grid so occupancy
+// reads at a glance instead of needing to parse "X/Y seated" text first.
+// Shown at 0% width (not omitted) for a free table so every card in a grid
+// keeps the same rhythm/height rather than some having the bar and others
+// not.
+export function capacityBarHtml(used, total, color) {
+  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+  return `<div style="height:5px; border-radius:999px; background:rgba(100,116,139,0.16); overflow:hidden; margin-top:9px;"><div style="height:100%; width:${pct}%; background:${color}; border-radius:999px; transition:width .3s ease;"></div></div>`;
+}
+
+// A small rounded status/label pill — shared markup so every "Cancelled" /
+// "Served" / "Ready to Bill" / "Add-on" style badge across Tables.js,
+// RestaurantPOS.js and Kitchen.js looks like the same visual language
+// instead of each screen inventing its own inline span styling. `bg` is
+// passed explicitly (rather than derived from `color`) to avoid relying on
+// CSS color-mix()/relative-color support — plain rgba() literals, same as
+// STATUS_META above, work everywhere this app runs.
+export function pillHtml(text, color, bg, opts = {}) {
+  const { icon = null, filled = false } = opts;
+  const style = filled ? `background:${color}; color:white;` : `background:${bg}; color:${color};`;
+  return `<span style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:800; padding:2px 8px; border-radius:999px; white-space:nowrap; letter-spacing:.2px; ${style}">${icon ? `<i class="fa-solid ${icon}"></i>` : ''}${text}</span>`;
+}
+
 export function formatElapsed(ms) {
   const mins = Math.max(0, Math.floor(ms / 60000));
   if (mins < 60) return `${mins}m`;

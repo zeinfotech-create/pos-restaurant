@@ -31,7 +31,7 @@ import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, formatElapsed, timerTier } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, pillHtml, formatElapsed, timerTier } from '../utils/tableDisplay.js';
 
 // A fixed, common set of toggle-able modifiers — every menu item shares the
 // same list rather than per-product-configured modifier groups. Simpler to
@@ -41,15 +41,18 @@ const COMMON_MODIFIERS = ['No Onion', 'No Garlic', 'Extra Spicy', 'Less Spicy', 
 const COURSES = ['Starters', 'Mains', 'Desserts', 'Other'];
 
 const KITCHEN_ITEM_META = {
-  pending: { label: 'In kitchen queue', icon: 'fa-hourglass-half', color: 'var(--text-muted)' },
-  ready: { label: 'Ready — pickup!', icon: 'fa-bell', color: 'var(--success)' },
-  served: { label: 'Served', icon: 'fa-check-double', color: 'var(--primary)' },
+  pending: { label: 'In kitchen queue', icon: 'fa-hourglass-half', color: 'var(--text-muted)', bg: 'rgba(100,116,139,0.12)' },
+  ready: { label: 'Ready — pickup!', icon: 'fa-bell', color: 'var(--success)', bg: 'rgba(34,197,94,0.12)' },
+  // bg is a neutral gray tint (not a --primary-derived one) since --primary
+  // is themeable and a hardcoded rgba approximation of it would look wrong
+  // on any theme that retints --primary away from indigo.
+  served: { label: 'Served', icon: 'fa-check-double', color: 'var(--primary)', bg: 'rgba(100,116,139,0.1)' },
   // A "sent" item that genuinely has no matching KOT entry anywhere — should
   // never happen if sendToKitchen() and Kitchen.js stay in sync, but if it
   // ever does, this makes the mismatch visible and one-click recoverable
   // (Resend) instead of silently looking like a normal queued item forever
   // while actually blocking Bill Now for a ticket the kitchen never sees.
-  not_found: { label: 'Not showing in Kitchen — resend', icon: 'fa-triangle-exclamation', color: 'var(--danger)' },
+  not_found: { label: 'Not showing in Kitchen — resend', icon: 'fa-triangle-exclamation', color: 'var(--danger)', bg: 'rgba(239,68,68,0.12)' },
 };
 
 let view = 'picker'; // 'picker' | 'ordering'
@@ -235,19 +238,25 @@ async function render(container) {
       .rpos-topbar { display:flex; align-items:center; justify-content:space-between; padding:12px 20px; border-bottom:1px solid var(--border); background:var(--bg-elevated); flex-shrink:0; }
       .rpos-topbar-title { font-size:15px; font-weight:800; }
       #rposContent { flex:1; overflow:auto; padding:20px; }
-      .rpos-order-type-btn { padding:28px; border-radius:16px; border:2px solid var(--border); background:var(--bg-elevated); cursor:pointer; text-align:center; transition:all .15s; }
-      .rpos-order-type-btn:hover { border-color:var(--primary); transform:translateY(-2px); }
-      .rpos-table-card { padding:16px; border-radius:12px; cursor:pointer; transition:all .15s; }
-      .rpos-table-card:hover { transform:translateY(-2px); }
+      /* Same shadow scale the app's own .card class uses (style.css) —
+         every card on this page reuses it instead of inventing its own,
+         so the whole ordering screen reads as one consistent surface
+         language rather than each card type looking subtly different. */
+      .rpos-order-type-btn { padding:28px; border-radius:16px; border:2px solid var(--border); background:var(--bg-elevated); cursor:pointer; text-align:center; transition:transform .2s cubic-bezier(.4,0,.2,1), box-shadow .2s cubic-bezier(.4,0,.2,1), border-color .2s; box-shadow:0 4px 12px rgba(0,0,0,.05); }
+      .rpos-order-type-btn:hover { border-color:var(--primary); transform:translateY(-3px); box-shadow:0 8px 24px rgba(0,0,0,.1); }
+      .rpos-table-card { padding:16px; border-radius:12px; cursor:pointer; transition:transform .2s cubic-bezier(.4,0,.2,1), box-shadow .2s cubic-bezier(.4,0,.2,1); box-shadow:0 4px 12px rgba(0,0,0,.05); }
+      .rpos-table-card:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,.1); }
       .rpos-add-party-card { cursor:pointer; transition:all .15s; }
       .rpos-add-party-card:hover { border-color:var(--primary); transform:translateY(-2px); }
       .rpos-layout { display:grid; grid-template-columns: 1fr 380px; gap:16px; height:100%; align-items:start; }
       @media (max-width: 900px) { .rpos-layout { grid-template-columns: 1fr; } }
-      .rpos-cat-tab { padding:8px 16px; border-radius:999px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; font-size:12px; font-weight:700; white-space:nowrap; }
-      .rpos-cat-tab.active { background:var(--primary); color:white; border-color:var(--primary); }
-      .rpos-product-card { padding:14px; border-radius:12px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; transition:all .15s; }
-      .rpos-product-card:hover { border-color:var(--primary); transform:translateY(-2px); }
-      .rpos-cart-item { padding:10px 0; border-bottom:1px solid var(--border); }
+      .rpos-cat-tab { padding:8px 16px; border-radius:999px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; font-size:12px; font-weight:700; white-space:nowrap; transition:all .15s; }
+      .rpos-cat-tab:hover:not(.active) { border-color:var(--primary); color:var(--primary); }
+      .rpos-cat-tab.active { background:var(--primary); color:white; border-color:var(--primary); box-shadow:0 2px 8px rgba(0,0,0,.18); }
+      .rpos-product-card { padding:14px; border-radius:12px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; transition:transform .2s cubic-bezier(.4,0,.2,1), box-shadow .2s cubic-bezier(.4,0,.2,1), border-color .2s; box-shadow:0 2px 6px rgba(0,0,0,.04); }
+      .rpos-product-card:hover { border-color:var(--primary); transform:translateY(-3px); box-shadow:0 8px 20px rgba(0,0,0,.1); }
+      .rpos-product-card:active { transform:translateY(-1px) scale(.98); }
+      .rpos-cart-item { padding:10px 0; border-bottom:1px solid var(--border); transition:background-color .15s; }
       .rpos-kot-badge { display:inline-block; min-width:16px; padding:1px 5px; border-radius:999px; background:var(--danger); color:white; font-size:10px; font-weight:800; margin-left:4px; }
       /* A billed box gets a little green "confirmed" pop, then fades and
          shrinks away in place — so completing ONE box on a shared table
@@ -377,7 +386,7 @@ async function renderPickerView() {
       </div>
     ` : grouped.map(({ section, tables: sectionTables }) => `
       <div style="margin-bottom:22px;">
-        ${grouped.length > 1 ? `<div style="font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeHtml(section)}</div>` : ''}
+        ${grouped.length > 1 ? `<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid var(--border);"><span style="font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeHtml(section)}</span><span style="font-size:10.5px; color:var(--text-muted); background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; padding:1px 8px;">${sectionTables.length}</span></div>` : ''}
         <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr)); gap:14px;">
           ${sectionTables.map(t => {
             const occ = tableOccupancy(t, allParties);
@@ -385,7 +394,7 @@ async function renderPickerView() {
             const status = STATUS_META[tableStatusKey(occ, capacity)];
             const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
             return `
-              <div class="rpos-table-card" data-id="${t.id}" style="background:${status.bg}; border:1px solid var(--border);">
+              <div class="rpos-table-card" data-id="${t.id}" style="background:${status.bg}; border:1px solid var(--border); border-left:4px solid ${status.color};">
                 <div style="font-weight:800; font-size:15px;"><i class="fa-solid fa-chair" style="opacity:.4; margin-right:6px; font-size:12px;"></i>${escapeHtml(tableDisplayName(t, allTables))}</div>
                 <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${capacity}</div>
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
@@ -393,6 +402,7 @@ async function renderPickerView() {
                   ${elapsed !== null ? `<div class="rpos-table-timer" data-created-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
                 </div>
                 ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:4px;">${occ.totalItems} item(s)</div>` : ''}
+                ${capacityBarHtml(occ.usedSeats, capacity, status.color)}
               </div>
             `;
           }).join('')}
@@ -456,7 +466,7 @@ async function renderTablePartyPicker(table) {
         const elapsed = Date.now() - new Date(p.createdAt).getTime();
         const ready = serve.fullyServed;
         return `
-          <div class="rpos-table-card rpos-box-enter ${ready ? 'rpos-box-ready' : ''}" data-id="${p.id}" style="background:${ready ? 'rgba(34,197,94,0.1)' : STATUS_META.occupied.bg}; border:1px solid ${ready ? 'var(--success)' : 'var(--border)'};">
+          <div class="rpos-table-card rpos-box-enter ${ready ? 'rpos-box-ready' : ''}" data-id="${p.id}" style="background:${ready ? 'rgba(34,197,94,0.1)' : STATUS_META.occupied.bg}; border:1px solid ${ready ? 'var(--success)' : 'var(--border)'}; border-left:4px solid ${ready ? 'var(--success)' : STATUS_META.occupied.color};">
             <div style="font-weight:800; font-size:15px; display:flex; align-items:center; gap:6px;">Box ${p.partyNumber || '?'}${ready ? ' <i class="fa-solid fa-receipt" style="font-size:12px; color:var(--success);"></i>' : ''}</div>
             <div style="font-size:11px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-users" style="margin-right:4px; opacity:.5;"></i>${p.guestCount || '—'} guests · ${p.items?.length || 0} item(s)</div>
             <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
@@ -537,7 +547,7 @@ async function renderCounterOrderPicker() {
         ${orders.map(o => {
           const elapsed = Date.now() - new Date(o.createdAt).getTime();
           return `
-            <div class="rpos-table-card" data-id="${o.id}" style="background:rgba(59,130,246,0.06); border:1px solid var(--border);">
+            <div class="rpos-table-card" data-id="${o.id}" style="background:rgba(59,130,246,0.06); border:1px solid var(--border); border-left:4px solid var(--warning);">
               <div style="font-weight:800; font-size:15px;"><i class="fa-solid ${icon}" style="opacity:.4; margin-right:6px; font-size:12px;"></i>${escapeHtml(counterOrderLabel(o))}</div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${o.items?.length || 0} item(s)</div>
               <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
@@ -778,16 +788,19 @@ async function renderOrderingView() {
         <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:12px;">
           ${products.length === 0 ? `<div style="grid-column:1/-1; text-align:center; padding:30px; color:var(--text-muted);">No items match</div>` : products.map(p => `
             <div class="rpos-product-card" data-id="${p.id}">
-              <div style="font-size:24px; text-align:center;">${p.emoji || '🍽️'}</div>
-              <div style="font-size:12px; font-weight:700; margin-top:6px; text-align:center;">${escapeHtml(p.name)}</div>
-              <div style="font-size:12px; color:var(--primary); font-weight:800; text-align:center; margin-top:2px;">${cur}${Number(p.price || 0).toFixed(2)}</div>
+              <div style="width:44px; height:44px; margin:0 auto; border-radius:12px; background:var(--bg-main); display:flex; align-items:center; justify-content:center; font-size:22px;">${p.emoji || '🍽️'}</div>
+              <div style="font-size:12px; font-weight:700; margin-top:8px; text-align:center; line-height:1.3;">${escapeHtml(p.name)}</div>
+              <div style="font-size:12px; color:var(--primary); font-weight:800; text-align:center; margin-top:3px;">${cur}${Number(p.price || 0).toFixed(2)}</div>
             </div>
           `).join('')}
         </div>
       </div>
 
       <div class="card" style="padding:16px; position:sticky; top:0;">
-        <div style="font-size:13px; font-weight:800; margin-bottom:10px;">🛒 Order (${store.cart.length} item${store.cart.length === 1 ? '' : 's'})</div>
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+          <div style="width:28px; height:28px; border-radius:8px; background:var(--bg-main); display:flex; align-items:center; justify-content:center; font-size:13px;">🛒</div>
+          <div style="font-size:13px; font-weight:800;">Order <span style="color:var(--text-muted); font-weight:600;">(${store.cart.length} item${store.cart.length === 1 ? '' : 's'})</span></div>
+        </div>
         <div style="max-height:36vh; overflow-y:auto;">
           ${store.cart.length === 0 ? `<div style="text-align:center; padding:24px; color:var(--text-muted); font-size:12px;">No items yet — tap a menu item to add it</div>` : store.cart.map(i => {
             const sentQty = i.sentQty || 0;
@@ -799,8 +812,8 @@ async function renderOrderingView() {
               const meta = KITCHEN_ITEM_META[kStatus] || KITCHEN_ITEM_META.pending;
               sentBadge = `
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  <span style="font-size:10px; font-weight:700; color:${meta.color};"><i class="fa-solid ${meta.icon}"></i> ${sentQty}x ${meta.label}${i.course ? ` · ${escapeHtml(i.course)}` : ''}</span>
-                  ${pendingQty > 0 ? `<span style="font-size:10px; font-weight:700; color:var(--warning);">+${pendingQty} new</span>` : ''}
+                  ${pillHtml(`${sentQty}x ${meta.label}${i.course ? ` · ${escapeHtml(i.course)}` : ''}`, meta.color, meta.bg, { icon: meta.icon })}
+                  ${pendingQty > 0 ? pillHtml(`+${pendingQty} new`, 'var(--warning)', 'rgba(245,158,11,0.12)') : ''}
                   ${kStatus === 'not_found' ? `<button class="btn-icon rpos-resend-item" data-cart-id="${i.cartId}" title="Resend to kitchen"><i class="fa-solid fa-rotate-right" style="font-size:10px; color:var(--danger);"></i></button>` : ''}
                   ${pendingQty <= 0 && kStatus !== 'served' && kStatus !== 'not_found' ? `<button class="btn-icon rpos-modify-item" data-cart-id="${i.cartId}" title="Modify"><i class="fa-solid fa-pen" style="font-size:10px;"></i></button>` : ''}
                 </div>

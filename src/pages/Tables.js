@@ -11,7 +11,7 @@ import { getTables, saveTable, deleteTable, getCounterOrders } from '../db.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, formatElapsed, timerTier } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier } from '../utils/tableDisplay.js';
 
 let timerInterval = null;
 
@@ -52,14 +52,18 @@ async function renderTablesContent() {
       </div>
     ` : grouped.map(({ section, tables: sectionTables }) => `
       <div style="margin-bottom:22px;">
-        ${grouped.length > 1 ? `<div style="font-size:12px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeAttr(section)}</div>` : ''}
+        ${grouped.length > 1 ? `<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid var(--border);"><span style="font-size:12px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeAttr(section)}</span><span style="font-size:10.5px; color:var(--text-muted); background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; padding:1px 8px;">${sectionTables.length}</span></div>` : ''}
         <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:14px;">
           ${sectionTables.map(t => renderTableCard(t, allTables, allParties)).join('')}
         </div>
       </div>
     `).join('')}
     <style>
-      .table-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md, 0 4px 12px rgba(0,0,0,0.08)); }
+      /* Same shadow scale the app's own .card class uses (style.css) —
+         reused here rather than inventing new numbers, so a table card
+         reads as visually consistent with every other card in the app. */
+      .table-card { box-shadow:0 4px 12px rgba(0,0,0,.05); transition:transform .2s cubic-bezier(.4,0,.2,1), box-shadow .2s cubic-bezier(.4,0,.2,1); }
+      .table-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.1); }
     </style>
   `;
 
@@ -75,10 +79,10 @@ function renderTableCard(t, allTables, allParties) {
   const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
   const hasMerge = t.mergedTableIds?.length > 0;
   return `
-    <div class="table-card" data-id="${t.id}" style="padding:18px; border-radius:14px; border:1px solid var(--border); background:${status.bg}; cursor:pointer; transition:all 0.15s;">
+    <div class="table-card" data-id="${t.id}" style="padding:16px 18px; border-radius:14px; border:1px solid var(--border); border-left:4px solid ${status.color}; background:${status.bg}; cursor:pointer;">
       <div style="display:flex; justify-content:space-between; align-items:flex-start;">
         <div>
-          <div style="font-size:16px; font-weight:800;"><i class="fa-solid fa-chair" style="opacity:0.4; margin-right:6px; font-size:13px"></i>${escapeAttr(displayName)}</div>
+          <div style="font-size:16px; font-weight:800; display:flex; align-items:center; gap:7px;"><i class="fa-solid fa-chair" style="opacity:0.4; font-size:13px"></i>${escapeAttr(displayName)}</div>
           <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${displayCap}</div>
         </div>
         <div style="display:flex; gap:4px;" onclick="event.stopPropagation()">
@@ -96,6 +100,7 @@ function renderTableCard(t, allTables, allParties) {
         </div>
         ${elapsed !== null ? `<div class="table-timer" data-occupied-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
       </div>
+      ${capacityBarHtml(occ.usedSeats, displayCap, status.color)}
     </div>
   `;
 }
