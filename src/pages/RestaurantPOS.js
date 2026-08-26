@@ -249,6 +249,19 @@ async function render(container) {
       .rpos-product-card:hover { border-color:var(--primary); transform:translateY(-2px); }
       .rpos-cart-item { padding:10px 0; border-bottom:1px solid var(--border); }
       .rpos-kot-badge { display:inline-block; min-width:16px; padding:1px 5px; border-radius:999px; background:var(--danger); color:white; font-size:10px; font-weight:800; margin-left:4px; }
+      /* A billed box gets a little green "confirmed" pop, then fades and
+         shrinks away in place — so completing ONE box on a shared table
+         reads as that one box being done, not the whole screen just
+         changing under the cashier with no acknowledgement. */
+      @keyframes rposBoxBilled {
+        0%   { opacity:1; transform:scale(1); box-shadow:0 0 0 0 rgba(34,197,94,0); }
+        18%  { transform:scale(1.035); box-shadow:0 0 0 4px rgba(34,197,94,0.35); }
+        45%  { opacity:1; transform:scale(1.01); box-shadow:0 0 0 4px rgba(34,197,94,0.15); }
+        100% { opacity:0; transform:scale(0.82) translateY(10px); box-shadow:0 0 0 0 rgba(34,197,94,0); }
+      }
+      .rpos-box-exit { animation:rposBoxBilled 620ms cubic-bezier(.4,0,.2,1) forwards; pointer-events:none; }
+      @keyframes rposBoxEnter { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+      .rpos-box-enter { animation:rposBoxEnter 240ms ease; }
     </style>
   `;
 
@@ -429,11 +442,11 @@ async function renderTablePartyPicker(table) {
       ${parties.map(p => {
         const elapsed = Date.now() - new Date(p.createdAt).getTime();
         return `
-          <div class="rpos-table-card" data-id="${p.id}" style="background:${STATUS_META.occupied.bg}; border:1px solid var(--border);">
+          <div class="rpos-table-card rpos-box-enter" data-id="${p.id}" style="background:${STATUS_META.occupied.bg}; border:1px solid var(--border);">
             <div style="font-weight:800; font-size:15px;">Box ${p.partyNumber || '?'}</div>
             <div style="font-size:11px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-users" style="margin-right:4px; opacity:.5;"></i>${p.guestCount || '—'} guests · ${p.items?.length || 0} item(s)</div>
             <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
-              <div style="font-size:11px; font-weight:700; color:${STATUS_META.occupied.color};"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>In progress</div>
+              <div class="rpos-box-status" style="font-size:11px; font-weight:700; color:${STATUS_META.occupied.color};"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>In progress</div>
               <div class="rpos-table-timer" data-created-at="${p.createdAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>
             </div>
           </div>
@@ -1282,6 +1295,28 @@ function openPaymentPanel() {
   });
 }
 
+// Plays the box-billed animation on a specific box card IF it's actually on
+// screen right now (data-id match inside #rposContent) — a quiet no-op
+// otherwise (e.g. billed for a table whose picker isn't currently showing).
+// Resolves once the animation finishes (or a fallback timeout, in case
+// 'animationend' never fires — e.g. the element got removed from the DOM
+// by something else mid-flight) so the caller can safely delete the
+// underlying record and re-render only AFTER the card has visibly gone.
+function animateBoxExit(partyId) {
+  return new Promise(resolve => {
+    const card = document.querySelector(`#rposContent .rpos-table-card[data-id="${partyId}"]`);
+    if (!card) return resolve();
+    const statusLine = card.querySelector('.rpos-box-status');
+    if (statusLine) statusLine.innerHTML = '<i class="fa-solid fa-check" style="margin-right:5px;"></i>Billed';
+    if (statusLine) statusLine.style.color = 'var(--success)';
+    card.classList.add('rpos-box-exit');
+    let done = false;
+    const finish = () => { if (done) return; done = true; resolve(); };
+    card.addEventListener('animationend', finish, { once: true });
+    setTimeout(finish, 700);
+  });
+}
+
 async function completeBill(payments) {
   const settings = store.settings || await getSettings();
   const cur = settings.currency || '₹';
@@ -1302,6 +1337,23 @@ async function completeBill(payments) {
   const succeeded = await confirmOrder(payments, getCartTotals(), settings, cur, { isCredit: false, creditInfo: '' }, restaurantMeta);
   if (!succeeded) return; // confirmOrder() already showed its own error toast
 
+  const container = document.getElementById('page-container');
+  const wasDineIn = orderType === 'dine-in';
+  const billedTable = selectedTable;
+  const billedPartyId = selectedCounterOrder?.id;
+
+  if (wasDineIn && billedTable) {
+    // Land back on THIS table's own box picker — still showing the
+    // just-billed box — before deleting anything, so its departure plays
+    // out as a visible animation instead of the box just being silently
+    // absent the next time this screen renders (see animateBoxExit()).
+    drillTable = billedTable;
+    view = 'picker';
+    updateBackButtonLabel();
+    await renderTablePartyPicker(billedTable);
+    await animateBoxExit(billedPartyId);
+  }
+
   // Billed — this box/order is done. The table (or any other box sharing
   // it) isn't touched at all: occupancy is always derived live from
   // whichever CounterOrder docs still reference a table, so removing just
@@ -1312,14 +1364,25 @@ async function completeBill(payments) {
   }
 
   takeawayContact = { name: '', phone: '', address: '', pickupTime: '' };
-  view = 'picker';
-  orderType = null;
   selectedTable = null;
-  drillTable = null;
   selectedCounterOrder = null;
   guestCount = null;
   changeLog = [];
   orderSessionId = null;
   setStaff(null);
-  await renderRestaurantPOS(document.getElementById('page-container'));
+
+  if (wasDineIn && billedTable) {
+    // Stay drilled into this table if it still has other boxes open; pop
+    // back out to the full table grid once it's genuinely empty again.
+    const stillHasParties = (await getCounterOrders()).some(o => o.tableId === billedTable.id);
+    orderType = 'dine-in';
+    drillTable = stillHasParties ? billedTable : null;
+    view = 'picker';
+    await render(container); // in-place re-render — no full state reset needed, we're already back at the picker
+  } else {
+    view = 'picker';
+    orderType = null;
+    drillTable = null;
+    await renderRestaurantPOS(container);
+  }
 }
