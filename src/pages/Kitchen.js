@@ -52,7 +52,7 @@ export async function renderKitchen(container) {
   // this exact same component; the only difference is this flag, which
   // decides whether "Open in New Window" makes sense to offer (no point
   // offering it from inside the window it would open).
-  const isPopout = location.hash.startsWith('#kitchen-display');
+  const isPopout = location.hash.startsWith('#kitchen-display') || location.hash.startsWith('#kd');
   // #page-container's own padding (24px, normally) is forced to 0 for every
   // STANDALONE page — and 'kitchen-display' only just became one (see
   // router.js) — so the popped-out window's content sat flush against the

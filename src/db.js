@@ -525,6 +525,7 @@ export async function hasPermission(action) {
       'tables': 'pos:access', // Table management — same crowd that runs the register manages the floor
       'kitchen': 'pos:access', // Kitchen prep board — same crowd, different station
       'kitchen-display': 'pos:access', // The same board, popped out into its own dedicated window
+      'kd': 'pos:access', // Short phone-friendly alias for 'kitchen-display'
     };
 
     const requiredPerm = modulePermissionMap[module];

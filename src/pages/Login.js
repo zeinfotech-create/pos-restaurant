@@ -469,8 +469,16 @@ export function renderLogin(container) {
     });
     showLoginLoading();
     setTimeout(() => {
-      console.log('[Login] Redirecting to Dashboard and reloading...');
-      window.location.hash = 'dashboard';
+      // A non-Electron client that got bounced here from the locked-down
+      // kd/kitchen-display entry point (see router.js's
+      // lockOutNonKitchenAccess()) needs to land back there, not on a
+      // dashboard it isn't allowed to reach — see the matching
+      // sessionStorage write in router.js's RBAC redirect-to-login path.
+      const postLoginRedirect = sessionStorage.getItem('rpos_post_login_redirect');
+      if (postLoginRedirect) sessionStorage.removeItem('rpos_post_login_redirect');
+      const destination = postLoginRedirect || 'dashboard';
+      console.log(`[Login] Redirecting to ${destination} and reloading...`);
+      window.location.hash = destination;
       window.location.reload();
     }, 1500);
   }

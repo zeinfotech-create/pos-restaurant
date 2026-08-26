@@ -66,10 +66,22 @@ const routes = {
     // to leave running unattended since it never needs the main app's
     // sidebar to get back anywhere.
     'kitchen-display': renderKitchen,
+    // Short alias for the SAME route, specifically for typing on a phone —
+    // http://<lan-ip>:3030/#kd. Treated identically to 'kitchen-display'
+    // everywhere below (standalone, activation-exempt, permission mapping).
+    kd: renderKitchen,
 };
 
 let currentPage = 'dashboard';
 
+// A plain, full-viewport black screen — deliberately not an error message
+// or a "you're not allowed here" notice, since even that would confirm
+// something else exists to ask for. Wipes document.body entirely rather
+// than targeting #page-container, since a fresh browser load may not have
+// built the normal app shell at all yet.
+function lockOutNonKitchenAccess() {
+    document.body.innerHTML = '<div style="position:fixed; inset:0; background:#000; z-index:2147483647;"></div>';
+}
 
 export async function navigate(page) {
     console.log(`[Router] Navigating to: ${page}`);
@@ -81,6 +93,21 @@ export async function navigate(page) {
     const { getSettings, updateSettings } = await import('./db.js');
     const settings = await getSettings();
     const isElectron = /Electron/i.test(navigator.userAgent);
+
+    // A device reaching this app via the LAN web endpoint (server/index.js's
+    // static-file serving — see Kitchen.js's mobile/"Open in New Window"
+    // access) is NEVER Electron, and is meant for exactly one thing: Kitchen
+    // Display. Every other route it could ask for — Settings, Reports,
+    // Products, literally anything else the full app can do — must be
+    // completely unreachable from this entry point, not just hidden behind
+    // a login: a black screen, no redirect, no hint of what else exists
+    // here. 'login' stays reachable since it's the one step before 'kd'/
+    // 'kitchen-display' actually works.
+    if (!isElectron && !['login', 'kitchen-display', 'kd'].includes(mainPage)) {
+        console.warn(`[Router] Non-Electron client requested "${mainPage}" — locking to black screen (LAN access is Kitchen Display only).`);
+        lockOutNonKitchenAccess();
+        return;
+    }
 
     if (isElectron) {
         const isAlreadySetUp = await checkElectronInstallState();
@@ -114,7 +141,7 @@ export async function navigate(page) {
         // a startup glitch, not a genuine enforcement point.
         if (isAlreadySetUp) {
             const { syncEngine } = await import('./services/syncEngine.js');
-            const activationExemptPages = ['login', 'onboarding', 'activation', 'customer-display', 'kitchen-display'];
+            const activationExemptPages = ['login', 'onboarding', 'activation', 'customer-display', 'kitchen-display', 'kd'];
             const loggedInUser = await getCurrentUser();
             if (loggedInUser && !syncEngine.isLifetimeActivated && !activationExemptPages.includes(mainPage)) {
                 console.log('[Router] Electron: Not activated yet. Forcing Activation gate.');
@@ -201,7 +228,7 @@ export async function navigate(page) {
     }
 
     // Handle Standalone Pages (No sidebar/topbar)
-    const standalonePages = ['customer-display', 'login', 'onboarding', 'activation', 'quick-pos', 'restaurant-pos', 'kitchen-display'];
+    const standalonePages = ['customer-display', 'login', 'onboarding', 'activation', 'quick-pos', 'restaurant-pos', 'kitchen-display', 'kd'];
     const isStandalone = standalonePages.includes(mainPage);
 
     document.body.classList.toggle('standalone-view', isStandalone);
@@ -227,6 +254,16 @@ export async function navigate(page) {
             showToast('Access Denied: Admin role required', 'error');
         } else {
             console.warn(`[Router] No user found. Redirecting to login.`);
+            // Preserve the original destination for Kitchen Display's
+            // mobile/LAN entry point specifically — Login.js's normal flow
+            // always lands on 'dashboard' after signing in, but a
+            // non-Electron client locked to kd/kitchen-display (see
+            // lockOutNonKitchenAccess() above) must land back on Kitchen
+            // Display, not a dashboard it isn't even allowed to reach
+            // (which would just re-trigger the black-screen lockout).
+            if (mainPage === 'kd' || mainPage === 'kitchen-display') {
+                sessionStorage.setItem('rpos_post_login_redirect', mainPage);
+            }
             // Not logged in, redirect to login
             navigate('login');
         }
