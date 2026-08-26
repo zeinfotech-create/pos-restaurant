@@ -11,7 +11,7 @@ import { getTables, saveTable, deleteTable, getCounterOrders } from '../db.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, formatElapsed, timerTier } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, formatElapsed, timerTier } from '../utils/tableDisplay.js';
 
 let timerInterval = null;
 
@@ -69,9 +69,9 @@ async function renderTablesContent() {
 
 function renderTableCard(t, allTables, allParties) {
   const occ = tableOccupancy(t, allParties);
-  const status = occ.isOccupied ? STATUS_META.occupied : STATUS_META.free;
-  const displayName = tableDisplayName(t, allTables);
   const displayCap = tableDisplayCapacity(t, allTables);
+  const status = STATUS_META[tableStatusKey(occ, displayCap)];
+  const displayName = tableDisplayName(t, allTables);
   const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
   const hasMerge = t.mergedTableIds?.length > 0;
   return `

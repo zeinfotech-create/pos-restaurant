@@ -31,7 +31,7 @@ import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, formatElapsed, timerTier } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, formatElapsed, timerTier } from '../utils/tableDisplay.js';
 
 // A fixed, common set of toggle-able modifiers — every menu item shares the
 // same list rather than per-product-configured modifier groups. Simpler to
@@ -381,9 +381,9 @@ async function renderPickerView() {
         <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr)); gap:14px;">
           ${sectionTables.map(t => {
             const occ = tableOccupancy(t, allParties);
-            const status = occ.isOccupied ? STATUS_META.occupied : STATUS_META.free;
-            const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
             const capacity = tableDisplayCapacity(t, allTables);
+            const status = STATUS_META[tableStatusKey(occ, capacity)];
+            const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
             return `
               <div class="rpos-table-card" data-id="${t.id}" style="background:${status.bg}; border:1px solid var(--border);">
                 <div style="font-weight:800; font-size:15px;"><i class="fa-solid fa-chair" style="opacity:.4; margin-right:6px; font-size:12px;"></i>${escapeHtml(tableDisplayName(t, allTables))}</div>

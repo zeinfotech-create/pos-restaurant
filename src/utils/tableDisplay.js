@@ -6,11 +6,32 @@
 // ============================================================
 
 export const STATUS_META = {
-  free: { label: 'Free', color: 'var(--success)', bg: 'rgba(34,197,94,0.08)' },
+  // 'free' uses --info rather than --primary/--success deliberately — some
+  // themes retint --primary (e.g. green/purple/teal storefronts), which
+  // would make "free" and "occupied" hard to tell apart at a glance on
+  // those themes. --info is never re-themed, so free tables read as the
+  // same light blue everywhere.
+  free: { label: 'Free', color: 'var(--info)', bg: 'rgba(59,130,246,0.08)' },
   occupied: { label: 'Occupied', color: 'var(--warning)', bg: 'rgba(245,158,11,0.08)' },
+  // A table can have open boxes but still have spare seats (see
+  // tableOccupancy()) — that's still 'occupied' (orange). Only once every
+  // seat is actually taken does it become 'full' (gray) — there's no more
+  // room to seat a new party here without freeing something up first.
+  full: { label: 'Full', color: 'var(--text-muted)', bg: 'rgba(100,116,139,0.12)' },
   billed: { label: 'Billed', color: 'var(--danger)', bg: 'rgba(239,68,68,0.08)' },
   merged: { label: 'Merged', color: 'var(--text-muted)', bg: 'rgba(148,163,184,0.08)' },
 };
+
+// Which STATUS_META key a table's card should render as — 'free' (no
+// parties at all), 'full' (every seat taken, no room for a new party
+// without one first freeing up), or 'occupied' (some parties seated, but
+// seats still remain). `occ` is a tableOccupancy() result; `capacity` is
+// that table's own effective (merge-aware) capacity.
+export function tableStatusKey(occ, capacity) {
+  if (!occ.isOccupied) return 'free';
+  if (occ.usedSeats >= capacity) return 'full';
+  return 'occupied';
+}
 
 // A table merged into another is absorbed into its primary's card (see
 // tableDisplayName()) and hidden from grids entirely — it only resurfaces
