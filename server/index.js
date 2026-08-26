@@ -532,6 +532,47 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
+    // Serve the built app itself (dist/, from `npm run build`) for any GET
+    // that isn't one of the API routes above — the ONLY thing that makes a
+    // phone/tablet on the same LAN able to open the app at all: it has no
+    // .exe to install, so this hub doubles as a plain static file server
+    // for it, same origin as the WebSocket sync it already needs. Hash
+    // routes (#kitchen-display etc.) never reach the server at all — the
+    // browser only ever requests the bare path — so serving index.html for
+    // any unmatched GET and letting router.js read the hash client-side
+    // (the standard SPA-fallback pattern) is enough for a direct link like
+    // http://<lan-ip>:3030/#kitchen-display to land exactly where it says.
+    // A dev session (`npm run electron:dev`) has no dist/ at all — Vite's
+    // own dev server serves the app on its own port instead — so this
+    // silently falls through to the 404 below rather than erroring when
+    // the folder doesn't exist.
+    if (req.method === 'GET' && !req.url.startsWith('/api/')) {
+        const distDir = path.join(__dirname, '..', 'dist');
+        if (fs.existsSync(distDir)) {
+            const MIME_TYPES = {
+                '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
+                '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
+                '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon',
+                '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+            };
+            const urlPath = req.url.split('?')[0];
+            // Reject any attempt to escape distDir via ../ before it ever
+            // touches the filesystem — path.join() alone doesn't stop
+            // "..%2F..%2F" style traversal from resolving outside it.
+            const safeRelPath = path.normalize(decodeURIComponent(urlPath)).replace(/^(\.\.[/\\])+/, '');
+            let filePath = path.join(distDir, safeRelPath);
+            if (!filePath.startsWith(distDir)) filePath = path.join(distDir, 'index.html');
+            if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+                filePath = path.join(distDir, 'index.html');
+            }
+            if (fs.existsSync(filePath)) {
+                const ext = path.extname(filePath).toLowerCase();
+                res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
+                return fs.createReadStream(filePath).pipe(res);
+            }
+        }
+    }
+
     // Log the unhandled request to help the user find typos in their URL
     console.warn(`[Server] 404 - Unhandled ${req.method} request to: ${req.url}`);
     res.writeHead(404, { 'Content-Type': 'application/json' });

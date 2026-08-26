@@ -364,7 +364,15 @@ class SyncEngine {
             
             // In Standalone/Electron, we still need the server for Notifications
             // Use Port 3030 for local EXE server to avoid conflicts with Port 3030 (Cloud Hub)
-            let hubIp = settings.syncHubIp || '127.0.0.1';
+            // window.location.hostname before the hardcoded '127.0.0.1' fallback
+            // matters for any browser client that loaded this app FROM the hub
+            // itself (a phone hitting http://<PC-LAN-IP>:3030/, see server/
+            // index.js's static-file serving) — its own first connection would
+            // otherwise try ws://127.0.0.1:3030 (itself, not the PC) and fail
+            // silently until Settings' Hub IP was set by hand. Harmless for
+            // Electron: its renderer's hostname is empty (file://) or
+            // 'localhost' in dev, both equivalent to what this already did.
+            let hubIp = settings.syncHubIp || window.location.hostname || '127.0.0.1';
             if (hubIp === 'localhost') hubIp = '127.0.0.1';
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             this.licenseKey = settings.licenseKey || 'LOCAL_EXE';
@@ -566,7 +574,7 @@ class SyncEngine {
     async verifyCredentialsHTTP(username, password) {
         try {
             const settings = await getSettings();
-            let hubIp = settings.syncHubIp || '127.0.0.1';
+            let hubIp = settings.syncHubIp || window.location.hostname || '127.0.0.1';
             const response = await fetch(`http://${hubIp}:3030/api/pos-login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
