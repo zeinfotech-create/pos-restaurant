@@ -58,6 +58,14 @@ const routes = {
     tables: renderTables,
     'restaurant-pos': renderRestaurantPOS,
     kitchen: renderKitchen,
+    // Same page/component as 'kitchen' — a separate route name purely so it
+    // can be marked standalone (no sidebar/topbar) below without changing
+    // how the NORMAL in-app Kitchen tab behaves. Kitchen.js opens this one
+    // in its own popped-out BrowserWindow (see its "Open in New Window"
+    // button) for a dedicated kitchen-display screen — full-bleed, and safe
+    // to leave running unattended since it never needs the main app's
+    // sidebar to get back anywhere.
+    'kitchen-display': renderKitchen,
 };
 
 let currentPage = 'dashboard';
@@ -93,16 +101,20 @@ export async function navigate(page) {
         // period for the desktop build. Gated on being logged in so Logout can
         // always reach Login instead of bouncing straight back here.
         //
-        // 'customer-display' is exempt too — it opens in its own window() with
-        // a completely fresh JS context, so syncEngine.isLifetimeActivated
-        // starts false there regardless of the main window's real activation
-        // status until its own async re-verification finishes. Even with that
-        // race fixed, this window has no business enforcing activation at all:
-        // it's a read-only mirror of the main window's cart, and a real
-        // customer standing at the counter should never see a license screen.
+        // 'customer-display' and 'kitchen-display' are exempt too — both open
+        // in their own window() with a completely fresh JS context, so
+        // syncEngine.isLifetimeActivated starts false there regardless of the
+        // main window's real activation status until its own async
+        // re-verification finishes. For customer-display this window also
+        // has no business enforcing activation at all (a real customer
+        // standing at the counter should never see a license screen); for
+        // kitchen-display the shop's already-activated main window is what
+        // actually gates use of the app — a popped-out Kitchen Display
+        // screen bouncing to the Activation gate on this same race would be
+        // a startup glitch, not a genuine enforcement point.
         if (isAlreadySetUp) {
             const { syncEngine } = await import('./services/syncEngine.js');
-            const activationExemptPages = ['login', 'onboarding', 'activation', 'customer-display'];
+            const activationExemptPages = ['login', 'onboarding', 'activation', 'customer-display', 'kitchen-display'];
             const loggedInUser = await getCurrentUser();
             if (loggedInUser && !syncEngine.isLifetimeActivated && !activationExemptPages.includes(mainPage)) {
                 console.log('[Router] Electron: Not activated yet. Forcing Activation gate.');
@@ -189,7 +201,7 @@ export async function navigate(page) {
     }
 
     // Handle Standalone Pages (No sidebar/topbar)
-    const standalonePages = ['customer-display', 'login', 'onboarding', 'activation', 'quick-pos', 'restaurant-pos'];
+    const standalonePages = ['customer-display', 'login', 'onboarding', 'activation', 'quick-pos', 'restaurant-pos', 'kitchen-display'];
     const isStandalone = standalonePages.includes(mainPage);
 
     document.body.classList.toggle('standalone-view', isStandalone);

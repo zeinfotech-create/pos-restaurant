@@ -439,6 +439,16 @@ function createMainWindow() {
   });
   mainWindow.on('closed', () => { mainWindow = null; });
 
+  // Distinct titles for known popped-out screens so they're identifiable in
+  // the taskbar/Alt-Tab when more than one is open at once (e.g. Customer
+  // Display AND Kitchen Display running side by side on separate monitors)
+  // — falls back to the generic app title for anything else.
+  const popupTitleFor = (url) => {
+    if (url.includes('kitchen-display')) return 'Kitchen Display — ZeInfoTech POS';
+    if (url.includes('customer-display')) return 'ZeInfoTech POS';
+    return 'ZeInfoTech POS';
+  };
+
   // ─── Open target="_blank" / window.open() in a new Electron BrowserWindow ──
   // Prevents links from launching the system's default browser.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => ({
@@ -452,8 +462,11 @@ function createMainWindow() {
       autoHideMenuBar: true,
       // Customer Display is a kiosk-style customer-facing screen — no native
       // title bar / "ZeInfoTech POS" text bleeding across the top of it.
+      // Kitchen Display is a staff-facing operational screen (has its own
+      // interactive buttons, and staff may want to move/minimize/close it),
+      // so it keeps the normal window frame.
       frame: !url.includes('customer-display'),
-      title: 'ZeInfoTech POS',
+      title: popupTitleFor(url),
       icon: fs.existsSync(iconPath) ? iconPath : undefined,
       webPreferences: {
         nodeIntegration: false,
@@ -484,7 +497,7 @@ function createMainWindow() {
         backgroundColor: '#0f172a',
         autoHideMenuBar: true,
         frame: !url.includes('customer-display'),
-        title: 'ZeInfoTech POS',
+        title: popupTitleFor(url),
         icon: fs.existsSync(iconPath) ? iconPath : undefined,
         webPreferences: { nodeIntegration: false, contextIsolation: true },
       },

@@ -708,7 +708,7 @@ window.addEventListener('license-status-changed', () => {
   renderSidebar(); 
   // Re-trigger navigation to apply/remove blur restrictions instantly
   const cur = getCurrentPage().split('/')[0];
-  const standalonePages = ['login', 'onboarding', 'customer-display', 'quick-pos', 'restaurant-pos'];
+  const standalonePages = ['login', 'onboarding', 'customer-display', 'quick-pos', 'restaurant-pos', 'kitchen-display'];
   if (!standalonePages.includes(cur)) {
     navigate(getCurrentPage());
   }

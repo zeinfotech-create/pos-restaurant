@@ -524,6 +524,7 @@ export async function hasPermission(action) {
       'restaurant-pos': 'pos:access', // Same access as the regular POS screen
       'tables': 'pos:access', // Table management — same crowd that runs the register manages the floor
       'kitchen': 'pos:access', // Kitchen prep board — same crowd, different station
+      'kitchen-display': 'pos:access', // The same board, popped out into its own dedicated window
     };
 
     const requiredPerm = modulePermissionMap[module];

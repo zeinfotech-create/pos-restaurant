@@ -13,9 +13,15 @@ import { getKots, updateKotStatus, setKotItemStatus, saveKot } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { formatElapsed } from '../utils/tableDisplay.js';
+import { syncEngine } from '../services/syncEngine.js';
 
 let kitchenTimerInterval = null;
 let liveListenerRegistered = false;
+let syncStatusListenerRegistered = false;
+// null = "haven't rendered yet" — the very first render shouldn't flash/
+// chime for tickets that were already sitting there before this screen was
+// even opened, only for ones that arrive WHILE it's open.
+let knownTicketIds = null;
 
 // Kitchen tickets move much faster than a table's whole occupied session, so
 // these thresholds are deliberately tighter than tableDisplay.js's (10/20min
@@ -41,15 +47,48 @@ function serveActionMeta(orderType) {
 }
 
 export async function renderKitchen(container) {
+  // Whichever route rendered this ('kitchen', the normal in-app tab, or
+  // 'kitchen-display', its own popped-out window — see router.js) share
+  // this exact same component; the only difference is this flag, which
+  // decides whether "Open in New Window" makes sense to offer (no point
+  // offering it from inside the window it would open).
+  const isPopout = location.hash.startsWith('#kitchen-display');
   container.innerHTML = `
     <div class="page-header">
       <div>
         <div class="page-title">Kitchen</div>
         <div class="page-subtitle">Live prep board — start a ticket, then serve each dish the moment it's ready</div>
       </div>
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div id="kitchenSyncStatus" style="font-size:11px; font-weight:800; display:flex; align-items:center; gap:6px; white-space:nowrap;"></div>
+        ${!isPopout ? `<button class="btn btn-ghost btn-sm" id="kitchenPopoutBtn"><i class="fa-solid fa-up-right-from-square"></i> Open in New Window</button>` : ''}
+      </div>
     </div>
     <div id="kitchenContent"></div>
   `;
+
+  // Opens the SAME board in its own dedicated BrowserWindow (main.cjs's
+  // window-open handler gives it a real frame + maximizes it, and its own
+  // taskbar title — "Kitchen Display") — meant to be left running on a
+  // second monitor, or on an entirely separate PC in the kitchen itself
+  // (Settings > Advanced Connection Settings > Hub IP connects it to the
+  // same shop's data over LAN). Reuses the same window name every click so
+  // clicking again just refocuses the existing one instead of piling up
+  // duplicates.
+  document.getElementById('kitchenPopoutBtn')?.addEventListener('click', () => {
+    window.open(window.location.origin + '#kitchen-display', 'pos_kitchen_display', 'width=1280,height=820');
+  });
+
+  renderSyncStatus();
+  if (!syncStatusListenerRegistered) {
+    // Most useful exactly where this matters most — a Kitchen Display
+    // running on a separate PC over LAN sync — so staff can tell "not
+    // updating because nothing's happening" from "not updating because
+    // this screen lost its connection" at a glance, without needing to dig
+    // into Settings to check.
+    window.addEventListener('sync-status-changed', renderSyncStatus);
+    syncStatusListenerRegistered = true;
+  }
 
   // A KOT sent from RestaurantPOS.js shows up here immediately rather than
   // only on the next manual visit to this page — real KDS boards are
@@ -78,6 +117,14 @@ export async function renderKitchen(container) {
   await renderKitchenContent();
 }
 
+function renderSyncStatus() {
+  const el = document.getElementById('kitchenSyncStatus');
+  if (!el) return;
+  const online = syncEngine.isConnected;
+  el.style.color = online ? 'var(--success)' : 'var(--danger)';
+  el.innerHTML = `<i class="fa-solid fa-circle" style="font-size:7px;"></i> ${online ? 'Live' : 'Reconnecting…'}`;
+}
+
 async function renderKitchenContent() {
   const area = document.getElementById('kitchenContent');
   if (!area) return;
@@ -91,6 +138,11 @@ async function renderKitchenContent() {
   // are actually at the same stage get visually combined under one order.
   const pendingGroups = groupByOrder(pending);
   const activeGroups = groupByOrder(active);
+  // A screen meant to be glanced at (or not looked at all, on a second
+  // monitor/PC) needs more than a silently-updated list — flag whether a
+  // ticket genuinely wasn't here last render, so a fresh order gets an
+  // actual flash + chime, not just a number quietly changing.
+  const hasNewTicket = detectNewTickets(pending);
 
   area.innerHTML = `
     ${kots.length === 0 ? `
@@ -101,7 +153,7 @@ async function renderKitchenContent() {
     ` : `
       <div class="rpos-kitchen-board">
         <div class="rpos-kitchen-col">
-          <div class="rpos-kitchen-col-header" style="color:var(--text-muted);"><i class="fa-solid fa-hourglass-start"></i> New Tickets <span class="rpos-kitchen-col-count">${pending.length}</span></div>
+          <div class="rpos-kitchen-col-header ${hasNewTicket ? 'rpos-flash-new' : ''}" style="color:var(--text-muted);"><i class="fa-solid fa-hourglass-start"></i> New Tickets <span class="rpos-kitchen-col-count">${pending.length}</span></div>
           <div class="rpos-kitchen-col-body">
             ${pendingGroups.length === 0 ? emptyCol() : pendingGroups.map(renderNewTicketGroup).join('')}
           </div>
@@ -117,7 +169,7 @@ async function renderKitchenContent() {
     <style>
       .rpos-kitchen-board { display:grid; grid-template-columns:1fr 2fr; gap:16px; align-items:start; }
       @media (max-width:900px) { .rpos-kitchen-board { grid-template-columns:1fr; } }
-      .rpos-kitchen-col-header { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px; }
+      .rpos-kitchen-col-header { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px; border-radius:8px; padding:4px 6px; margin-left:-6px; }
       .rpos-kitchen-col-count { margin-left:auto; background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; padding:1px 8px; font-size:11px; }
       .rpos-kitchen-col-body { display:flex; flex-direction:column; gap:12px; }
       .rpos-kitchen-active-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); gap:12px; align-items:start; }
@@ -125,10 +177,63 @@ async function renderKitchenContent() {
       .rpos-kot-item-row:last-child { border-bottom:none; }
       .rpos-kot-item-row.resolved { opacity:.55; }
       .rpos-kot-wave-divider { margin-top:12px; padding-top:12px; border-top:1px dashed var(--border); }
+      @keyframes rposNewTicketFlash {
+        0%, 100% { background:transparent; }
+        50% { background:rgba(245,158,11,0.35); }
+      }
+      .rpos-flash-new { animation:rposNewTicketFlash 0.7s ease-in-out 3; }
     </style>
   `;
   wireKitchenListeners();
   startKitchenTimerLoop();
+  if (hasNewTicket) playNewTicketChime();
+}
+
+// Compares this render's pending-ticket ids against the last render's —
+// null on the very first call (nothing to compare against yet, and a
+// screen that was just opened shouldn't flash/chime for tickets that were
+// already sitting there before it existed). Module-scoped rather than
+// reset per-mount deliberately: navigating away from Kitchen and back
+// still correctly alerts for whatever arrived while it wasn't the active
+// page, instead of forgetting and staying silent.
+function detectNewTickets(pending) {
+  const currentIds = new Set(pending.map(k => k.id));
+  if (knownTicketIds === null) {
+    knownTicketIds = currentIds;
+    return false;
+  }
+  let hasNew = false;
+  currentIds.forEach(id => { if (!knownTicketIds.has(id)) hasNew = true; });
+  knownTicketIds = currentIds;
+  return hasNew;
+}
+
+// A short two-tone chime via the Web Audio API — no asset file needed, and
+// it degrades silently (try/catch) if the browser/Electron blocks audio
+// before any user gesture has unlocked it, since this is a nice-to-have
+// alert, not something that should ever break the board if it fails.
+function playNewTicketChime() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    [880, 1175].forEach((freq, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.type = 'sine';
+      o.frequency.value = freq;
+      const start = ctx.currentTime + i * 0.14;
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(0.18, start + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.25);
+      o.start(start);
+      o.stop(start + 0.28);
+    });
+  } catch (e) {
+    // Audio unavailable/blocked — the visual flash still carries the alert.
+  }
 }
 
 function byAge(a, b) { return new Date(a.createdAt) - new Date(b.createdAt); }
