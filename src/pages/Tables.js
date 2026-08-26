@@ -160,12 +160,16 @@ async function setupTablesListeners() {
       if (btn) btn.onclick = async () => {
         const name = nameInput?.value.trim();
         if (!name) return showToast('Please enter a table name', 'error');
+        const section = document.getElementById('newTableSectionInput')?.value.trim() || '';
+        const sectionKey = section || 'Main';
         const existing = await getTables();
-        if (existing.some(t => t.name.trim().toLowerCase() === name.toLowerCase())) {
-          return showToast(`A table named "${name}" already exists`, 'error');
+        // Scoped to the section, not global — "Table 1" in Main and "Table 1"
+        // in AC Hall are two different physical tables the section already
+        // tells apart, same as a real restaurant would number them.
+        if (existing.some(t => (t.section?.trim() || 'Main') === sectionKey && t.name.trim().toLowerCase() === name.toLowerCase())) {
+          return showToast(`A table named "${name}" already exists in ${sectionKey}`, 'error');
         }
         const capacity = Math.max(1, parseInt(document.getElementById('newTableCapInput')?.value, 10) || 4);
-        const section = document.getElementById('newTableSectionInput')?.value.trim() || '';
         await saveTable({ name, capacity, section, status: 'free' });
         closeModal();
         showToast(`Table "${name}" created`, 'success');
@@ -210,12 +214,15 @@ async function setupTablesListeners() {
         if (saveBtn) saveBtn.onclick = async () => {
           const name = nameInput?.value.trim();
           if (!name) return;
+          const section = document.getElementById('editTableSectionInput')?.value.trim() || '';
+          const sectionKey = section || 'Main';
           const existing = await getTables();
-          if (existing.some(t => t.id !== table.id && t.name.trim().toLowerCase() === name.toLowerCase())) {
-            return showToast(`A table named "${name}" already exists`, 'error');
+          // Scoped to the section, not global — see the same check in the
+          // "New Table" handler above for why.
+          if (existing.some(t => t.id !== table.id && (t.section?.trim() || 'Main') === sectionKey && t.name.trim().toLowerCase() === name.toLowerCase())) {
+            return showToast(`A table named "${name}" already exists in ${sectionKey}`, 'error');
           }
           const capacity = Math.max(1, parseInt(document.getElementById('editTableCapInput')?.value, 10) || 4);
-          const section = document.getElementById('editTableSectionInput')?.value.trim() || '';
           await saveTable({ ...table, name, capacity, section });
           closeModal();
           showToast('Table updated', 'success');
