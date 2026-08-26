@@ -1,5 +1,5 @@
 import { db, getSettings, getDeviceId, updateData, deleteData, getDataById, updateSettings, getOrders, saveOrder, updateOrder, clearStore, read, KEYS, getCachedLicenseStatus, saveCachedLicenseStatus, getDeletedTombstones, clearExpiredTombstones, verifyLocalUser } from '../db.js';
-import { showSuspendedOverlay } from './LicenseService.js';
+import { showSuspendedOverlay, showDeviceLimitOverlay } from './LicenseService.js';
 import { refreshTrueTimeOffset } from '../utils/trueTime.js';
 
 // Real, permanent public URL of the vendor-only license-signing server
@@ -859,6 +859,8 @@ class SyncEngine {
                         console.error('SyncEngine: Registration failed:', message.message);
                         if (message.message && message.message.includes('SUSPENDED')) {
                             showSuspendedOverlay(message.message);
+                        } else if (message.reason === 'device_limit') {
+                            showDeviceLimitOverlay(message.message);
                         }
                         break;
 
@@ -1233,18 +1235,23 @@ class SyncEngine {
 
     async reRegister() {
         if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-        const settings = await getSettings();
+        // deviceId is THIS device's own stable id (db.js's getDeviceId(),
+        // hardware-fingerprint-derived) — not settings.id, which is the
+        // shared Settings record's own id and identical across every
+        // device on this tenant. The hub uses this to cap how many UNIQUE
+        // devices (not raw connections) can be registered per shop.
+        const [settings, deviceId] = await Promise.all([getSettings(), getDeviceId()]);
 
-        // The awaited getSettings() call above gives the event loop a chance
-        // to run — this.ws can be closed/reassigned by a disconnect/reconnect
-        // that happens in that gap, so re-check right before sending instead
-        // of trusting the check made before the await.
+        // The awaits above give the event loop a chance to run — this.ws
+        // can be closed/reassigned by a disconnect/reconnect that happens
+        // in that gap, so re-check right before sending instead of
+        // trusting the check made before the await.
         if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
         console.log('SyncEngine: Sending REGISTRATION to Hub...');
         this.ws.send(JSON.stringify({
             type: 'register',
-            deviceId: settings.id,
+            deviceId,
             licenseKey: settings.licenseKey,
             branchId: settings.branchId,
             email: settings.email,

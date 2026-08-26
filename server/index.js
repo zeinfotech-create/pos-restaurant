@@ -664,6 +664,54 @@ function unregisterClient(ws) {
     }
 }
 
+// ============================================================
+// Device Registry — licenseKey → Map<deviceId, Set<WebSocket>>
+// ============================================================
+// Caps how many UNIQUE physical devices (mobile/PC/desktop) can be
+// connected to one shop's hub at once — distinct from clientMap above,
+// which just counts raw socket connections. A device is identified by
+// its own stable id (see db.js's getDeviceId(), hardware-fingerprint-
+// derived, sent as `deviceId` in the 'register' message) — an ALREADY-
+// counted device reconnecting (app restarted, brief network drop) reuses
+// its own slot rather than costing a new one; a genuinely different
+// device is the only thing that can hit the cap. Each device maps to a
+// SET of sockets (not one) so a reconnect's brief old-socket/new-socket
+// overlap never looks like the device dropped its slot.
+const deviceMap = new Map(); // licenseKey -> Map<deviceId, Set<ws>>
+const MAX_DEVICES_PER_LICENSE = 3;
+
+// Pure check — does NOT claim a slot. Call before registerDeviceSlot().
+// No deviceId at all (a client too old to send one, or a bad message)
+// fails OPEN rather than locking every unidentifiable client out.
+function canRegisterDevice(licenseKey, deviceId) {
+    if (!deviceId) return true;
+    const devices = deviceMap.get(licenseKey);
+    if (!devices || devices.has(deviceId)) return true;
+    return devices.size < MAX_DEVICES_PER_LICENSE;
+}
+
+function registerDeviceSlot(ws, licenseKey, deviceId) {
+    ws._deviceId = deviceId;
+    if (!deviceId) return;
+    if (!deviceMap.has(licenseKey)) deviceMap.set(licenseKey, new Map());
+    const devices = deviceMap.get(licenseKey);
+    if (!devices.has(deviceId)) devices.set(deviceId, new Set());
+    devices.get(deviceId).add(ws);
+}
+
+function unregisterDeviceSlot(ws) {
+    const lk = ws._licenseKey;
+    const deviceId = ws._deviceId;
+    if (!lk || !deviceId) return;
+    const devices = deviceMap.get(lk);
+    if (!devices) return;
+    const set = devices.get(deviceId);
+    if (!set) return;
+    set.delete(ws);
+    if (set.size === 0) devices.delete(deviceId);
+    if (devices.size === 0) deviceMap.delete(lk);
+}
+
 function broadcastToLicense(licenseKey, payload, excludeWs = null) {
     const group = clientMap.get(licenseKey);
     if (!group) return;
@@ -877,20 +925,36 @@ wss.on('connection', (ws, req) => {
                 // --------------------------------------------------------
                 case 'register': {
                     const key = msg.licenseKey || queryLicense || 'GLOBAL';
-                    
+                    const deviceId = msg.deviceId || null;
+
                     const status = await getLicenseStatus(key);
                     if (status.isSuspended) {
                         console.log(`[Hub] 🔒 Registration REJECTED (Suspended): ${key}`);
-                        send(ws, { 
-                            type: 'register_failure', 
-                            licenseKey: key, 
+                        send(ws, {
+                            type: 'register_failure',
+                            licenseKey: key,
                             message: 'ACCOUNT SUSPENDED: Contact Zeinfotech Support',
-                            licenseStatus: status 
+                            licenseStatus: status
+                        });
+                        return setTimeout(() => ws.terminate(), 500);
+                    }
+
+                    // Max 3 UNIQUE devices per shop — checked before claiming a
+                    // slot so a reconnecting already-known device is never itself
+                    // the one that gets rejected.
+                    if (!canRegisterDevice(key, deviceId)) {
+                        console.log(`[Hub] 🚫 Registration REJECTED (device limit): ${key} deviceId=${deviceId}`);
+                        send(ws, {
+                            type: 'register_failure',
+                            licenseKey: key,
+                            reason: 'device_limit',
+                            message: `Device limit reached — this shop already has ${MAX_DEVICES_PER_LICENSE} devices connected. Disconnect one first, or contact support to raise the limit.`,
                         });
                         return setTimeout(() => ws.terminate(), 500);
                     }
 
                     registerClient(ws, key);
+                    registerDeviceSlot(ws, key, deviceId);
 
                     send(ws, {
                         type: 'register_success',
@@ -1964,6 +2028,7 @@ wss.on('connection', (ws, req) => {
 
     ws.on('close', () => {
         unregisterClient(ws);
+        unregisterDeviceSlot(ws);
         if (ws._activeSessionKey && activeUserSessions.get(ws._activeSessionKey)?.ws === ws) {
             activeUserSessions.delete(ws._activeSessionKey);
         }
