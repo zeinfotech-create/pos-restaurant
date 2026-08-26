@@ -167,12 +167,16 @@ async function renderKitchenContent() {
       </div>
     `}
     <style>
-      .rpos-kitchen-board { display:grid; grid-template-columns:1fr 2fr; gap:16px; align-items:start; }
+      /* Both columns wrap tickets into a responsive grid now (not just "In
+         Kitchen") — on a wide/maximized Kitchen Display window a single
+         stacked list left most of the screen empty even with several
+         tickets on the board; a 50/50 split (not the old 1fr/2fr) means
+         neither column looks lopsided when the other is quiet. */
+      .rpos-kitchen-board { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
       @media (max-width:900px) { .rpos-kitchen-board { grid-template-columns:1fr; } }
       .rpos-kitchen-col-header { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px; border-radius:8px; padding:4px 6px; margin-left:-6px; }
       .rpos-kitchen-col-count { margin-left:auto; background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; padding:1px 8px; font-size:11px; }
-      .rpos-kitchen-col-body { display:flex; flex-direction:column; gap:12px; }
-      .rpos-kitchen-active-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); gap:12px; align-items:start; }
+      .rpos-kitchen-col-body, .rpos-kitchen-active-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:12px; align-items:start; }
       .rpos-kot-item-row { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px dashed var(--border); }
       .rpos-kot-item-row:last-child { border-bottom:none; }
       .rpos-kot-item-row.resolved { opacity:.55; }
@@ -237,7 +241,13 @@ function playNewTicketChime() {
 }
 
 function byAge(a, b) { return new Date(a.createdAt) - new Date(b.createdAt); }
-function emptyCol() { return `<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:11px;">—</div>`; }
+// grid-column:1/-1 spans the WHOLE row of the wrapping grid it sits in —
+// without it, this would just be one narrow ~260px cell floating at the
+// left edge of an otherwise-empty column, instead of a proper centered
+// placeholder.
+function emptyCol() {
+  return `<div style="grid-column:1/-1; text-align:center; padding:28px; color:var(--text-muted); border:1.5px dashed var(--border); border-radius:14px; font-size:12px;"><i class="fa-solid fa-mug-hot" style="font-size:20px; opacity:.3; display:block; margin-bottom:8px;"></i>Nothing here right now</div>`;
+}
 
 // Multiple sends for the SAME order (see waveNumber, RestaurantPOS.js) used
 // to show up here as fully separate, unrelated-looking cards even though
