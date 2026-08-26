@@ -284,6 +284,7 @@ async function render(container) {
   document.getElementById('rposBackBtn')?.addEventListener('click', handleBack);
   document.getElementById('rposKitchenBtn')?.addEventListener('click', () => navigate('kitchen'));
   await refreshKotBadge();
+  registerKotBadgeLiveRefresh();
 
   if (view === 'picker') await renderPickerView();
   else if (view === 'ordering') await renderOrderingView();
@@ -294,6 +295,26 @@ async function refreshKotBadge() {
   if (!badge) return;
   const pending = (await getKots()).filter(k => k.status !== 'served');
   badge.innerHTML = pending.length > 0 ? `<span class="rpos-kot-badge">${pending.length}</span>` : '';
+}
+
+let kotBadgeLiveListenerRegistered = false;
+// The topbar badge element itself persists across content-only re-renders
+// (renderPickerView()/renderOrderingView() only replace #rposContent, not
+// the whole shell render() builds) — so unlike those two, this doesn't
+// need a full render() call, just refreshKotBadge() again directly. Same
+// 'storage-change' + 'data-synced' pairing as the other three live-refresh
+// fixes this session, so the count updates whether a ticket was resolved
+// on this device or arrived via LAN sync from a separate one.
+function registerKotBadgeLiveRefresh() {
+  if (kotBadgeLiveListenerRegistered) return;
+  const onKotChange = (e) => {
+    if (e.detail?.store !== 'kots') return;
+    if (!document.getElementById('rposKotBadge')) return;
+    refreshKotBadge();
+  };
+  window.addEventListener('storage-change', onKotChange);
+  window.addEventListener('data-synced', onKotChange);
+  kotBadgeLiveListenerRegistered = true;
 }
 
 function handleBack() {
