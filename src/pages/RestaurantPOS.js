@@ -57,6 +57,11 @@ function genSessionId() {
   return 'sess-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 }
 
+function backButtonLabel() {
+  if (view === 'picker') return 'Dashboard';
+  return orderType === 'dine-in' ? 'Change Table' : 'Cancel Order';
+}
+
 export async function renderRestaurantPOS(container, subPage) {
   // Reset per-visit state every time the page is (re)entered fresh via nav
   // (not on internal re-renders — those call the render*View() functions
@@ -75,6 +80,15 @@ export async function renderRestaurantPOS(container, subPage) {
     if (table) {
       await enterTable(table);
     }
+  } else if (orderType && orderType !== 'dine-in' && store.cart.length > 0) {
+    // A takeaway/delivery order is already mid-flight — most likely the
+    // cashier just popped over to the Kitchen page and is coming straight
+    // back. Unlike dine-in, a takeaway/delivery order has no table doc to
+    // recover from, so resetting here (this branch runs on EVERY plain nav
+    // into this page, not just a genuinely fresh one) would silently throw
+    // the whole order away — cart, contact info, its link to any KOTs
+    // already sent, all of it. Just resume what's already in progress.
+    view = 'ordering';
   } else {
     view = 'picker';
     orderType = null;
@@ -125,14 +139,14 @@ async function enterTable(table) {
 // badge count).
 function updateBackButtonLabel() {
   const btn = document.getElementById('rposBackBtn');
-  if (btn) btn.innerHTML = `<i class="fa-solid fa-arrow-left"></i> ${view === 'picker' ? 'Dashboard' : 'Change Table'}`;
+  if (btn) btn.innerHTML = `<i class="fa-solid fa-arrow-left"></i> ${backButtonLabel()}`;
 }
 
 async function render(container) {
   container.innerHTML = `
     <div class="rpos-shell">
       <div class="rpos-topbar">
-        <button class="btn btn-ghost btn-sm" id="rposBackBtn"><i class="fa-solid fa-arrow-left"></i> ${view === 'picker' ? 'Dashboard' : 'Change Table'}</button>
+        <button class="btn btn-ghost btn-sm" id="rposBackBtn"><i class="fa-solid fa-arrow-left"></i> ${backButtonLabel()}</button>
         <div class="rpos-topbar-title"><i class="fa-solid fa-utensils"></i> Restaurant POS</div>
         <button class="btn btn-ghost btn-sm" id="rposKitchenBtn"><i class="fa-solid fa-kitchen-set"></i> Kitchen<span id="rposKotBadge"></span></button>
       </div>
@@ -173,13 +187,23 @@ async function refreshKotBadge() {
   badge.innerHTML = pending.length > 0 ? `<span class="rpos-kot-badge">${pending.length}</span>` : '';
 }
 
-function handleBack() {
+async function handleBack() {
   const container = document.getElementById('page-container');
   if (view === 'ordering') {
     // Dine-in with items already sent to the kitchen (table is 'occupied')
     // just steps back to the table picker — the order lives safely on the
-    // table doc. A brand-new/empty order can leave with nothing lost either
-    // way, so no confirmation needed in that case.
+    // table doc. A takeaway/delivery order has nowhere to be recovered from
+    // though, so going back on one with items still in the cart needs an
+    // explicit confirmation — it really would be gone, not just hidden.
+    if (orderType !== 'dine-in' && store.cart.length > 0) {
+      const confirmed = await showConfirm({
+        title: 'Discard this order?',
+        message: `This order has ${store.cart.length} item${store.cart.length === 1 ? '' : 's'} that ${store.cart.length === 1 ? "hasn't" : "haven't"} been billed yet. Takeaway/delivery orders aren't saved anywhere if you leave — going back now discards it completely.`,
+        okText: 'Discard Order', okClass: 'btn-danger'
+      });
+      if (!confirmed) return;
+      loadTableOrderIntoCart(null); // clears store.cart the same way starting a fresh order does
+    }
     view = 'picker';
     orderType = null;
     selectedTable = null;
