@@ -251,10 +251,21 @@ function activeTicketFooter(k, items, meta) {
   const resolvableCount = items.filter(i => i.itemStatus !== 'voided').length;
   const servedCount = items.filter(i => i.itemStatus === 'served').length;
   const anyReady = items.some(i => i.itemStatus === 'ready');
+  // "Ready" one dish at a time was the only option — a ticket with several
+  // still-cooking items needed a separate click per item. Mark All Ready
+  // is the bulk version of that same per-item Ready button, so it applies
+  // to every order type equally (cooking-done is the same milestone
+  // whether the dish then gets served, packed, or dispatched). The later
+  // hand-off stage (Serve All Ready) stays dine-in-only, unchanged from
+  // before — a deliberate earlier call, not something this touches.
+  const anyPending = items.some(i => !i.itemStatus || i.itemStatus === 'pending');
   return `
-    <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
-      <div style="font-size:10.5px; color:var(--text-muted);">${servedCount}/${resolvableCount} ${meta.doneLabel.toLowerCase()}</div>
-      ${anyReady && k.orderType === 'dine-in' ? `<button class="btn btn-ghost btn-sm rpos-serve-all-ready" data-id="${k.id}" style="font-size:11px;">Serve All Ready</button>` : ''}
+    <div style="margin-top:10px; display:flex; flex-direction:column; gap:6px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <div style="font-size:10.5px; color:var(--text-muted);">${servedCount}/${resolvableCount} ${meta.doneLabel.toLowerCase()}</div>
+        ${anyReady && k.orderType === 'dine-in' ? `<button class="btn btn-ghost btn-sm rpos-serve-all-ready" data-id="${k.id}" style="font-size:11px;">Serve All Ready</button>` : ''}
+      </div>
+      ${anyPending ? `<button class="btn btn-secondary btn-sm rpos-mark-all-ready" data-id="${k.id}" style="width:100%; font-size:11px;"><i class="fa-solid fa-bell"></i> Mark All Ready</button>` : ''}
     </div>
   `;
 }
@@ -309,6 +320,15 @@ function wireKitchenListeners() {
   }));
   document.querySelectorAll('.rpos-item-serve').forEach(el => el.addEventListener('click', async () => {
     await serveItem(el.dataset.kotId, parseInt(el.dataset.idx, 10));
+  }));
+  document.querySelectorAll('.rpos-mark-all-ready').forEach(el => el.addEventListener('click', async () => {
+    const kots = await getKots();
+    const kot = kots.find(k => k.id === el.dataset.id);
+    if (!kot) return;
+    (kot.items || []).forEach(i => { if (!i.itemStatus || i.itemStatus === 'pending') i.itemStatus = 'ready'; });
+    await saveKot(kot);
+    showToast('All items marked ready 🔔', 'success');
+    await renderKitchenContent();
   }));
   document.querySelectorAll('.rpos-serve-all-ready').forEach(el => el.addEventListener('click', async () => {
     const kots = await getKots();
