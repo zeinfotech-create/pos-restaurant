@@ -885,7 +885,21 @@ class SyncEngine {
                                 // here previously let a single bad reconnect permanently
                                 // downgrade an activated device's real license key to
                                 // 'GLOBAL', silently detaching it from its License record.
-                                if (!current.licenseKey) {
+                                // 'LOCAL_EXE' is excluded too, for the same reason every
+                                // OTHER licenseKey-adoption spot in this codebase excludes
+                                // it (Login.js's own adoption, db.js's getSettings()
+                                // recovery) — it's the hub's shared placeholder tenant for
+                                // not-yet-identified devices, echoed back for literally any
+                                // client that connects before it knows its real key (every
+                                // fresh device, e.g. a phone hitting kd/kitchen-display for
+                                // the first time). This was the one spot that DIDN'T exclude
+                                // it: the very first connection (which always happens before
+                                // login, let alone knowing the real key) adopted 'LOCAL_EXE'
+                                // permanently, before Login.js's own correctly-guarded
+                                // adoption ever got a chance to run — reReRegister()s update
+                                // this.licenseKey, not settings.licenseKey, so nothing else
+                                // ever corrected it afterward.
+                                if (!current.licenseKey && message.licenseKey !== 'LOCAL_EXE') {
                                     updateSettings({ licenseKey: message.licenseKey, networkId: message.licenseKey });
                                 }
                             });
