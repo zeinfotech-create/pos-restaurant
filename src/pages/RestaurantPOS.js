@@ -638,6 +638,7 @@ async function renderOrderingView() {
         <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
           ${renderSendControls(unsent, coursesPresent)}
           <button class="btn btn-ghost" id="rposPreviewBillBtn" ${store.cart.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-print"></i> Preview Bill</button>
+          <button class="btn btn-ghost" id="rposSplitBillBtn" ${store.cart.length === 0 || !serveStatus.fullyServed ? 'disabled' : ''}><i class="fa-solid fa-scissors"></i> Split Bill</button>
           <button class="btn btn-primary" id="rposBillBtn" ${store.cart.length === 0 || !serveStatus.fullyServed ? 'disabled' : ''}><i class="fa-solid fa-receipt"></i> Bill Now — ${cur}${totals.total.toFixed(2)}</button>
           ${store.cart.length > 0 && !serveStatus.fullyServed ? `<div style="font-size:11px; color:var(--warning); text-align:center; display:flex; align-items:center; justify-content:center; gap:6px;"><i class="fa-solid fa-hourglass-half"></i> ${serveStatus.outstanding} dish${serveStatus.outstanding === 1 ? '' : 'es'} still not served — check Kitchen</div>` : ''}
         </div>
@@ -702,7 +703,10 @@ async function renderOrderingView() {
   document.getElementById('rposPickupTime')?.addEventListener('change', () => persistOrderState());
 
   document.getElementById('rposPreviewBillBtn')?.addEventListener('click', previewBill);
-  document.getElementById('rposBillBtn')?.addEventListener('click', openPaymentPanel);
+  document.getElementById('rposSplitBillBtn')?.addEventListener('click', openSplitBillModal);
+  // Wrapped, not passed directly — openPaymentPanel(presetSplitCount) would
+  // otherwise receive the click Event itself as its first argument.
+  document.getElementById('rposBillBtn')?.addEventListener('click', () => openPaymentPanel());
 }
 
 function variantCartId(product, variant = null) {
@@ -1091,12 +1095,26 @@ function renderProformaHtml(totals, settings, cur, orderLabel) {
 // notes) — then hands off to the SAME confirmOrder() POS.js/QuickPOS.js use.
 // The button itself is only enabled once getOrderServeStatus() (checked in
 // renderOrderingView()) confirms every dish has been served. ────────────
-function openPaymentPanel() {
+function openPaymentPanel(presetSplitCount = 1) {
   const settings = store.settings || {};
   const totals = getCartTotals();
   const cur = settings.currency || '₹';
   const methods = (settings.paymentMethods?.length ? settings.paymentMethods : ['Cash']);
-  let rows = [{ method: methods[0], amount: totals.total }];
+  // "Split Evenly" pre-fills N equal payment rows instead of one full-total
+  // row — still a single order/receipt, just collected as N separate
+  // payments (e.g. each guest pays their own share). The last row absorbs
+  // whatever a few cents of rounding leaves over so the rows always sum to
+  // exactly the total.
+  let rows;
+  if (presetSplitCount > 1) {
+    const share = Math.round((totals.total / presetSplitCount) * 100) / 100;
+    rows = Array.from({ length: presetSplitCount }, (_, idx) => ({
+      method: methods[idx % methods.length],
+      amount: idx === presetSplitCount - 1 ? Math.round((totals.total - share * (presetSplitCount - 1)) * 100) / 100 : share
+    }));
+  } else {
+    rows = [{ method: methods[0], amount: totals.total }];
+  }
 
   const renderRows = () => {
     const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
@@ -1159,28 +1177,35 @@ function openPaymentPanel() {
   });
 }
 
-async function completeBill(payments) {
-  const settings = store.settings || await getSettings();
-  const cur = settings.currency || '₹';
+// Shared by both a normal single-order bill and every flavor of split bill
+// — the restaurantMeta CheckoutService.confirmOrder() expects, built fresh
+// each time since orderLabel needs the current table list.
+async function buildRestaurantMeta() {
   const allTables = orderType === 'dine-in' ? await getTables() : [];
   const orderLabel = selectedTable
     ? tableDisplayName(selectedTable, allTables)
     : (selectedCounterOrder ? counterOrderLabel(selectedCounterOrder) : null);
-  const restaurantMeta = {
-    orderType,
-    tableId: selectedTable?.id || null,
-    tableName: orderLabel,
-    guestCount: guestCount || null,
-    contactName: takeawayContact.name || undefined,
-    contactPhone: takeawayContact.phone || undefined,
-    deliveryAddress: orderType === 'delivery' ? (takeawayContact.address || undefined) : undefined,
-    pickupTime: orderType === 'takeaway' ? (takeawayContact.pickupTime || undefined) : undefined,
-    changeLog: changeLog.length ? changeLog : undefined,
+  return {
+    meta: {
+      orderType,
+      tableId: selectedTable?.id || null,
+      tableName: orderLabel,
+      guestCount: guestCount || null,
+      contactName: takeawayContact.name || undefined,
+      contactPhone: takeawayContact.phone || undefined,
+      deliveryAddress: orderType === 'delivery' ? (takeawayContact.address || undefined) : undefined,
+      pickupTime: orderType === 'takeaway' ? (takeawayContact.pickupTime || undefined) : undefined,
+      changeLog: changeLog.length ? changeLog : undefined,
+    },
+    allTables,
   };
+}
 
-  const succeeded = await confirmOrder(payments, getCartTotals(), settings, cur, { isCredit: false, creditInfo: '' }, restaurantMeta);
-  if (!succeeded) return; // confirmOrder() already showed its own error toast
-
+// The shared tail once billing is fully done — free the table (and anything
+// merged into it) or clear the counter-order slot, then reset back to the
+// picker. Used by both a normal single-order bill and after every check of
+// a split bill has been paid.
+async function finishOrderAfterBilling(allTables) {
   if (orderType === 'dine-in' && selectedTable) {
     // Billing ends the dine-in session for every table involved, including
     // any merged into this one — all of them go back to free together.
@@ -1204,4 +1229,213 @@ async function completeBill(payments) {
   orderSessionId = null;
   setStaff(null);
   await renderRestaurantPOS(document.getElementById('page-container'));
+}
+
+async function completeBill(payments) {
+  const settings = store.settings || await getSettings();
+  const cur = settings.currency || '₹';
+  const { meta, allTables } = await buildRestaurantMeta();
+
+  const succeeded = await confirmOrder(payments, getCartTotals(), settings, cur, { isCredit: false, creditInfo: '' }, meta);
+  if (!succeeded) return; // confirmOrder() already showed its own error toast
+
+  await finishOrderAfterBilling(allTables);
+}
+
+// ── Split Bill ─────────────────────────────────────────────────────────
+// Two modes: "Evenly" just pre-fills N equal payment rows on the SAME
+// single order (openPaymentPanel's presetSplitCount) — quick, one receipt.
+// "By Item" genuinely creates a separate order/receipt per check, so each
+// guest's items and discounts are their own record — walks confirmOrder()
+// once per check, temporarily swapping store.cart to just that check's
+// items each time (confirmOrder() reads store.cart directly, same as
+// POS.js/QuickPOS.js do for a normal single sale).
+function openSplitBillModal() {
+  if (store.cart.length === 0) return;
+  let mode = 'even';
+  let splitCount = 2;
+  const assignments = new Map(); // cartId -> check index, 'item' mode only
+
+  const renderBody = () => {
+    const cur = (store.settings || {}).currency || '₹';
+    const totals = getCartTotals();
+    return `
+      <div style="display:flex; gap:8px; margin-bottom:14px;">
+        <button type="button" class="btn ${mode === 'even' ? 'btn-primary' : 'btn-ghost'} btn-sm rpos-split-mode" data-mode="even" style="flex:1;">Split Evenly</button>
+        <button type="button" class="btn ${mode === 'item' ? 'btn-primary' : 'btn-ghost'} btn-sm rpos-split-mode" data-mode="item" style="flex:1;">Split by Item</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">${mode === 'even' ? 'Number of ways' : 'Number of checks'}</label>
+        <input type="number" class="form-input" id="rposSplitCount" min="2" max="10" value="${splitCount}" style="max-width:100px;" />
+      </div>
+      ${mode === 'even' ? `
+        <div style="margin-top:10px; font-size:12.5px; color:var(--text-muted);">Each pays about <b>${cur}${(totals.total / splitCount).toFixed(2)}</b> — one order, collected as ${splitCount} separate payments.</div>
+      ` : `
+        <div style="margin-top:4px; font-size:11.5px; color:var(--text-muted);">Assign every item to a check — each check bills and prints as its own separate order.</div>
+        <div style="margin-top:10px; display:flex; flex-direction:column; gap:6px; max-height:260px; overflow-y:auto;">
+          ${store.cart.map(i => `
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; border:1px solid var(--border); border-radius:8px;">
+              <div style="font-size:12.5px; flex:1;"><b>${i.qty}x</b> ${escapeHtml(i.name)}</div>
+              <select class="form-input rpos-split-assign" data-cart-id="${i.cartId}" style="max-width:110px; font-size:12px;">
+                <option value="">Unassigned</option>
+                ${Array.from({ length: splitCount }, (_, idx) => `<option value="${idx}" ${assignments.get(i.cartId) === idx ? 'selected' : ''}>Check ${idx + 1}</option>`).join('')}
+              </select>
+            </div>
+          `).join('')}
+        </div>
+      `}
+    `;
+  };
+
+  openModal({
+    title: '<i class="fa-solid fa-scissors mr-8"></i> Split Bill',
+    body: `<div id="rposSplitBody">${renderBody()}</div>`,
+    footer: `
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="rposSplitContinueBtn">Continue</button>
+    `
+  });
+
+  const rebind = () => {
+    const bodyEl = document.getElementById('rposSplitBody');
+    if (bodyEl) bodyEl.innerHTML = renderBody();
+    document.querySelectorAll('.rpos-split-mode').forEach(el => el.addEventListener('click', () => { mode = el.dataset.mode; rebind(); }));
+    document.getElementById('rposSplitCount')?.addEventListener('input', e => {
+      splitCount = Math.max(2, Math.min(10, parseInt(e.target.value, 10) || 2));
+      if (mode === 'item') { for (const [cartId, idx] of assignments) { if (idx >= splitCount) assignments.delete(cartId); } }
+      rebind();
+    });
+    document.querySelectorAll('.rpos-split-assign').forEach(el => el.addEventListener('change', e => {
+      const idx = e.target.value === '' ? null : parseInt(e.target.value, 10);
+      if (idx === null) assignments.delete(el.dataset.cartId); else assignments.set(el.dataset.cartId, idx);
+    }));
+  };
+  setTimeout(rebind, 50);
+
+  document.getElementById('rposSplitContinueBtn')?.addEventListener('click', async () => {
+    if (mode === 'even') {
+      closeModal();
+      openPaymentPanel(splitCount);
+      return;
+    }
+    // 'item' mode — every item must be assigned before splitting for real.
+    const unassigned = store.cart.filter(i => !assignments.has(i.cartId));
+    if (unassigned.length > 0) {
+      return showToast(`Assign every item to a check first (${unassigned.length} left unassigned).`, 'error');
+    }
+    const checks = [];
+    for (let idx = 0; idx < splitCount; idx++) {
+      const items = store.cart.filter(i => assignments.get(i.cartId) === idx);
+      if (items.length > 0) checks.push({ index: idx, items });
+    }
+    closeModal();
+    await runItemSplitChecks(checks);
+  });
+}
+
+// Walks each check one at a time — a payment modal per check, then its own
+// confirmOrder() call (its own stock deduction, commission, receipt). Stops
+// and reports how far it got if a check is cancelled or fails, rather than
+// silently skipping ahead — a half-billed table needs the cashier's eyes.
+async function runItemSplitChecks(checks) {
+  const settings = store.settings || await getSettings();
+  const cur = settings.currency || '₹';
+  const waiter = store.selectedStaff; // confirmOrder() clears this on success — reapply before each check
+  const { meta, allTables } = await buildRestaurantMeta();
+
+  for (let i = 0; i < checks.length; i++) {
+    const check = checks[i];
+    store.cart = check.items;
+    setStaff(waiter);
+    const totals = getCartTotals();
+    const payments = await collectSplitPayment(check.index + 1, checks.length, totals.total, cur, settings);
+    if (!payments) {
+      // Stopped partway — put back everything from THIS check onward (not
+      // yet billed) as the live cart, persist that as the order's new
+      // state, and stay right here so the cashier can retry or fall back
+      // to a normal Bill Now for what's left.
+      store.cart = checks.slice(i).flatMap(c => c.items);
+      await persistOrderState();
+      showToast('Split billing stopped — remaining items are still unbilled.', 'warning');
+      await renderOrderingView();
+      return;
+    }
+    const succeeded = await confirmOrder(payments, totals, settings, cur, { isCredit: false, creditInfo: '' }, meta);
+    if (!succeeded) {
+      store.cart = checks.slice(i).flatMap(c => c.items);
+      await persistOrderState();
+      showToast(`Check ${check.index + 1} failed — remaining items are still unbilled.`, 'error');
+      await renderOrderingView();
+      return;
+    }
+  }
+
+  await finishOrderAfterBilling(allTables);
+}
+
+// Promise-based payment collection for one split check — same split-by-
+// payment-method UI as the normal Bill Now panel, just scoped to one
+// check's amount and resolving instead of calling completeBill() directly.
+function collectSplitPayment(checkNum, totalChecks, amountDue, cur, settings) {
+  return new Promise(resolve => {
+    const methods = (settings.paymentMethods?.length ? settings.paymentMethods : ['Cash']);
+    let rows = [{ method: methods[0], amount: amountDue }];
+
+    const renderRows = () => {
+      const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+      const balance = Math.round((amountDue - sum) * 100) / 100;
+      return `
+        <div id="rposSplitPayRows" style="display:flex; flex-direction:column; gap:8px;">
+          ${rows.map((r, i) => `
+            <div style="display:flex; gap:8px;">
+              <select class="form-input rpos-split-pay-method" data-idx="${i}" style="flex:1;">
+                ${methods.map(m => `<option value="${escapeHtml(m)}" ${r.method === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+              </select>
+              <input type="number" class="form-input rpos-split-pay-amount" data-idx="${i}" value="${r.amount}" style="max-width:110px;" />
+              ${rows.length > 1 ? `<button type="button" class="btn-icon rpos-split-pay-remove" data-idx="${i}"><i class="fa-solid fa-xmark" style="color:var(--danger);"></i></button>` : ''}
+            </div>
+          `).join('')}
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+          <button type="button" class="btn btn-ghost btn-sm" id="rposSplitAddSplitBtn"><i class="fa-solid fa-plus"></i> Add Split</button>
+          <div style="font-size:12px; font-weight:700; color:${Math.abs(balance) < 0.01 ? 'var(--success)' : 'var(--danger)'};">Balance: ${cur}${balance.toFixed(2)}</div>
+        </div>
+      `;
+    };
+
+    openModal({
+      title: `<i class="fa-solid fa-receipt mr-8"></i> Check ${checkNum} of ${totalChecks} — ${cur}${amountDue.toFixed(2)}`,
+      body: `<div id="rposSplitPayBody">${renderRows()}</div>`,
+      footer: `
+        <button class="btn btn-ghost" id="rposSplitPayCancelBtn">Stop Split Billing</button>
+        <button class="btn btn-primary" id="rposSplitPayConfirmBtn" style="min-width:140px;"><i class="fa-solid fa-check mr-4"></i> Confirm Payment</button>
+      `
+    });
+
+    const rebind = () => {
+      const bodyEl = document.getElementById('rposSplitPayBody');
+      if (bodyEl) bodyEl.innerHTML = renderRows();
+      document.querySelectorAll('.rpos-split-pay-method').forEach(el => el.addEventListener('change', e => { rows[+el.dataset.idx].method = e.target.value; }));
+      document.querySelectorAll('.rpos-split-pay-amount').forEach(el => el.addEventListener('input', e => { rows[+el.dataset.idx].amount = Number(e.target.value) || 0; rebind(); }));
+      document.querySelectorAll('.rpos-split-pay-remove').forEach(el => el.addEventListener('click', () => { rows.splice(+el.dataset.idx, 1); rebind(); }));
+      document.getElementById('rposSplitAddSplitBtn')?.addEventListener('click', () => {
+        const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+        const remaining = Math.max(0, Math.round((amountDue - sum) * 100) / 100);
+        const usedMethods = rows.map(r => r.method);
+        const nextMethod = methods.find(m => !usedMethods.includes(m)) || methods[0];
+        rows.push({ method: nextMethod, amount: remaining });
+        rebind();
+      });
+    };
+    setTimeout(rebind, 50);
+
+    document.getElementById('rposSplitPayCancelBtn')?.addEventListener('click', () => { closeModal(); resolve(null); });
+    document.getElementById('rposSplitPayConfirmBtn')?.addEventListener('click', () => {
+      const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+      if (Math.abs(sum - amountDue) > 0.01) return showToast("Payment amount must match this check's total.", 'error');
+      const payments = rows.filter(r => r.amount > 0).map(r => ({ method: r.method, amount: Number(r.amount) }));
+      closeModal();
+      resolve(payments);
+    });
+  });
 }
