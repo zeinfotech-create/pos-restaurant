@@ -531,16 +531,24 @@ let partyPickerLiveListenerRegistered = false;
 // Kitchen staff marking a dish served (or another till adding/billing a box)
 // happens completely outside this screen — without this, "Ready to Bill"
 // would only ever update the next time the cashier happens to navigate away
-// and back. Guarded/self-checking the same way Kitchen.js's own live
-// refresh is, since this page has no unmount hook to unregister it with.
+// and back. Listens for BOTH 'storage-change' (a write made on this device)
+// and 'data-synced' (the same write arriving here over LAN sync from a
+// separate device — see the matching comment in Kitchen.js's own live
+// refresh for why these are two different events, not one) — a genuinely
+// separate Kitchen-display PC marking something ready should update this
+// screen too, not just a change made locally. Guarded/self-checking the
+// same way Kitchen.js's own live refresh is, since this page has no
+// unmount hook to unregister it with.
 function registerPartyPickerLiveRefresh() {
   if (partyPickerLiveListenerRegistered) return;
-  window.addEventListener('storage-change', (e) => {
+  const onRelevantChange = (e) => {
     if (e.detail?.store !== 'kots' && e.detail?.store !== 'counter_orders') return;
     if (!(view === 'picker' && drillTable)) return;
     if (!document.getElementById('rposContent')) return;
     renderTablePartyPicker(drillTable);
-  });
+  };
+  window.addEventListener('storage-change', onRelevantChange);
+  window.addEventListener('data-synced', onRelevantChange);
   partyPickerLiveListenerRegistered = true;
 }
 

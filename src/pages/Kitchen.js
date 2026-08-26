@@ -51,18 +51,27 @@ export async function renderKitchen(container) {
     <div id="kitchenContent"></div>
   `;
 
-  // A KOT sent from RestaurantPOS.js (on this device or, via sync, another
-  // one) shows up here immediately rather than only on the next manual visit
-  // to this page — real KDS boards are expected to update live. Registered
-  // once globally (guarded, like the cart listener in RestaurantPOS.js) and
-  // self-checks the container is still on screen before acting, since there's
-  // no page-unmount hook in this router to unregister it on navigating away.
+  // A KOT sent from RestaurantPOS.js shows up here immediately rather than
+  // only on the next manual visit to this page — real KDS boards are
+  // expected to update live. Two DIFFERENT events matter here, not one:
+  // 'storage-change' fires for a write made on THIS device; a KOT arriving
+  // via LAN sync from a separate Kitchen-display machine (see syncEngine.js
+  // handleIncomingUpdate) is written silently and fires 'data-synced'
+  // instead, specifically so a local edit mid-flight can't be confused with
+  // one that just arrived from another device — both are listened for here
+  // so a genuinely separate Kitchen PC stays live too, not just this one.
+  // Registered once globally (guarded, like the cart listener in
+  // RestaurantPOS.js) and self-checks the container is still on screen
+  // before acting, since there's no page-unmount hook in this router to
+  // unregister it on navigating away.
   if (!liveListenerRegistered) {
-    window.addEventListener('storage-change', (e) => {
+    const onKotChange = (e) => {
       if (e.detail?.store !== 'kots') return;
       if (!document.getElementById('kitchenContent')) return;
       renderKitchenContent();
-    });
+    };
+    window.addEventListener('storage-change', onKotChange);
+    window.addEventListener('data-synced', onKotChange);
     liveListenerRegistered = true;
   }
 
