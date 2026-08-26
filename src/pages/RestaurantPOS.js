@@ -489,7 +489,7 @@ async function renderTablePartyPicker(table) {
       await startNewParty(table, count);
       updateBackButtonLabel();
       await renderOrderingView();
-    }, remaining, `${remaining} seat${remaining === 1 ? '' : 's'} left on this table`);
+    }, remaining, `${remaining} seat${remaining === 1 ? '' : 's'} left on this table`, true);
   });
   startTablesTimerLoop();
   registerPartyPickerLiveRefresh();
@@ -586,18 +586,28 @@ function startCounterOrdersTimerLoop() {
   }, 30000);
 }
 
-// `capacity`, when given, is checked against what's entered — exceeding it
-// isn't blocked outright (a shop might genuinely pull up an extra chair),
-// but it needs an explicit confirmation instead of silently being accepted.
+// `capacity`, when given, is checked against what's entered. By default,
+// exceeding it needs an explicit confirmation rather than being blocked
+// outright (a shop might genuinely pull up an extra chair for a fresh,
+// otherwise-empty table). Pass `hardCap: true` when `capacity` represents
+// seats already taken by OTHER boxes on this same table (the "Add Party"
+// and "edit this box's guest count" flows) — there's no "pull up a chair"
+// option there, those seats are physically occupied by someone else's
+// order right now, so this blocks outright instead of offering to
+// override; the guidance is to free a seat (bill/move the other box) or
+// increase the table's own capacity from Tables.js first, then come back —
+// exactly what the user asked for after finding the soft "Continue Anyway"
+// confirm let a second box claim seats that weren't actually free.
 // `capacityLabel` overrides the default "seats up to N" wording — used when
 // `capacity` actually means "seats left on this table", not its total.
-function promptGuestCount(onConfirm, capacity = null, capacityLabel = null) {
+function promptGuestCount(onConfirm, capacity = null, capacityLabel = null, hardCap = false) {
+  const defaultCount = capacity ? Math.min(2, capacity) : 2;
   openModal({
     title: '<i class="fa-solid fa-users mr-8"></i> Party Size',
     body: `
       <div class="form-group">
         <label class="form-label">Number of guests</label>
-        <input class="form-input" id="rposGuestCountInput" type="number" min="1" value="2" autofocus />
+        <input class="form-input" id="rposGuestCountInput" type="number" min="1" ${hardCap && capacity ? `max="${capacity}"` : ''} value="${defaultCount}" autofocus />
         ${capacity ? `<p style="font-size:11px; color:var(--text-muted); margin-top:6px;">${capacityLabel || `This table seats up to ${capacity}.`}</p>` : ''}
       </div>
     `,
@@ -612,6 +622,10 @@ function promptGuestCount(onConfirm, capacity = null, capacityLabel = null) {
     const confirm = async () => {
       const count = Math.max(1, parseInt(input?.value, 10) || 1);
       if (capacity && count > capacity) {
+        if (hardCap) {
+          showToast(`Only ${capacity} seat${capacity === 1 ? '' : 's'} left on this table — free one up, or increase this table's capacity from Tables first.`, 'error');
+          return;
+        }
         const proceed = await showConfirm({
           title: 'Party size exceeds seating',
           message: `Only ${capacity} seat${capacity === 1 ? '' : 's'} available here, but ${count} guests were entered. Continue anyway, or cancel and seat the extra guests as a separate party/table?`,
@@ -880,7 +894,7 @@ async function renderOrderingView() {
         guestCount = count;
         await persistOrderState();
         await renderOrderingView();
-      }, remaining, `${remaining} seat${remaining === 1 ? '' : 's'} available for this box (table seats ${capacity} total).`);
+      }, remaining, `${remaining} seat${remaining === 1 ? '' : 's'} available for this box (table seats ${capacity} total).`, true);
     })();
   });
   // 'input' keeps takeawayContact live as the cashier types (so an
