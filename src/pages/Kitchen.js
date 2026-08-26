@@ -109,7 +109,7 @@ function ticketHeader(k) {
   const tier = kotTimerTier(elapsed);
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-      <div style="font-weight:800; font-size:13px;">${k.orderType === 'dine-in' ? escapeHtml(k.tableName || 'Table') : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}</div>
+      <div style="font-weight:800; font-size:13px;">${k.tableName ? escapeHtml(k.tableName) : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}</div>
       <div class="rpos-kot-timer" data-created-at="${k.createdAt}" style="font-size:11px; font-weight:800; color:${tier.color}; white-space:nowrap;">${formatElapsed(elapsed)}${tier.overdue ? ' ⚠' : ''}</div>
     </div>
     ${k.waiterName ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-user" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(k.waiterName)}</div>` : ''}

@@ -13,7 +13,7 @@
 // unaffected by anything here.
 // ============================================================
 
-import { getTables, saveTable, getCategories, getProducts, saveKot, getKots, getSettings, getCurrentBranch, getStaff } from '../db.js';
+import { getTables, saveTable, getCategories, getProducts, saveKot, getKots, getSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder } from '../db.js';
 import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff } from '../store.js';
 import { confirmOrder, printReceiptHtml } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
@@ -43,23 +43,30 @@ const KITCHEN_ITEM_META = {
 
 let view = 'picker'; // 'picker' | 'ordering'
 let orderType = null; // 'dine-in' | 'takeaway' | 'delivery'
-let selectedTable = null; // full table doc, only for dine-in
+let selectedTable = null; // full table doc, dine-in only
+let selectedCounterOrder = null; // full counter-order doc, takeaway/delivery only — the equivalent of selectedTable for order types with no physical table, so more than one can be open at once
 let activeCategory = null;
 let menuSearch = '';
 let guestCount = null; // dine-in only
 let changeLog = []; // {type:'cancel'|'modify', name, qty, reason, at, by} — audit trail for anything edited after being fired to the kitchen
-let orderSessionId = null; // ties every KOT sent during this one order together, so the "fully served" bill-gate can find them regardless of order type
+let orderSessionId = null; // ties every KOT sent during this one order together — the table's own id for dine-in, the counter order's own id for takeaway/delivery, always deterministic
 let takeawayContact = { name: '', phone: '', address: '', pickupTime: '' };
 let cartListenerRegistered = false;
 let tablesTimerInterval = null;
-
-function genSessionId() {
-  return 'sess-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-}
+let counterOrdersTimerInterval = null;
 
 function backButtonLabel() {
   if (view === 'picker') return 'Dashboard';
-  return orderType === 'dine-in' ? 'Change Table' : 'Cancel Order';
+  return orderType === 'dine-in' ? 'Change Table' : 'Change Order';
+}
+
+// A takeaway/delivery order's display name — the contact name once given,
+// otherwise a stable per-type number assigned when it was created. Also
+// what gets stamped onto its KOTs' tableName field, so Kitchen.js can tell
+// two simultaneous takeaway (or delivery) tickets apart.
+function counterOrderLabel(order) {
+  if (order.contactName) return order.contactName;
+  return `${order.orderType === 'delivery' ? 'Delivery' : 'Takeaway'} #${order.orderNumber || '?'}`;
 }
 
 export async function renderRestaurantPOS(container, subPage) {
@@ -80,19 +87,17 @@ export async function renderRestaurantPOS(container, subPage) {
     if (table) {
       await enterTable(table);
     }
-  } else if (orderType && orderType !== 'dine-in' && store.cart.length > 0) {
-    // A takeaway/delivery order is already mid-flight — most likely the
-    // cashier just popped over to the Kitchen page and is coming straight
-    // back. Unlike dine-in, a takeaway/delivery order has no table doc to
-    // recover from, so resetting here (this branch runs on EVERY plain nav
-    // into this page, not just a genuinely fresh one) would silently throw
-    // the whole order away — cart, contact info, its link to any KOTs
-    // already sent, all of it. Just resume what's already in progress.
-    view = 'ordering';
   } else {
+    // Every order type persists its own resumable record now — a table's
+    // currentOrder, or a takeaway/delivery order's own CounterOrder doc — so
+    // a plain nav into this page can always safely reset to the picker.
+    // Anything genuinely in progress is sitting right there to resume, never
+    // silently thrown away just because the cashier stepped away to check
+    // Kitchen and came back.
     view = 'picker';
     orderType = null;
     selectedTable = null;
+    selectedCounterOrder = null;
     guestCount = null;
     changeLog = [];
     orderSessionId = null;
@@ -130,6 +135,42 @@ async function enterTable(table) {
     setStaff(null);
   }
   view = 'ordering';
+}
+
+// Resume an existing takeaway/delivery order — the counter-order equivalent
+// of enterTable(). orderSessionId is the order's own id, same deterministic
+// pattern as dine-in, so it can never drift from what its KOTs were saved
+// with.
+async function enterCounterOrder(order) {
+  selectedCounterOrder = order;
+  orderType = order.orderType;
+  orderSessionId = order.id;
+  takeawayContact = {
+    name: order.contactName || '',
+    phone: order.contactPhone || '',
+    address: order.deliveryAddress || '',
+    pickupTime: order.pickupTime || '',
+  };
+  changeLog = order.changeLog || [];
+  loadTableOrderIntoCart(order.items?.length ? { currentOrder: { items: order.items } } : null);
+  if (order.waiterId) {
+    const waiter = (await getStaff()).find(s => s.id === order.waiterId);
+    setStaff(waiter || null);
+  } else {
+    setStaff(null);
+  }
+  view = 'ordering';
+}
+
+// Creates a brand-new takeaway/delivery order slot and enters it — the
+// counter-order equivalent of picking a free table. orderNumber is just a
+// display label (see counterOrderLabel()), never used to identify the order
+// itself — only `id` is.
+async function startNewCounterOrder(type) {
+  const existing = await getCounterOrders();
+  const orderNumber = existing.filter(o => o.orderType === type).length + 1;
+  const order = await saveCounterOrder({ orderType: type, orderNumber, items: [], contactName: '', contactPhone: '', deliveryAddress: '', pickupTime: '', changeLog: [] });
+  await enterCounterOrder(order);
 }
 
 // Sub-view handlers that switch `view` and re-render only their own
@@ -187,26 +228,16 @@ async function refreshKotBadge() {
   badge.innerHTML = pending.length > 0 ? `<span class="rpos-kot-badge">${pending.length}</span>` : '';
 }
 
-async function handleBack() {
+function handleBack() {
   const container = document.getElementById('page-container');
   if (view === 'ordering') {
-    // Dine-in with items already sent to the kitchen (table is 'occupied')
-    // just steps back to the table picker — the order lives safely on the
-    // table doc. A takeaway/delivery order has nowhere to be recovered from
-    // though, so going back on one with items still in the cart needs an
-    // explicit confirmation — it really would be gone, not just hidden.
-    if (orderType !== 'dine-in' && store.cart.length > 0) {
-      const confirmed = await showConfirm({
-        title: 'Discard this order?',
-        message: `This order has ${store.cart.length} item${store.cart.length === 1 ? '' : 's'} that ${store.cart.length === 1 ? "hasn't" : "haven't"} been billed yet. Takeaway/delivery orders aren't saved anywhere if you leave — going back now discards it completely.`,
-        okText: 'Discard Order', okClass: 'btn-danger'
-      });
-      if (!confirmed) return;
-      loadTableOrderIntoCart(null); // clears store.cart the same way starting a fresh order does
-    }
+    // Every order type persists its own record now (a table's currentOrder,
+    // or a takeaway/delivery order's own doc) — stepping back never loses
+    // anything, it's one click away again from the picker.
     view = 'picker';
     orderType = null;
     selectedTable = null;
+    selectedCounterOrder = null;
     guestCount = null;
     changeLog = [];
     orderSessionId = null;
@@ -235,20 +266,17 @@ async function renderPickerView() {
     document.querySelectorAll('.rpos-order-type-btn').forEach(el => {
       el.addEventListener('click', async () => {
         orderType = el.dataset.type;
-        if (orderType === 'dine-in') {
-          await renderPickerView();
-        } else {
-          selectedTable = null;
-          guestCount = null;
-          changeLog = [];
-          orderSessionId = genSessionId();
-          loadTableOrderIntoCart(null);
-          view = 'ordering';
-          updateBackButtonLabel();
-          await renderOrderingView();
-        }
+        await renderPickerView();
       });
     });
+    return;
+  }
+
+  if (orderType !== 'dine-in') {
+    // Takeaway/delivery — same picker pattern as dine-in tables: a list of
+    // whatever's already open (so more than one can be handled at once,
+    // each billed independently) plus a way to start a brand-new one.
+    await renderCounterOrderPicker();
     return;
   }
 
@@ -324,6 +352,80 @@ function startTablesTimerLoop() {
       const occupiedAt = el.dataset.occupiedAt;
       if (!occupiedAt) return;
       const ms = Date.now() - new Date(occupiedAt).getTime();
+      el.textContent = formatElapsed(ms);
+      el.style.color = timerTier(ms).color;
+    });
+  }, 30000);
+}
+
+// ── Takeaway/Delivery picker: a list of open orders of this type + a way to
+// start a new one — the counter-order equivalent of the dine-in table grid,
+// so several takeaway (or delivery) orders can be open and billed
+// independently instead of the page only ever tracking one at a time. ────
+async function renderCounterOrderPicker() {
+  const area = document.getElementById('rposContent');
+  if (!area) return;
+  const typeLabel = orderType === 'delivery' ? 'Delivery' : 'Takeaway';
+  const icon = orderType === 'delivery' ? 'fa-motorcycle' : 'fa-bag-shopping';
+  const orders = (await getCounterOrders()).filter(o => o.orderType === orderType);
+
+  area.innerHTML = `
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+      <h2 style="font-size:16px; font-weight:800;"><i class="fa-solid ${icon}"></i> ${typeLabel} Orders</h2>
+      <button class="btn btn-primary btn-sm" id="rposNewCounterOrderBtn"><i class="fa-solid fa-plus"></i> New ${typeLabel} Order</button>
+    </div>
+    ${orders.length === 0 ? `
+      <div class="card" style="padding:40px; text-align:center; color:var(--text-muted);">
+        No ${typeLabel.toLowerCase()} orders open right now. Click "New ${typeLabel} Order" to start one.
+      </div>
+    ` : `
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); gap:14px;">
+        ${orders.map(o => {
+          const elapsed = Date.now() - new Date(o.createdAt).getTime();
+          return `
+            <div class="rpos-table-card" data-id="${o.id}" style="background:rgba(59,130,246,0.06); border:1px solid var(--border);">
+              <div style="font-weight:800; font-size:15px;"><i class="fa-solid ${icon}" style="opacity:.4; margin-right:6px; font-size:12px;"></i>${escapeHtml(counterOrderLabel(o))}</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${o.items?.length || 0} item(s)</div>
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
+                <div style="font-size:11px; font-weight:700; color:var(--warning);"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>In progress</div>
+                <div class="rpos-counter-order-timer" data-created-at="${o.createdAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>
+              </div>
+              ${o.contactPhone ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:4px;"><i class="fa-solid fa-phone" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(o.contactPhone)}</div>` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  `;
+
+  document.getElementById('rposNewCounterOrderBtn')?.addEventListener('click', async () => {
+    await startNewCounterOrder(orderType);
+    updateBackButtonLabel();
+    await renderOrderingView();
+  });
+  document.querySelectorAll('.rpos-table-card').forEach(el => {
+    el.addEventListener('click', async () => {
+      const order = orders.find(o => o.id === el.dataset.id);
+      if (!order) return;
+      await enterCounterOrder(order);
+      updateBackButtonLabel();
+      await renderOrderingView();
+    });
+  });
+  startCounterOrdersTimerLoop();
+}
+
+function startCounterOrdersTimerLoop() {
+  if (counterOrdersTimerInterval) clearInterval(counterOrdersTimerInterval);
+  counterOrdersTimerInterval = setInterval(() => {
+    const area = document.getElementById('rposContent');
+    if (!area) { clearInterval(counterOrdersTimerInterval); counterOrdersTimerInterval = null; return; }
+    const timers = area.querySelectorAll('.rpos-counter-order-timer');
+    if (timers.length === 0) { clearInterval(counterOrdersTimerInterval); counterOrdersTimerInterval = null; return; }
+    timers.forEach(el => {
+      const createdAt = el.dataset.createdAt;
+      if (!createdAt) return;
+      const ms = Date.now() - new Date(createdAt).getTime();
       el.textContent = formatElapsed(ms);
       el.style.color = timerTier(ms).color;
     });
@@ -438,7 +540,9 @@ async function renderOrderingView() {
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
           <div style="font-size:14px; font-weight:800; display:flex; align-items:center; gap:8px;">
-            ${orderType === 'dine-in' ? `<i class="fa-solid fa-chair"></i> ${escapeHtml(tableLabel || 'Table')}` : orderType === 'takeaway' ? '<i class="fa-solid fa-bag-shopping"></i> Takeaway' : '<i class="fa-solid fa-motorcycle"></i> Delivery'}
+            ${orderType === 'dine-in'
+              ? `<i class="fa-solid fa-chair"></i> ${escapeHtml(tableLabel || 'Table')}`
+              : `<i class="fa-solid ${orderType === 'delivery' ? 'fa-motorcycle' : 'fa-bag-shopping'}"></i> ${escapeHtml(selectedCounterOrder ? counterOrderLabel(selectedCounterOrder) : (orderType === 'delivery' ? 'Delivery' : 'Takeaway'))}`}
             ${orderType === 'dine-in' ? `<button class="btn-icon" id="rposEditGuestsBtn" style="font-size:11px; font-weight:600; color:var(--text-muted);" title="Edit party size"><i class="fa-solid fa-users" style="margin-right:4px;"></i>${guestCount || '—'}<i class="fa-solid fa-pen" style="font-size:9px; margin-left:4px; opacity:.5;"></i></button>` : ''}
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
@@ -566,14 +670,23 @@ async function renderOrderingView() {
   document.getElementById('rposEditGuestsBtn')?.addEventListener('click', () => {
     promptGuestCount(async (count) => {
       guestCount = count;
-      await persistOrderStateIfDineIn();
+      await persistOrderState();
       await renderOrderingView();
     });
   });
+  // 'input' keeps takeawayContact live as the cashier types (so an
+  // immediately-following Send/Bill click always reads the latest value);
+  // 'change' (fires on blur/Enter, not every keystroke) persists it to the
+  // counter order's own doc so contact/pickup info survives navigating away
+  // and back the same way the rest of the order already does.
   document.getElementById('rposContactName')?.addEventListener('input', e => { takeawayContact.name = e.target.value; });
+  document.getElementById('rposContactName')?.addEventListener('change', () => persistOrderState());
   document.getElementById('rposContactPhone')?.addEventListener('input', e => { takeawayContact.phone = e.target.value; });
+  document.getElementById('rposContactPhone')?.addEventListener('change', () => persistOrderState());
   document.getElementById('rposContactAddress')?.addEventListener('input', e => { takeawayContact.address = e.target.value; });
+  document.getElementById('rposContactAddress')?.addEventListener('change', () => persistOrderState());
   document.getElementById('rposPickupTime')?.addEventListener('input', e => { takeawayContact.pickupTime = e.target.value; });
+  document.getElementById('rposPickupTime')?.addEventListener('change', () => persistOrderState());
 
   document.getElementById('rposPreviewBillBtn')?.addEventListener('click', previewBill);
   document.getElementById('rposBillBtn')?.addEventListener('click', openPaymentPanel);
@@ -715,7 +828,7 @@ async function openModifyModal(cartId) {
       await voidCartItemInKots(cartId);
       closeModal();
       updateCartItem(cartId, { qty, modifiers: Array.from(selected), notes, sentToKitchen: false });
-      await persistOrderStateIfDineIn();
+      await persistOrderState();
       showToast('Updated — will go out on next Send to Kitchen', 'info');
     });
   }, 50);
@@ -782,7 +895,7 @@ function requestRemoveItem(cartId) {
       logChange(item, reason, 'cancel');
       await voidCartItemInKots(cartId);
       removeFromCart(cartId);
-      await persistOrderStateIfDineIn();
+      await persistOrderState();
     });
   } else {
     removeFromCart(cartId);
@@ -797,18 +910,30 @@ function requestQtyMinus(cartId) {
       logChange(item, reason, 'cancel');
       await voidCartItemInKots(cartId);
       await updateQty(cartId, -1);
-      await persistOrderStateIfDineIn();
+      await persistOrderState();
     });
   } else {
     updateQty(cartId, -1);
   }
 }
 
-async function persistOrderStateIfDineIn() {
+async function persistOrderState() {
   if (orderType === 'dine-in' && selectedTable) {
     selectedTable = await saveTable({
       ...selectedTable,
       currentOrder: { ...(selectedTable.currentOrder || {}), items: store.cart, orderType, guestCount, changeLog, orderSessionId, waiterId: store.selectedStaff?.id || null, waiterName: store.selectedStaff?.name || null }
+    });
+  } else if (orderType && orderType !== 'dine-in' && selectedCounterOrder) {
+    selectedCounterOrder = await saveCounterOrder({
+      ...selectedCounterOrder,
+      items: store.cart,
+      contactName: takeawayContact.name || '',
+      contactPhone: takeawayContact.phone || '',
+      deliveryAddress: takeawayContact.address || '',
+      pickupTime: takeawayContact.pickupTime || '',
+      changeLog,
+      waiterId: store.selectedStaff?.id || null,
+      waiterName: store.selectedStaff?.name || null,
     });
   }
 }
@@ -821,11 +946,17 @@ async function sendToKitchen(courseFilter = null) {
   const branchId = store.branch?.id || (await getCurrentBranch())?.id || 'b1';
   const settings = store.settings || await getSettings();
 
+  // The KOT's own display label — the table's name for dine-in, or the
+  // specific counter order's label for takeaway/delivery, so Kitchen.js can
+  // tell two simultaneous takeaway (or delivery) tickets apart instead of
+  // both just saying "TAKEAWAY".
+  const ticketLabel = selectedTable?.name || (selectedCounterOrder ? counterOrderLabel(selectedCounterOrder) : null);
+
   let kot;
   try {
     kot = await saveKot({
       tableId: selectedTable?.id || null,
-      tableName: selectedTable?.name || null,
+      tableName: ticketLabel,
       orderType,
       orderSessionId,
       course: courseFilter || null,
@@ -846,22 +977,24 @@ async function sendToKitchen(courseFilter = null) {
 
   unsent.forEach(i => { i.sentToKitchen = true; });
 
-  if (orderType === 'dine-in' && selectedTable) {
-    try {
+  try {
+    if (orderType === 'dine-in' && selectedTable) {
       selectedTable = await saveTable({
         ...selectedTable,
         status: 'occupied',
         occupiedAt: selectedTable.occupiedAt || new Date().toISOString(),
         currentOrder: { items: store.cart, orderType, guestCount, changeLog, orderSessionId, waiterId: store.selectedStaff?.id || null, waiterName: store.selectedStaff?.name || null }
       });
-    } catch (err) {
-      // The KOT itself already saved — the kitchen WILL see it. Only the
-      // table's own status/currentOrder snapshot failed to persist, which
-      // self-corrects on the very next save (any later Send/Modify/Cancel/
-      // Bill re-saves the full currentOrder) — a warning, not a hard stop.
-      console.error('[RestaurantPOS] sendToKitchen: saveTable() failed', err);
-      showToast('Sent to kitchen, but the table status may be out of date — it will self-correct shortly.', 'warning');
+    } else if (orderType && selectedCounterOrder) {
+      await persistOrderState();
     }
+  } catch (err) {
+    // The KOT itself already saved — the kitchen WILL see it. Only the
+    // order's own status/items snapshot failed to persist, which
+    // self-corrects on the very next save (any later Send/Modify/Cancel/
+    // Bill re-saves it) — a warning, not a hard stop.
+    console.error('[RestaurantPOS] sendToKitchen: order-state save failed', err);
+    showToast('Sent to kitchen, but the order status may be out of date — it will self-correct shortly.', 'warning');
   }
 
   await printReceiptHtml(renderKotHtml(kot, settings), `KOT - ${kot.id}`);
@@ -879,7 +1012,7 @@ function renderKotHtml(kot, settings) {
       </div>
       <div class="receipt-divider"></div>
       <div style="font-size:14px; font-weight:800; text-align:center; margin:6px 0;">
-        ${kot.orderType === 'dine-in' ? `TABLE: ${escapeHtml(kot.tableName || '')}` : (kot.orderType || '').toUpperCase()}
+        ${kot.orderType === 'dine-in' ? `TABLE: ${escapeHtml(kot.tableName || '')}` : escapeHtml(kot.tableName || (kot.orderType || '').toUpperCase())}
       </div>
       ${kot.waiterName ? `<div style="text-align:center; font-size:11px; opacity:.75;">Waiter: ${escapeHtml(kot.waiterName)}</div>` : ''}
       <div class="receipt-divider"></div>
@@ -906,11 +1039,13 @@ async function previewBill() {
   const cur = settings.currency || '₹';
   const totals = getCartTotals();
   const allTables = orderType === 'dine-in' ? await getTables() : [];
-  const tableLabel = selectedTable ? tableDisplayName(selectedTable, allTables) : null;
-  await printReceiptHtml(renderProformaHtml(totals, settings, cur, tableLabel), 'Bill Preview');
+  const orderLabel = selectedTable
+    ? tableDisplayName(selectedTable, allTables)
+    : (selectedCounterOrder ? counterOrderLabel(selectedCounterOrder) : null);
+  await printReceiptHtml(renderProformaHtml(totals, settings, cur, orderLabel), 'Bill Preview');
 }
 
-function renderProformaHtml(totals, settings, cur, tableLabel) {
+function renderProformaHtml(totals, settings, cur, orderLabel) {
   return `
     <div class="receipt">
       <div class="receipt-header">
@@ -920,7 +1055,7 @@ function renderProformaHtml(totals, settings, cur, tableLabel) {
       <div style="text-align:center; font-size:11px; font-weight:800; letter-spacing:.5px; margin:6px 0;">PROFORMA — NOT A TAX INVOICE</div>
       <div class="receipt-divider"></div>
       <div style="font-size:12px; font-weight:700; text-align:center;">
-        ${orderType === 'dine-in' ? escapeHtml(tableLabel || 'Table') : (orderType || '').toUpperCase()}${guestCount ? ` · ${guestCount} guests` : ''}
+        ${escapeHtml(orderLabel || (orderType || '').toUpperCase())}${guestCount ? ` · ${guestCount} guests` : ''}
       </div>
       <div class="receipt-divider"></div>
       ${store.cart.map(i => `
@@ -1015,11 +1150,13 @@ async function completeBill(payments) {
   const settings = store.settings || await getSettings();
   const cur = settings.currency || '₹';
   const allTables = orderType === 'dine-in' ? await getTables() : [];
-  const tableLabel = selectedTable ? tableDisplayName(selectedTable, allTables) : null;
+  const orderLabel = selectedTable
+    ? tableDisplayName(selectedTable, allTables)
+    : (selectedCounterOrder ? counterOrderLabel(selectedCounterOrder) : null);
   const restaurantMeta = {
     orderType,
     tableId: selectedTable?.id || null,
-    tableName: tableLabel,
+    tableName: orderLabel,
     guestCount: guestCount || null,
     contactName: takeawayContact.name || undefined,
     contactPhone: takeawayContact.phone || undefined,
@@ -1039,12 +1176,16 @@ async function completeBill(payments) {
       const t = allTables.find(x => x.id === id) || (id === selectedTable.id ? selectedTable : null);
       if (t) await saveTable({ ...t, status: 'free', occupiedAt: null, currentOrder: null, mergedTableIds: [], mergedInto: null });
     }
+  } else if (selectedCounterOrder) {
+    // Billed — this order slot is done, same as a table going back to free.
+    await deleteCounterOrder(selectedCounterOrder.id);
   }
 
   takeawayContact = { name: '', phone: '', address: '', pickupTime: '' };
   view = 'picker';
   orderType = null;
   selectedTable = null;
+  selectedCounterOrder = null;
   guestCount = null;
   changeLog = [];
   orderSessionId = null;

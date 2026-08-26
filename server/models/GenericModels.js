@@ -44,4 +44,7 @@ module.exports = {
     // same treatment as Expense/Attendance — in branchScopedStores, not GlobalStores.
     Table: createGenericModel('Table'),
     Kot: createGenericModel('Kot'),
+    // A takeaway/delivery order slot — single-branch, same treatment as
+    // Table/Kot above.
+    CounterOrder: createGenericModel('CounterOrder'),
 };

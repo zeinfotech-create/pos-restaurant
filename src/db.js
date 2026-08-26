@@ -6,7 +6,7 @@ const DB_NAME = 'zepos_db';
 // at on a real device (IndexedDB versions only ever go up, never down —
 // opening with a lower version than what's already on disk throws immediately
 // and the whole app fails to initialize, before onboarding can even render).
-const DB_VERSION = 9; // 9: added pos_tables + pos_kots (restaurant module)
+const DB_VERSION = 10; // 9: added pos_tables + pos_kots (restaurant module); 10: added pos_counter_orders (multiple concurrent takeaway/delivery orders)
 
 class DbService {
   constructor() {
@@ -388,6 +388,11 @@ export const KEYS = {
   // order's) cart at the moment it's sent — see RestaurantPOS.js.
   TABLES: 'pos_tables',
   KOTS: 'pos_kots',
+  // A CounterOrder is a table-less order slot for takeaway/delivery — same
+  // "persistent, resumable, pick-it-from-a-list" idea as a dine-in table's
+  // currentOrder, just without an actual table backing it, so more than one
+  // takeaway/delivery order can be in progress at once (see RestaurantPOS.js).
+  COUNTER_ORDERS: 'pos_counter_orders',
   // Tombstones: track deleted record IDs so pos_full_state won't resurrect them
   DELETED_TOMBSTONES: 'pos_deleted_tombstones'
 };
@@ -4063,7 +4068,7 @@ export async function updateData(store, data, isSilent = false) {
     // never get an isSynced field set at all. Both are worth syncing: a
     // multi-branch owner reviewing "who imported what, when" or "was a
     // backup taken" shouldn't have to check that specific device.
-    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots'];
+    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders'];
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable
@@ -4086,7 +4091,7 @@ export async function updateData(store, data, isSilent = false) {
         // syncAllLocalData()'s own retry list, which did nothing since that
         // retry filters on isSynced !== true — a record already wrongly
         // marked true there is invisible to it too).
-        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots'];
+        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders'];
         if (syncStores.includes(store.toLowerCase())) {
           data.isSynced = false;
         } else {
@@ -4312,6 +4317,30 @@ export async function setKotItemStatus(id, itemIndex, status) {
 
 export async function deleteKot(id) {
   await deleteData('kots', id);
+}
+
+// A CounterOrder is the takeaway/delivery equivalent of a table's
+// currentOrder — a persistent, resumable order slot with no table behind
+// it, so a counter can have several takeaway/delivery orders open at once
+// (each picked from a list, same idea as picking a table) instead of the
+// app only ever being able to track one at a time. `orderNumber` is a
+// simple per-type display counter, not a strict sequence — only `id` is
+// ever used to actually identify one.
+export async function getCounterOrders() {
+  const orders = await db.getAll(KEYS.COUNTER_ORDERS) || [];
+  return orders.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+}
+
+export async function saveCounterOrder(order) {
+  if (!order.id) order.id = 'corder-' + Date.now();
+  if (!order.createdAt) order.createdAt = new Date().toISOString();
+  if (!order.status) order.status = 'open'; // 'open' | (deleted once billed)
+  await updateData('counter_orders', order);
+  return order;
+}
+
+export async function deleteCounterOrder(id) {
+  await deleteData('counter_orders', id);
 }
 
 export async function migrateCategories() {
