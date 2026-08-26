@@ -393,7 +393,7 @@ async function renderPickerView() {
             const status = STATUS_META[statusKey];
             const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
             return `
-              <div class="rpos-table-card" data-id="${t.id}" style="background:${status.bg}; border:1px solid var(--border); border-left:4px solid ${status.color};">
+              <div class="rpos-table-card" data-id="${t.id}" style="background:${status.bg}; border:1px solid var(--border);">
                 <div style="font-weight:800; font-size:16px;">${escapeHtml(tableDisplayName(t, allTables))}</div>
                 <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${capacity}</div>
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
@@ -465,7 +465,7 @@ async function renderTablePartyPicker(table) {
         const elapsed = Date.now() - new Date(p.createdAt).getTime();
         const ready = serve.fullyServed;
         return `
-          <div class="rpos-table-card rpos-box-enter ${ready ? 'rpos-box-ready' : ''}" data-id="${p.id}" style="background:${ready ? 'rgba(34,197,94,0.1)' : STATUS_META.occupied.bg}; border:1px solid ${ready ? 'var(--success)' : 'var(--border)'}; border-left:4px solid ${ready ? 'var(--success)' : STATUS_META.occupied.color};">
+          <div class="rpos-table-card rpos-box-enter ${ready ? 'rpos-box-ready' : ''}" data-id="${p.id}" style="background:${ready ? 'rgba(34,197,94,0.1)' : STATUS_META.occupied.bg}; border:1px solid ${ready ? 'var(--success)' : 'var(--border)'};">
             <div style="font-weight:800; font-size:16px;">Box ${p.partyNumber || '?'}</div>
             <div style="font-size:11px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-users" style="margin-right:4px; opacity:.5;"></i>${p.guestCount || '—'} guests · ${p.items?.length || 0} item(s)</div>
             <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
@@ -546,7 +546,7 @@ async function renderCounterOrderPicker() {
         ${orders.map(o => {
           const elapsed = Date.now() - new Date(o.createdAt).getTime();
           return `
-            <div class="rpos-table-card" data-id="${o.id}" style="background:rgba(59,130,246,0.06); border:1px solid var(--border); border-left:4px solid var(--warning);">
+            <div class="rpos-table-card" data-id="${o.id}" style="background:rgba(59,130,246,0.06); border:1px solid var(--border);">
               <div style="font-weight:800; font-size:16px;"><i class="fa-solid ${icon}" style="opacity:.4; margin-right:6px; font-size:13px;"></i>${escapeHtml(counterOrderLabel(o))}</div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${o.items?.length || 0} item(s)</div>
               <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">

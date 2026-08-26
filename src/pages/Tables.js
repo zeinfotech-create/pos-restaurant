@@ -92,7 +92,7 @@ function renderTableCard(t, allTables, allParties) {
   // Stacking makes that structurally impossible: each row only ever has
   // one thing competing for its width.
   return `
-    <div class="table-card" data-id="${t.id}" style="padding:16px 18px; border-radius:14px; border:1px solid var(--border); border-left:4px solid ${status.color}; background:${status.bg}; cursor:pointer;">
+    <div class="table-card" data-id="${t.id}" style="padding:16px 18px; border-radius:14px; border:1px solid var(--border); background:${status.bg}; cursor:pointer;">
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
         <div style="font-size:17px; font-weight:800; overflow-wrap:break-word;">${escapeAttr(displayName)}</div>
         <div class="table-card-actions" style="display:flex; gap:4px; flex-shrink:0;" onclick="event.stopPropagation()">
