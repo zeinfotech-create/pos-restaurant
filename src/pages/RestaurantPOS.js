@@ -1183,6 +1183,17 @@ async function sendToKitchen(courseFilter = null) {
   const allTables = orderType === 'dine-in' ? await getTables() : [];
   const ticketLabel = currentOrderLabel(allTables);
 
+  // This order's Nth ticket ever (1 = the original send). Without this,
+  // items added after the first Send to Kitchen produce a ticket that
+  // looks identical to a brand-new order with the same name — kitchen
+  // staff have no way to tell "more for the order already in progress"
+  // from "a second, separate order that happens to share a label". Counted
+  // against every KOT this order has ever had (not just what's still on
+  // the Kitchen board), so the number stays right even once an earlier
+  // wave has already been fully served and dropped off.
+  const priorWaves = orderSessionId ? (await getKots()).filter(k => k.orderSessionId === orderSessionId).length : 0;
+  const waveNumber = priorWaves + 1;
+
   let kot;
   try {
     kot = await saveKot({
@@ -1190,6 +1201,7 @@ async function sendToKitchen(courseFilter = null) {
       tableName: ticketLabel,
       orderType,
       orderSessionId,
+      waveNumber,
       course: courseFilter || null,
       contactName: takeawayContact.name || '',
       waiterName: store.selectedStaff?.name || null,
@@ -1232,6 +1244,7 @@ function renderKotHtml(kot, settings) {
         <div class="receipt-store-name">KITCHEN ORDER TICKET${kot.course ? ` — ${escapeHtml(kot.course.toUpperCase())}` : ''}</div>
         <div class="receipt-row" style="font-size:11px; opacity:.7;">${new Date(kot.createdAt).toLocaleString()}</div>
       </div>
+      ${kot.waveNumber > 1 ? `<div style="text-align:center; font-size:12px; font-weight:800; border:1px solid #000; padding:3px; margin:4px 0;">⚠ ADD-ON #${kot.waveNumber} — MORE FOR AN ORDER ALREADY IN PROGRESS</div>` : ''}
       <div class="receipt-divider"></div>
       <div style="font-size:14px; font-weight:800; text-align:center; margin:6px 0;">
         ${kot.orderType === 'dine-in' ? `TABLE: ${escapeHtml(kot.tableName || '')}` : escapeHtml(kot.tableName || (kot.orderType || '').toUpperCase())}

@@ -117,15 +117,25 @@ async function renderKitchenContent() {
 function byAge(a, b) { return new Date(a.createdAt) - new Date(b.createdAt); }
 function emptyCol() { return `<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:11px;">—</div>`; }
 
+// A ticket with waveNumber > 1 is more items sent for an order that
+// already has an earlier ticket in progress (or already served) — without
+// flagging it, it looks on this board exactly like a brand-new order that
+// happens to share the same table/order label, and kitchen staff can't
+// tell "extra for the order I already started" from "a fresh one".
 function ticketHeader(k) {
   const elapsed = Date.now() - new Date(k.createdAt).getTime();
   const tier = kotTimerTier(elapsed);
+  const isAddOn = (k.waveNumber || 1) > 1;
   return `
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-      <div style="font-weight:800; font-size:13px;">${k.tableName ? escapeHtml(k.tableName) : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}</div>
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+      <div style="font-weight:800; font-size:13px; display:flex; align-items:center; gap:6px;">
+        ${k.tableName ? escapeHtml(k.tableName) : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}
+        ${isAddOn ? `<span style="font-size:9.5px; font-weight:800; color:white; background:var(--warning); padding:1px 7px; border-radius:999px; letter-spacing:.3px; white-space:nowrap;"><i class="fa-solid fa-circle-plus" style="margin-right:3px;"></i>ADD-ON #${k.waveNumber}</span>` : ''}
+      </div>
       <div class="rpos-kot-timer" data-created-at="${k.createdAt}" style="font-size:11px; font-weight:800; color:${tier.color}; white-space:nowrap;">${formatElapsed(elapsed)}${tier.overdue ? ' ⚠' : ''}</div>
     </div>
     ${k.waiterName ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-user" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(k.waiterName)}</div>` : ''}
+    ${isAddOn ? `<div style="font-size:10.5px; color:var(--warning); margin-top:2px; font-weight:700;"><i class="fa-solid fa-triangle-exclamation" style="margin-right:4px;"></i>More for an order already in progress — not a new one</div>` : ''}
   `;
 }
 
@@ -134,7 +144,12 @@ function renderNewTicketCard(k) {
     <div class="card rpos-kot-card" style="padding:14px; border-left:4px solid var(--text-muted);">
       ${ticketHeader(k)}
       <div style="margin-top:10px; display:flex; flex-direction:column; gap:2px;">
-        ${(k.items || []).map(i => `<div style="font-size:12px;"><b>${i.qty}x</b> ${escapeHtml(i.name)}${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted); padding-left:14px;">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(', ')}</div>` : ''}</div>`).join('')}
+        ${(k.items || []).map(i => `
+          <div style="display:flex; align-items:center; gap:8px; ${i.itemStatus === 'voided' ? 'opacity:.55;' : ''}">
+            <div style="flex:1; font-size:12px; ${i.itemStatus === 'voided' ? 'text-decoration:line-through;' : ''}"><b>${i.qty}x</b> ${escapeHtml(i.name)}${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted); padding-left:14px;">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(', ')}</div>` : ''}</div>
+            ${i.itemStatus === 'voided' ? `<span style="font-size:10px; font-weight:700; color:var(--danger); white-space:nowrap;"><i class="fa-solid fa-ban"></i> Cancelled</span>` : ''}
+          </div>
+        `).join('')}
       </div>
       <button class="btn btn-secondary btn-sm rpos-kot-start" data-id="${k.id}" style="margin-top:12px; width:100%;"><i class="fa-solid fa-fire"></i> Start Preparing</button>
     </div>
