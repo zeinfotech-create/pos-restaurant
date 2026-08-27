@@ -3954,7 +3954,29 @@ export async function verifyPassword(plain, stored) {
     return stored === plain; // legacy plaintext record
   }
   const [, saltHex, hashHex] = stored.split(':');
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(saltHex + plain));
+  // crypto.subtle only exists in a "secure context" (HTTPS, or localhost/
+  // 127.0.0.1) — the Web Crypto spec's own restriction, not something this
+  // app controls. A phone loading the app over plain http://<lan-ip>:3030/
+  // (server/index.js's mobile-serving for kd/kitchen-display) is exactly
+  // the case that fails this: crypto.subtle is undefined there, so calling
+  // .digest on it throws — and since this function is normally awaited
+  // deep inside verifyLocalUser()'s candidate loop with no try/catch of
+  // its own, that exception used to propagate all the way out of
+  // verifyCredentials() uncaught, skipping its own intended "local check
+  // failed, fall back to the hub over HTTP" path entirely (which works
+  // fine even here — verifyCredentialsHTTP doesn't touch crypto.subtle at
+  // all, the hashing happens server-side in Node). Catching it and
+  // returning false here — "this candidate didn't verify locally" — is
+  // exactly what lets that already-correct fallback logic actually run,
+  // instead of the whole login attempt dying with a cryptic
+  // "can't access property 'digest'" error.
+  let digest;
+  try {
+    digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(saltHex + plain));
+  } catch (e) {
+    console.warn('[verifyPassword] crypto.subtle unavailable (insecure context?) — falling back:', e.message);
+    return false;
+  }
   const computedHex = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
   return computedHex === hashHex;
 }
