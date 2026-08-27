@@ -285,9 +285,30 @@ async function render(container) {
       .rpos-mobile-nav-btn.active i { transform:scale(1.1); }
       /* Bottom padding clears the collapsed cart's peek bar (fixed to the
          viewport — see .rpos-cart-panel below) so the last row of menu
-         items never ends up permanently hidden behind it. */
-      .rpos-mobile #rposContent { padding:12px; padding-bottom:84px; }
+         items never ends up permanently hidden behind it.
+         overflow-x:hidden + touch-action:pan-y is the actual fix for a real
+         bug found on a real phone (not caught by the earlier Playwright
+         checks, which drive clicks, not touch swipes): #rposContent's base
+         rule above is overflow:auto for BOTH axes — so on a real
+         touchscreen, a swipe meant for .rpos-cat-bar's own horizontal
+         scroll (below) could drag the ENTIRE content area sideways instead,
+         leaving the whole screen scrolled off to one side (table label,
+         search box, and product rows all blank/cut-off, only whatever sat
+         at the far right — a dropdown, a "+" button — still visible). Locking
+         the outer content to vertical-only panning here, then explicitly
+         re-opening horizontal panning ONLY on .rpos-cat-bar just below,
+         fixes it at the actual source instead of guessing at symptoms. */
+      .rpos-mobile #rposContent { padding:12px; padding-bottom:84px; overflow-x:hidden; touch-action:pan-y; }
+      /* THE actual root cause of the horizontal-scroll bug above, found by
+         measuring: .rpos-layout is a CSS grid, and a grid item's default
+         min-width is auto (its content's min-content size), not 0 — so
+         .rpos-cat-bar's nowrap category chips (needed for ITS OWN
+         overflow-x:auto to work) were forcing their full unwrapped width as
+         a MINIMUM up through every block ancestor, blowing this grid
+         column out to ~6800px instead of the intended 1fr. min-width:0
+         is the standard fix for this exact grid/flexbox gotcha. */
       .rpos-mobile .rpos-layout { grid-template-columns: 1fr !important; }
+      .rpos-mobile .rpos-layout > div:first-child { min-width: 0; }
       /* Category chips stick to the top of the scrolling menu (under the
          search bar) once you scroll past them — switching category no
          longer means scrolling all the way back up first, the #1 mobile
@@ -296,7 +317,7 @@ async function render(container) {
          through; a hair of negative margin/extra top padding covers the
          gap that would otherwise flash between the sticky bar and
          whatever's now at the very top of the scroll area. */
-      .rpos-mobile .rpos-cat-bar { position:sticky; top:-12px; z-index:20; background:var(--bg-main); padding-top:12px; margin-top:-12px; }
+      .rpos-mobile .rpos-cat-bar { position:sticky; top:-12px; z-index:20; background:var(--bg-main); padding-top:12px; margin-top:-12px; touch-action:pan-x; }
       .rpos-mobile .rpos-cat-tab { padding:11px 20px; font-size:13.5px; min-height:40px; display:flex; align-items:center; }
       /* Product "choose" — small square tiles read fine on a tablet but are
          fiddly to scan/tap with a thumb on a phone; mobile switches to a
