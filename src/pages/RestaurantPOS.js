@@ -334,10 +334,13 @@ async function render(container) {
          longer means scrolling all the way back up first, the #1 mobile
          "category choose" complaint this addresses. bg-main (not
          transparent) so product cards scrolling underneath don't show
-         through; a hair of negative margin/extra top padding covers the
-         gap that would otherwise flash between the sticky bar and
-         whatever's now at the very top of the scroll area. */
-      .rpos-mobile .rpos-cat-bar { position:sticky; top:-12px; z-index:20; background:var(--bg-main); padding-top:12px; margin-top:-12px; touch-action:pan-x; }
+         through. top:0 (not a negative offset — an earlier attempt to
+         cover a tiny gap-flash above the bar with negative
+         margin/padding instead pushed the bar's real box a few px INTO
+         the product grid below once it stuck, covering the first row's
+         price/add-button — a real overlap bug is a much worse trade than
+         the one-frame flash it was trying to prevent). */
+      .rpos-mobile .rpos-cat-bar { position:sticky; top:0; z-index:20; background:var(--bg-main); touch-action:pan-x; }
       .rpos-mobile .rpos-cat-tab { padding:11px 20px; font-size:13.5px; min-height:40px; display:flex; align-items:center; }
       /* Product "choose" — small square tiles read fine on a tablet but are
          fiddly to scan/tap with a thumb on a phone; mobile switches to a

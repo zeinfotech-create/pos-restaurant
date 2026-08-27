@@ -72,13 +72,32 @@ export async function renderKitchen(container) {
         ${!isPopout ? `<button class="btn btn-ghost btn-sm" id="kitchenPopoutBtn"><i class="fa-solid fa-up-right-from-square"></i> Open in New Window</button>` : ''}
       </div>
     </div>
-    <div id="kitchenContent" ${isPopout ? 'style="padding-bottom:64px;"' : ''}></div>
+    <div id="kitchenContent" ${isPopout ? 'style="padding-bottom:76px;"' : ''}></div>
     ${isPopout ? `
-      <div style="position:fixed; left:0; right:0; bottom:0; display:flex; gap:1px; background:var(--border); box-shadow:0 -2px 10px rgba(0,0,0,.08); z-index:500;">
-        <button id="kitchenOrdersBtn" style="flex:1; border:none; background:var(--bg-elevated); color:var(--text-main); padding:14px; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;"><i class="fa-solid fa-utensils"></i> Orders</button>
-        <button id="kitchenRefreshBtn" style="flex:1; border:none; background:var(--bg-elevated); color:var(--text-main); padding:14px; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
-        <button id="kitchenLogoutBtn" style="flex:1; border:none; background:var(--bg-elevated); color:var(--danger); padding:14px; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+      <div class="kd-mobile-navbar">
+        <button class="kd-mobile-nav-btn" id="kitchenOrdersBtn"><i class="fa-solid fa-utensils"></i><span>Orders</span></button>
+        <button class="kd-mobile-nav-btn active" id="kitchenSelfTab"><i class="fa-solid fa-kitchen-set"></i><span>Kitchen</span><span id="kitchenTabBadge"></span></button>
+        <button class="kd-mobile-nav-btn" id="kitchenRefreshBtn"><i class="fa-solid fa-rotate-right"></i><span>Refresh</span></button>
+        <button class="kd-mobile-nav-btn" id="kitchenLogoutBtn" style="color:var(--danger);"><i class="fa-solid fa-right-from-bracket"></i><span>Logout</span></button>
       </div>
+      <style>
+        /* Same visual language as RestaurantPOS.js's #mo bottom tab bar
+           (.rpos-mobile-navbar) — a separate copy here rather than a
+           shared import since each file already injects its own scoped
+           <style>, but kept pixel-identical on purpose so switching
+           between #mo and #kd via these bars feels like one consistent
+           app, not two different screens bolted together. */
+        .kd-mobile-navbar { position:fixed; left:0; right:0; bottom:0; display:flex; height:64px; background:var(--bg-elevated); border-top:1px solid var(--border); box-shadow:0 -2px 10px rgba(0,0,0,.08); z-index:500; }
+        .kd-mobile-nav-btn { flex:1; border:none; background:none; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; font-size:10.5px; font-weight:700; color:var(--text-muted); cursor:pointer; position:relative; transition:color .15s; }
+        .kd-mobile-nav-btn i { font-size:18px; transition:transform .15s; }
+        .kd-mobile-nav-btn.active { color:var(--primary); }
+        .kd-mobile-nav-btn.active i { transform:scale(1.1); }
+        /* Same shape as RestaurantPOS.js's #mo navbar badge (.rpos-kot-badge)
+           — inline-block, not absolutely positioned, so inside this
+           flex-column button it naturally lands as its own small line under
+           the "Kitchen" label, exactly like the #mo screen's own Kitchen tab. */
+        #kitchenTabBadge:not(:empty) { display:inline-block; min-width:16px; padding:1px 5px; border-radius:999px; background:var(--danger); color:white; font-size:10px; font-weight:800; }
+      </style>
     ` : ''}
   `;
   // The popout route is a STANDALONE page (router.js), and style.css locks
@@ -245,6 +264,13 @@ async function renderKitchenContent() {
   wireKitchenListeners();
   startKitchenTimerLoop();
   if (hasNewTicket) playNewTicketChime();
+  // Popout bottom bar's own Kitchen tab badge — same count as this board's
+  // own tickets (kots, already computed above), kept live the same way the
+  // board itself already is: this whole function re-runs on every
+  // storage-change/data-synced event (see renderKitchen()'s listener), so
+  // there's no separate refresh path needed here.
+  const tabBadge = document.getElementById('kitchenTabBadge');
+  if (tabBadge) tabBadge.textContent = kots.length > 0 ? String(kots.length) : '';
 }
 
 // Compares this render's pending-ticket ids against the last render's —
