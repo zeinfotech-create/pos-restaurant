@@ -91,7 +91,7 @@ export async function renderKitchen(container) {
   // nothing. This wrapper gives the popout its OWN `height:100vh; overflow
   // -y:auto` region nested inside the hidden-overflow parent, so it scrolls
   // independently exactly like every other standalone page already does.
-  container.innerHTML = isPopout ? `<div style="padding:24px; height:100vh; overflow-y:auto; box-sizing:border-box;">${headerHtml}</div>` : headerHtml;
+  container.innerHTML = isPopout ? `<div style="padding:24px; height:100vh; height:100dvh; overflow-y:auto; box-sizing:border-box;">${headerHtml}</div>` : headerHtml;
 
   // The popout route (kd/kitchen-display) has no sidebar/topbar at all —
   // this bottom bar is the ONLY way to navigate anywhere from it. Orders

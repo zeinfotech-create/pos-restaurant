@@ -271,7 +271,15 @@ async function render(container) {
       ` : ''}
     </div>
     <style>
-      .rpos-shell { height: 100vh; display: flex; flex-direction: column; background: var(--bg-main); }
+      /* 100dvh right after 100vh, not instead of it — see style.css's
+         standalone-view rules for the full explanation: 100vh on a real
+         phone can measure taller than what's actually visible (mobile
+         browser chrome), pushing the bottom nav bar below the visible
+         screen with no way to scroll to it — invisible on a real device,
+         while a desktop browser's mobile emulation (no dynamic chrome)
+         shows it fine. dvh tracks the real visible viewport; unsupported
+         browsers just ignore the invalid unit and keep 100vh. */
+      .rpos-shell { height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--bg-main); }
       .rpos-topbar { display:flex; align-items:center; justify-content:space-between; padding:12px 20px; border-bottom:1px solid var(--border); background:var(--bg-elevated); flex-shrink:0; }
       .rpos-topbar-title { font-size:15px; font-weight:800; }
       #rposContent { flex:1; overflow:auto; padding:20px; }

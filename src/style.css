@@ -1413,10 +1413,25 @@ body {
   padding: 24px;
 }
 
+/* height:100dvh (dynamic viewport height) is repeated right after each
+   100vh below deliberately, not merged into one value — 100vh on a real
+   mobile browser measures the LARGEST possible viewport (as if the
+   address-bar/toolbar chrome were fully hidden), even while that chrome is
+   actually showing and eating into the real visible area. A standalone
+   page's bottom-anchored UI (Kitchen.js's/RestaurantPOS.js's bottom bars)
+   could end up positioned below the ACTUALLY visible screen on a real
+   phone — invisible with no way to scroll to it (overflow:hidden here) —
+   while looking completely fine in a desktop browser's mobile emulation,
+   which has no dynamic chrome and renders 100vh as a fixed, accurate
+   value. 100dvh tracks the real, currently-visible viewport instead;
+   browsers that don't recognize the dvh unit simply ignore that
+   declaration as invalid and keep the 100vh one right before it, so this
+   is a safe progressive enhancement, not a replacement. */
 html.standalone-view,
 body.standalone-view {
   overflow: hidden !important;
   height: 100vh !important;
+  height: 100dvh !important;
   width: 100vw !important;
 }
 
@@ -1424,11 +1439,13 @@ body.standalone-view #page-container {
   padding: 0 !important;
   overflow: hidden !important;
   height: 100vh !important;
+  height: 100dvh !important;
   width: 100vw !important;
 }
 
 body.standalone-view .pos-layout {
   height: 100vh !important;
+  height: 100dvh !important;
   margin: 0 !important;
   width: 100vw !important;
 }
