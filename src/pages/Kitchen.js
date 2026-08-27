@@ -79,7 +79,17 @@ export async function renderKitchen(container) {
       </div>
     ` : ''}
   `;
-  container.innerHTML = isPopout ? `<div style="padding:24px;">${headerHtml}</div>` : headerHtml;
+  // The popout route is a STANDALONE page (router.js), and style.css locks
+  // every standalone page's #page-container to `height:100vh; overflow:
+  // hidden` — correct for pages like RestaurantPOS.js that build their own
+  // fixed app-shell with internal scroll regions, but Kitchen.js has never
+  // had one: it just flows the board as plain HTML. With no scroll
+  // container of its own, a board with more tickets than fit one screen
+  // had nowhere for the overflow to go — mouse wheel/touch scroll did
+  // nothing. This wrapper gives the popout its OWN `height:100vh; overflow
+  // -y:auto` region nested inside the hidden-overflow parent, so it scrolls
+  // independently exactly like every other standalone page already does.
+  container.innerHTML = isPopout ? `<div style="padding:24px; height:100vh; overflow-y:auto; box-sizing:border-box;">${headerHtml}</div>` : headerHtml;
 
   // The popout route (kd/kitchen-display) has no sidebar/topbar at all —
   // this is the ONLY way to get back out of it (reload to recover from a
