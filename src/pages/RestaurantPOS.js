@@ -315,7 +315,19 @@ async function render(container) {
          a MINIMUM up through every block ancestor, blowing this grid
          column out to ~6800px instead of the intended 1fr. min-width:0
          is the standard fix for this exact grid/flexbox gotcha. */
-      .rpos-mobile .rpos-layout { grid-template-columns: 1fr !important; }
+      /* height:auto overrides the base .rpos-layout's height:100% (a
+         desktop-only leftover — there .rpos-layout naturally fills
+         #rposContent's flex height and desktop's own vertical scrollbar
+         handles the rest). On mobile that height:100% fought the grid's
+         own content-based row sizing (the row still auto-sized to the
+         product list's real, taller content height regardless), producing
+         an internal overflow whose extent didn't line up with
+         #rposContent's reserved padding-bottom below — the actual bug
+         behind the product list's last row peeking out from under the
+         collapsed cart bar. auto lets the grid size itself to its real
+         content height with nothing fighting it, so the padding-bottom
+         now creates the intended, correctly-sized gap above the cart. */
+      .rpos-mobile .rpos-layout { grid-template-columns: 1fr !important; height: auto !important; }
       .rpos-mobile .rpos-layout > div:first-child { min-width: 0; }
       /* Category chips stick to the top of the scrolling menu (under the
          search bar) once you scroll past them — switching category no
@@ -344,7 +356,19 @@ async function render(container) {
          to cover most of the screen. !important beats the element's own
          inline position:sticky/top:0 (this same cart panel's markup,
          unchanged for desktop) since this is the one thing that must win
-         regardless of selector specificity. */
+         regardless of selector specificity.
+         grid-row/grid-column: 1 — a real bug found by measuring the live
+         DOM: .rpos-layout is a grid with exactly one explicit column on
+         mobile, but this panel is its SECOND item — position:fixed takes
+         it out of normal layout visually, but per the grid spec it can
+         still occupy an (empty, but gap-contributing) implicit second row,
+         quietly inflating #rposContent's scrollable height by however
+         much. Pinning it into the SAME cell as the product-list column
+         (row 1) stops that — the padding-bottom reserved on #rposContent
+         below now actually corresponds to real, visible space above the
+         collapsed cart bar instead of being partly eaten by this phantom
+         row, which is what let the bottom product row peek out from
+         underneath the cart on a real device. */
       .rpos-mobile .rpos-cart-panel {
         position: fixed !important;
         top: auto !important;
@@ -356,6 +380,8 @@ async function render(container) {
         border-radius: 20px 20px 0 0;
         box-shadow: 0 -10px 30px rgba(0,0,0,.25);
         z-index: 300;
+        grid-row: 1;
+        grid-column: 1;
         transform: translateY(calc(100% - 66px));
         transition: transform .3s cubic-bezier(.4,0,.2,1);
       }
