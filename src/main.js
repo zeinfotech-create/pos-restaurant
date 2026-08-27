@@ -1583,6 +1583,16 @@ let registerReminderShown = {};
 
 async function checkRegisterOpenReminder() {
   try {
+    // The LAN/phone lockdown routes (kd/kitchen-display for the Kitchen
+    // Display, mo/mobile-order for order-taking — see router.js's
+    // lockOutNonKitchenAccess()) are meant to show NOTHING but that one
+    // screen; a register/shift nag popping up over them is exactly the
+    // same leak class as the earlier #bottom-nav/#cart-drawer bugs — a
+    // waiter's phone was never "at the register" to begin with, so this
+    // reminder has nothing useful to say there regardless of how long the
+    // shift's been open.
+    const lockedRoutes = ['kd', 'kitchen-display', 'mo', 'mobile-order'];
+    if (lockedRoutes.includes(location.hash.replace('#', '').split('/')[0])) return;
     // A modal already open (login, checkout, another reminder, etc.) — skip
     // this tick rather than stack a second modal on top of it. The next
     // 5-minute tick will catch it once things are clear.
