@@ -80,7 +80,7 @@ export function showManualDisconnectOverlay(reason) {
 
             <div style="display: flex; flex-direction: column; gap: 12px;">
                 <button class="btn btn-primary w-full" onclick="window.location.reload()">
-                    <i class="fa-solid fa-rotate-right mr-8"></i> Reconnect
+                    <i class="fa-solid fa-right-to-bracket mr-8"></i> Go to Login
                 </button>
             </div>
         </div>

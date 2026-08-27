@@ -720,16 +720,41 @@ function unregisterClient(ws) {
 // SET of sockets (not one) so a reconnect's brief old-socket/new-socket
 // overlap never looks like the device dropped its slot.
 const deviceMap = new Map(); // licenseKey -> Map<deviceId, Set<ws>>
-const MAX_DEVICES_PER_LICENSE = 3;
+
+// Fallback when a shop hasn't set its own limit yet — matches the original
+// hardcoded value so nobody's effective limit silently changes on upgrade.
+const DEFAULT_MAX_DEVICES = 3;
+
+// The device cap is now per-shop and owner-adjustable (1-10) from Settings'
+// Connected Devices panel, rather than one hardcoded constant for every
+// license. It's stored as `maxDevices` on the shop's own Setting doc — the
+// SAME already-synced, per-licenseKey collection every other setting
+// (theme, syncHubIp, ...) lives in — so writing it from a client just
+// flows through the existing settings sync path with zero new plumbing;
+// this is only the read side. Re-queried per call rather than cached: the
+// device registry already holds live sockets in memory, one extra Mongo
+// lookup per register/list_devices call is cheap and guarantees a freshly
+// -changed limit takes effect immediately, not after a hub restart.
+async function getMaxDevicesForLicense(licenseKey) {
+    try {
+        const Setting = mongoose.model('Setting');
+        const doc = await DBManager.findOne(Setting, 'settings', { licenseKey, id: 'global_settings' });
+        const n = Number(doc?.maxDevices);
+        if (Number.isInteger(n) && n >= 1 && n <= 10) return n;
+    } catch (e) {
+        console.warn('[Hub] getMaxDevicesForLicense failed, using default:', e.message);
+    }
+    return DEFAULT_MAX_DEVICES;
+}
 
 // Pure check — does NOT claim a slot. Call before registerDeviceSlot().
 // No deviceId at all (a client too old to send one, or a bad message)
 // fails OPEN rather than locking every unidentifiable client out.
-function canRegisterDevice(licenseKey, deviceId) {
+function canRegisterDevice(licenseKey, deviceId, maxDevices) {
     if (!deviceId) return true;
     const devices = deviceMap.get(licenseKey);
     if (!devices || devices.has(deviceId)) return true;
-    return devices.size < MAX_DEVICES_PER_LICENSE;
+    return devices.size < maxDevices;
 }
 
 function registerDeviceSlot(ws, licenseKey, deviceId) {
@@ -1017,16 +1042,19 @@ wss.on('connection', (ws, req) => {
                         return setTimeout(() => ws.terminate(), 500);
                     }
 
-                    // Max 3 UNIQUE devices per shop — checked before claiming a
-                    // slot so a reconnecting already-known device is never itself
-                    // the one that gets rejected.
-                    if (!canRegisterDevice(key, deviceId)) {
+                    // UNIQUE devices per shop, capped at this shop's own
+                    // owner-configurable limit (Settings > Connected Devices,
+                    // 1-10) — checked before claiming a slot so a reconnecting
+                    // already-known device is never itself the one rejected.
+                    const maxDevices = await getMaxDevicesForLicense(key);
+                    if (!canRegisterDevice(key, deviceId, maxDevices)) {
                         console.log(`[Hub] 🚫 Registration REJECTED (device limit): ${key} deviceId=${deviceId}`);
                         send(ws, {
                             type: 'register_failure',
                             licenseKey: key,
                             reason: 'device_limit',
-                            message: `Device limit reached — this shop already has ${MAX_DEVICES_PER_LICENSE} devices connected. Disconnect one first, or contact support to raise the limit.`,
+                            maxDevices,
+                            message: `Device limit reached — this shop already has ${maxDevices} device(s) connected. Disconnect one first, or raise the limit in Settings > Connected Devices.`,
                         });
                         return setTimeout(() => ws.terminate(), 500);
                     }
@@ -1073,7 +1101,8 @@ wss.on('connection', (ws, req) => {
                         });
                     }
                     list.sort((a, b) => (a.isThisDevice ? -1 : b.isThisDevice ? 1 : new Date(a.connectedAt) - new Date(b.connectedAt)));
-                    send(ws, { type: 'device_list', devices: list, maxDevices: MAX_DEVICES_PER_LICENSE, requestId: msg.requestId });
+                    const currentMaxDevices = await getMaxDevicesForLicense(licenseKey);
+                    send(ws, { type: 'device_list', devices: list, maxDevices: currentMaxDevices, requestId: msg.requestId });
                     break;
                 }
 
@@ -1093,7 +1122,7 @@ wss.on('connection', (ws, req) => {
                             send(targetWs, {
                                 type: 'force_disconnect',
                                 reason: 'manual_disconnect',
-                                message: 'This device was disconnected from another device\'s Settings screen.',
+                                message: 'This device was disconnected from another device\'s Settings screen. Please log in again to reconnect.',
                             });
                             setTimeout(() => { if (targetWs.readyState === 1 || targetWs.readyState === 0) targetWs.terminate(); }, 200);
                         });

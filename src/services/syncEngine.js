@@ -1,4 +1,4 @@
-import { db, getSettings, getDeviceId, updateData, deleteData, getDataById, updateSettings, getOrders, saveOrder, updateOrder, clearStore, read, KEYS, getCachedLicenseStatus, saveCachedLicenseStatus, getDeletedTombstones, clearExpiredTombstones, verifyLocalUser } from '../db.js';
+import { db, getSettings, getDeviceId, updateData, deleteData, getDataById, updateSettings, getOrders, saveOrder, updateOrder, clearStore, read, KEYS, getCachedLicenseStatus, saveCachedLicenseStatus, getDeletedTombstones, clearExpiredTombstones, verifyLocalUser, clearSession } from '../db.js';
 import { showSuspendedOverlay, showDeviceLimitOverlay, showManualDisconnectOverlay } from './LicenseService.js';
 import { refreshTrueTimeOffset } from '../utils/trueTime.js';
 
@@ -869,6 +869,13 @@ class SyncEngine {
                         // be actively misleading — nothing is suspended,
                         // someone just freed this device's slot on purpose.
                         if (message.reason === 'manual_disconnect') {
+                            // The owner asked THIS device off from Settings on
+                            // another device. Reconnecting silently with the old
+                            // session would defeat the point (it'd just walk
+                            // right back in) — clear the local session now so
+                            // the overlay's button lands on the login screen,
+                            // not straight back into the app.
+                            clearSession().catch(e => console.warn('[SyncEngine] clearSession on manual_disconnect failed:', e));
                             showManualDisconnectOverlay(message.message);
                         } else {
                             showSuspendedOverlay(message.message);

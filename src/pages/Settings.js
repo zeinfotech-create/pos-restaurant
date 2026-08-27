@@ -979,6 +979,17 @@ export async function renderSettings(container) {
                   <button type="button" id="gRefreshDevicesBtn" class="btn-icon" title="Refresh device list"><i class="fa-solid fa-rotate-right ${devicesLoading ? 'fa-spin' : ''}" style="font-size:11px;"></i></button>
                 </div>
                 ${renderDeviceListHtml()}
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);">
+                  <div style="font-size:11.5px; color:var(--text-muted);">
+                    <i class="fa-solid fa-sliders" style="margin-right:6px; opacity:.6;"></i>
+                    Max devices allowed (1-10)
+                  </div>
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <input type="number" id="gMaxDevicesInput" min="1" max="10" value="${maxDevicesLimit || s.maxDevices || 3}"
+                      class="form-input" style="width:56px; margin:0; text-align:center; padding:6px 4px; font-size:12px;" />
+                    <button type="button" id="gSaveMaxDevicesBtn" class="btn btn-ghost" style="padding:6px 12px; font-size:11.5px; border:1px solid var(--border); border-radius:8px; font-weight:700; white-space:nowrap;">Save</button>
+                  </div>
+                </div>
               </div>
             </div>
             ` : ''}
@@ -1378,12 +1389,32 @@ export async function renderSettings(container) {
 
   container.querySelector('#gRefreshDevicesBtn')?.addEventListener('click', refreshDeviceList);
 
+  // Max devices — writes to settings.maxDevices, which flows through the
+  // existing settings sync to the hub's Mongo Setting doc exactly like
+  // theme/syncHubIp already do. The hub reads it fresh on every
+  // register/list_devices call, so there's nothing else to push — just
+  // give the sync a beat to land before re-fetching the list, so the
+  // header count/limit shown reflects the new value instead of the stale
+  // one from before Save.
+  container.querySelector('#gSaveMaxDevicesBtn')?.addEventListener('click', async () => {
+    const input = container.querySelector('#gMaxDevicesInput');
+    let n = parseInt(input?.value, 10);
+    if (!Number.isInteger(n) || n < 1) n = 1;
+    if (n > 10) n = 10;
+    input.value = n;
+    const cur = await getSettings();
+    cur.maxDevices = n;
+    await updateSettings(cur);
+    showToast(`Max devices set to ${n}`, 'success');
+    setTimeout(refreshDeviceList, 800);
+  });
+
   container.querySelectorAll('.device-disconnect-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const deviceId = btn.dataset.deviceId;
       const confirmed = await showConfirm({
         title: 'Disconnect Device',
-        message: 'This device will be signed out of the sync hub immediately. It can reconnect any time by reopening the app.',
+        message: 'This device will be signed out of the sync hub immediately and sent back to the login screen. It will need to log in again to reconnect.',
         okText: 'Disconnect', okClass: 'btn-danger'
       });
       if (!confirmed) return;
