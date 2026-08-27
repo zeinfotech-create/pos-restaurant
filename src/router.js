@@ -82,13 +82,36 @@ const routes = {
 
 let currentPage = 'dashboard';
 
-// A plain, full-viewport black screen — deliberately not an error message
-// or a "you're not allowed here" notice, since even that would confirm
-// something else exists to ask for. Wipes document.body entirely rather
-// than targeting #page-container, since a fresh browser load may not have
-// built the normal app shell at all yet.
+// A full-viewport black screen, but with the two things this device is
+// actually ALLOWED to open — deliberately not an error message or a "you're
+// not allowed here" notice (still nothing hinting at Settings/Reports/
+// Products/anything else the full app can do), just a direct way OUT of
+// the dead end instead of a truly blank screen. Reached whenever a
+// non-Electron client asks for anything besides kd/mo/login — typing some
+// other URL directly, OR an internal redirect that lands on a locked route
+// (e.g. router.js's own "already logged in, bounce away from login" check
+// below, which normally targets 'dashboard' — off-limits here). Wipes
+// document.body entirely rather than targeting #page-container, since a
+// fresh browser load may not have built the normal app shell at all yet.
 function lockOutNonKitchenAccess() {
-    document.body.innerHTML = '<div style="position:fixed; inset:0; background:#000; z-index:2147483647;"></div>';
+    document.body.innerHTML = `
+        <div style="position:fixed; inset:0; background:#000; z-index:2147483647; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:24px; box-sizing:border-box;">
+            <div style="color:rgba(255,255,255,.55); font-size:13px; font-weight:700; letter-spacing:.3px; margin-bottom:4px;">What do you want to open?</div>
+            <button id="lockChooseOrdersBtn" style="width:100%; max-width:300px; padding:16px; border-radius:14px; border:none; background:#2563eb; color:#fff; font-size:15px; font-weight:800; display:flex; align-items:center; justify-content:center; gap:10px; cursor:pointer;">🍽️ Take Orders</button>
+            <button id="lockChooseKitchenBtn" style="width:100%; max-width:300px; padding:16px; border-radius:14px; border:none; background:#d97706; color:#fff; font-size:15px; font-weight:800; display:flex; align-items:center; justify-content:center; gap:10px; cursor:pointer;">🍳 Kitchen Display</button>
+        </div>
+    `;
+    // A full reload (not navigate('mo')/navigate('kd') in-place) — this
+    // function just replaced document.body ENTIRELY, so #page-container/
+    // #sidebar/#topbar/everything navigate() reaches for to render the next
+    // page no longer exist; calling navigate() directly here would silently
+    // no-op (it bails out the moment it can't find #page-container) and
+    // leave this exact chooser screen stuck on-screen. Setting the hash
+    // then reloading re-boots the whole app fresh with that hash already
+    // in place — the same well-tested path a phone opening #mo/#kd
+    // straight from a bookmark already goes through.
+    document.getElementById('lockChooseOrdersBtn')?.addEventListener('click', () => { window.location.hash = 'mo'; window.location.reload(); });
+    document.getElementById('lockChooseKitchenBtn')?.addEventListener('click', () => { window.location.hash = 'kd'; window.location.reload(); });
 }
 
 export async function navigate(page) {
