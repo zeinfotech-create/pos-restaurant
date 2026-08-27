@@ -279,7 +279,7 @@ async function render(container) {
          while a desktop browser's mobile emulation (no dynamic chrome)
          shows it fine. dvh tracks the real visible viewport; unsupported
          browsers just ignore the invalid unit and keep 100vh. */
-      .rpos-shell { height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--bg-main); }
+      .rpos-shell { height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--bg-app); }
       .rpos-topbar { display:flex; align-items:center; justify-content:space-between; padding:12px 20px; border-bottom:1px solid var(--border); background:var(--bg-elevated); flex-shrink:0; }
       .rpos-topbar-title { font-size:15px; font-weight:800; }
       #rposContent { flex:1; overflow:auto; padding:20px; }
@@ -332,15 +332,19 @@ async function render(container) {
       /* Category chips stick to the top of the scrolling menu (under the
          search bar) once you scroll past them — switching category no
          longer means scrolling all the way back up first, the #1 mobile
-         "category choose" complaint this addresses. bg-main (not
-         transparent) so product cards scrolling underneath don't show
-         through. top:0 (not a negative offset — an earlier attempt to
-         cover a tiny gap-flash above the bar with negative
-         margin/padding instead pushed the bar's real box a few px INTO
-         the product grid below once it stuck, covering the first row's
-         price/add-button — a real overlap bug is a much worse trade than
-         the one-frame flash it was trying to prevent). */
-      .rpos-mobile .rpos-cat-bar { position:sticky; top:0; z-index:20; background:var(--bg-main); touch-action:pan-x; }
+         "category choose" complaint this addresses.
+         The gap to the product grid below is deliberately PADDING here,
+         not the element's own inline margin-bottom:14px (which still
+         applies as-is on desktop, where this bar is never sticky) —
+         margin is empty, unpainted space with no background of its own,
+         so once this bar is pinned via position:sticky, a plain margin
+         gap can end up showing whatever's scrolling underneath right
+         through it. padding-bottom is part of THIS element's own painted
+         box (background:var(--bg-app) fully covers it, guaranteed), so
+         there's no seam for anything to show through, however this
+         scrolls. margin-bottom:0 zeroes the inline 14px so it can't
+         additionally stack with this padding. */
+      .rpos-mobile .rpos-cat-bar { position:sticky; top:0; z-index:20; background:var(--bg-app); touch-action:pan-x; margin-bottom:0 !important; padding-bottom:24px !important; }
       .rpos-mobile .rpos-cat-tab { padding:11px 20px; font-size:13.5px; min-height:40px; display:flex; align-items:center; }
       /* Product "choose" — small square tiles read fine on a tablet but are
          fiddly to scan/tap with a thumb on a phone; mobile switches to a
@@ -348,7 +352,7 @@ async function render(container) {
          .rpos-product-card class + click handler as desktop, only the
          inner layout differs — see renderOrderingView()'s isMobile branch). */
       .rpos-mobile .rpos-product-card.rpos-product-row { display:flex; align-items:center; gap:12px; padding:12px 14px; }
-      .rpos-mobile .rpos-product-emoji { width:46px; height:46px; border-radius:12px; background:var(--bg-main); display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+      .rpos-mobile .rpos-product-emoji { width:46px; height:46px; border-radius:12px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
       .rpos-mobile .rpos-product-info { flex:1; min-width:0; }
       .rpos-mobile .rpos-product-name { font-size:13.5px; font-weight:700; }
       .rpos-mobile .rpos-product-price { font-size:12.5px; color:var(--primary); font-weight:800; margin-top:2px; }
@@ -429,10 +433,10 @@ async function render(container) {
       .rpos-cart-item-name { font-size:13px; font-weight:700; flex:1; }
       .rpos-cart-item-remove { width:26px; height:26px; flex-shrink:0; border:none; background:none; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:12px; cursor:pointer; transition:background-color .15s, color .15s; }
       .rpos-cart-item-remove:hover { background:rgba(239,68,68,0.12); color:var(--danger); }
-      .rpos-cart-status-chip { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:6px; padding:4px 10px; border-radius:999px; background:var(--bg-main); font-size:10.5px; font-weight:700; }
+      .rpos-cart-status-chip { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:6px; padding:4px 10px; border-radius:999px; background:var(--bg-app); font-size:10.5px; font-weight:700; }
       .rpos-cart-chip-action { width:20px; height:20px; border:none; background:var(--bg-elevated); border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:9.5px; cursor:pointer; }
       .rpos-cart-item-bottom { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; flex-wrap:wrap; }
-      .rpos-qty-stepper { display:inline-flex; align-items:center; gap:2px; background:var(--bg-main); border-radius:999px; padding:3px; }
+      .rpos-qty-stepper { display:inline-flex; align-items:center; gap:2px; background:var(--bg-app); border-radius:999px; padding:3px; }
       .rpos-qty-stepper button { width:24px; height:24px; border:none; background:var(--bg-elevated); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:9.5px; color:var(--text-main); cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,.08); }
       .rpos-qty-stepper span { min-width:22px; text-align:center; font-size:12.5px; font-weight:700; }
       .rpos-cart-item-customize { width:26px; height:26px; border:1px solid var(--border); background:var(--bg-elevated); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--text-muted); cursor:pointer; }
@@ -1069,7 +1073,7 @@ async function renderOrderingView() {
             </div>
           ` : `
             <div class="rpos-product-card" data-id="${p.id}">
-              <div style="width:44px; height:44px; margin:0 auto; border-radius:12px; background:var(--bg-main); display:flex; align-items:center; justify-content:center; font-size:22px;">${p.emoji || '🍽️'}</div>
+              <div style="width:44px; height:44px; margin:0 auto; border-radius:12px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:22px;">${p.emoji || '🍽️'}</div>
               <div style="font-size:12px; font-weight:700; margin-top:8px; text-align:center; line-height:1.3;">${escapeHtml(p.name)}</div>
               <div style="font-size:12px; color:var(--primary); font-weight:800; text-align:center; margin-top:3px;">${cur}${Number(p.price || 0).toFixed(2)}</div>
             </div>
@@ -1079,7 +1083,7 @@ async function renderOrderingView() {
 
       <div class="card rpos-cart-panel${isMobile && mobileCartOpen ? ' rpos-cart-open' : ''}" id="rposCartPanel" style="padding:16px; position:sticky; top:0;">
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;" id="rposCartPeekHeader">
-          <div style="width:28px; height:28px; border-radius:8px; background:var(--bg-main); display:flex; align-items:center; justify-content:center; font-size:13px;">🛒</div>
+          <div style="width:28px; height:28px; border-radius:8px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:13px;">🛒</div>
           <div style="font-size:13px; font-weight:800; flex:1;">Order <span style="color:var(--text-muted); font-weight:600;">(${store.cart.length} item${store.cart.length === 1 ? '' : 's'})</span></div>
           ${isMobile ? `
             <div style="font-size:13px; font-weight:800; color:var(--primary);">${cur}${totals.total.toFixed(2)}</div>
