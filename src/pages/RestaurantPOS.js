@@ -278,15 +278,37 @@ async function render(container) {
       /* Mobile (#mo/#mobile-order) only, below — the desktop/tablet 'restaurant-pos'
          tab is completely unaffected since none of these selectors match
          without .rpos-mobile on .rpos-shell. */
-      .rpos-mobile-navbar { display:flex; border-top:1px solid var(--border); background:var(--bg-elevated); flex-shrink:0; height:56px; }
-      .rpos-mobile-nav-btn { flex:1; border:none; background:none; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:10px; font-weight:700; color:var(--text-muted); cursor:pointer; position:relative; }
-      .rpos-mobile-nav-btn i { font-size:15px; }
+      .rpos-mobile-navbar { display:flex; border-top:1px solid var(--border); background:var(--bg-elevated); flex-shrink:0; height:64px; }
+      .rpos-mobile-nav-btn { flex:1; border:none; background:none; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; font-size:10.5px; font-weight:700; color:var(--text-muted); cursor:pointer; position:relative; transition:color .15s; }
+      .rpos-mobile-nav-btn i { font-size:18px; transition:transform .15s; }
       .rpos-mobile-nav-btn.active { color:var(--primary); }
-      /* Bottom padding clears the collapsed cart's peek bar (~62px, fixed to
-         the viewport — see .rpos-cart-panel below) so the last row of menu
+      .rpos-mobile-nav-btn.active i { transform:scale(1.1); }
+      /* Bottom padding clears the collapsed cart's peek bar (fixed to the
+         viewport — see .rpos-cart-panel below) so the last row of menu
          items never ends up permanently hidden behind it. */
-      .rpos-mobile #rposContent { padding:12px; padding-bottom:76px; }
+      .rpos-mobile #rposContent { padding:12px; padding-bottom:84px; }
       .rpos-mobile .rpos-layout { grid-template-columns: 1fr !important; }
+      /* Category chips stick to the top of the scrolling menu (under the
+         search bar) once you scroll past them — switching category no
+         longer means scrolling all the way back up first, the #1 mobile
+         "category choose" complaint this addresses. bg-main (not
+         transparent) so product cards scrolling underneath don't show
+         through; a hair of negative margin/extra top padding covers the
+         gap that would otherwise flash between the sticky bar and
+         whatever's now at the very top of the scroll area. */
+      .rpos-mobile .rpos-cat-bar { position:sticky; top:-12px; z-index:20; background:var(--bg-main); padding-top:12px; margin-top:-12px; }
+      .rpos-mobile .rpos-cat-tab { padding:11px 20px; font-size:13.5px; min-height:40px; display:flex; align-items:center; }
+      /* Product "choose" — small square tiles read fine on a tablet but are
+         fiddly to scan/tap with a thumb on a phone; mobile switches to a
+         single-column list of full-width rows instead (same
+         .rpos-product-card class + click handler as desktop, only the
+         inner layout differs — see renderOrderingView()'s isMobile branch). */
+      .rpos-mobile .rpos-product-card.rpos-product-row { display:flex; align-items:center; gap:12px; padding:12px 14px; }
+      .rpos-mobile .rpos-product-emoji { width:46px; height:46px; border-radius:12px; background:var(--bg-main); display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+      .rpos-mobile .rpos-product-info { flex:1; min-width:0; }
+      .rpos-mobile .rpos-product-name { font-size:13.5px; font-weight:700; }
+      .rpos-mobile .rpos-product-price { font-size:12.5px; color:var(--primary); font-weight:800; margin-top:2px; }
+      .rpos-mobile .rpos-product-add-btn { width:34px; height:34px; border-radius:50%; background:var(--primary); color:#fff; font-size:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
       /* The order cart, sticky-positioned on desktop, becomes a proper
          bottom SHEET on mobile — collapsed to just its "🛒 Order (N items)"
          header (peeking above the bottom nav) until tapped, then slides up
@@ -297,18 +319,27 @@ async function render(container) {
       .rpos-mobile .rpos-cart-panel {
         position: fixed !important;
         top: auto !important;
-        left: 0; right: 0; bottom: 56px;
+        left: 0; right: 0; bottom: 64px;
         margin: 0 !important;
+        padding: 18px 16px !important;
         max-height: 78vh;
         overflow-y: auto;
         border-radius: 20px 20px 0 0;
         box-shadow: 0 -10px 30px rgba(0,0,0,.25);
         z-index: 300;
-        transform: translateY(calc(100% - 62px));
+        transform: translateY(calc(100% - 66px));
         transition: transform .3s cubic-bezier(.4,0,.2,1);
       }
       .rpos-mobile .rpos-cart-panel.rpos-cart-open { transform: translateY(0); }
       .rpos-mobile #rposCartPeekHeader { cursor: pointer; }
+      /* Bigger touch targets inside the cart sheet itself — qty +/-,
+         remove, and the Send/Preview/Bill action buttons all need real
+         thumb-sized hit areas, not the same compact ones the mouse-driven
+         desktop cart panel uses. */
+      .rpos-mobile .rpos-cart-panel .rpos-cart-item { padding:14px 0; }
+      .rpos-mobile .rpos-cart-panel .btn-icon { width:34px; height:34px; display:inline-flex; align-items:center; justify-content:center; }
+      .rpos-mobile .rpos-cart-panel .btn { min-height:48px; font-size:14px; }
+      .rpos-mobile .rpos-cart-panel .btn-sm { min-height:40px; font-size:12.5px; }
       /* Same shadow scale the app's own .card class uses (style.css) —
          every card on this page reuses it instead of inventing its own,
          so the whole ordering screen reads as one consistent surface
@@ -921,14 +952,23 @@ async function renderOrderingView() {
           </div>
         </div>
         <div style="margin-bottom:12px;">
-          <input class="form-input" id="rposMenuSearch" placeholder="🔍 Search menu…" value="${escapeHtml(menuSearch)}" style="font-size:13px;" />
+          <input class="form-input" id="rposMenuSearch" placeholder="🔍 Search menu…" value="${escapeHtml(menuSearch)}" style="font-size:13px; ${isMobile ? 'height:44px; font-size:14px;' : ''}" />
         </div>
-        <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:10px; margin-bottom:14px;">
+        <div class="rpos-cat-bar" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:10px; margin-bottom:14px;">
           <div class="rpos-cat-tab ${!activeCategory ? 'active' : ''}" data-cat="">All</div>
           ${categories.map(c => `<div class="rpos-cat-tab ${activeCategory === c.name ? 'active' : ''}" data-cat="${escapeHtml(c.name)}">${escapeHtml(c.name)}</div>`).join('')}
         </div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:12px;">
-          ${products.length === 0 ? `<div style="grid-column:1/-1; text-align:center; padding:30px; color:var(--text-muted);">No items match</div>` : products.map(p => `
+        <div style="${isMobile ? 'display:flex; flex-direction:column; gap:10px;' : 'display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:12px;'}">
+          ${products.length === 0 ? `<div style="${isMobile ? '' : 'grid-column:1/-1;'} text-align:center; padding:30px; color:var(--text-muted);">No items match</div>` : products.map(p => isMobile ? `
+            <div class="rpos-product-card rpos-product-row" data-id="${p.id}">
+              <div class="rpos-product-emoji">${p.emoji || '🍽️'}</div>
+              <div class="rpos-product-info">
+                <div class="rpos-product-name">${escapeHtml(p.name)}</div>
+                <div class="rpos-product-price">${cur}${Number(p.price || 0).toFixed(2)}</div>
+              </div>
+              <div class="rpos-product-add-btn"><i class="fa-solid fa-plus"></i></div>
+            </div>
+          ` : `
             <div class="rpos-product-card" data-id="${p.id}">
               <div style="width:44px; height:44px; margin:0 auto; border-radius:12px; background:var(--bg-main); display:flex; align-items:center; justify-content:center; font-size:22px;">${p.emoji || '🍽️'}</div>
               <div style="font-size:12px; font-weight:700; margin-top:8px; text-align:center; line-height:1.3;">${escapeHtml(p.name)}</div>
