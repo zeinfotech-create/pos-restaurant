@@ -71,9 +71,25 @@ export async function renderKitchen(container) {
         ${!isPopout ? `<button class="btn btn-ghost btn-sm" id="kitchenPopoutBtn"><i class="fa-solid fa-up-right-from-square"></i> Open in New Window</button>` : ''}
       </div>
     </div>
-    <div id="kitchenContent"></div>
+    <div id="kitchenContent" ${isPopout ? 'style="padding-bottom:64px;"' : ''}></div>
+    ${isPopout ? `
+      <div style="position:fixed; left:0; right:0; bottom:0; display:flex; gap:1px; background:var(--border); box-shadow:0 -2px 10px rgba(0,0,0,.08); z-index:500;">
+        <button id="kitchenRefreshBtn" style="flex:1; border:none; background:var(--bg-elevated); color:var(--text-main); padding:14px; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
+        <button id="kitchenLogoutBtn" style="flex:1; border:none; background:var(--bg-elevated); color:var(--danger); padding:14px; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+      </div>
+    ` : ''}
   `;
   container.innerHTML = isPopout ? `<div style="padding:24px;">${headerHtml}</div>` : headerHtml;
+
+  // The popout route (kd/kitchen-display) has no sidebar/topbar at all —
+  // this is the ONLY way to get back out of it (reload to recover from a
+  // stuck sync state, or sign out entirely). Deliberately just these two;
+  // matches the explicit ask for a minimal bottom bar rather than the
+  // full app's #bottom-nav (index.html), which showed live links to
+  // every other page and was hidden for every standalone view in
+  // style.css for exactly this reason.
+  document.getElementById('kitchenRefreshBtn')?.addEventListener('click', () => window.location.reload());
+  document.getElementById('kitchenLogoutBtn')?.addEventListener('click', () => window.logout?.());
 
   // Opens the SAME board in its own dedicated BrowserWindow (main.cjs's
   // window-open handler gives it a real frame + maximizes it, and its own

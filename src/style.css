@@ -1433,6 +1433,21 @@ body.standalone-view .pos-layout {
   width: 100vw !important;
 }
 
+/* #bottom-nav (index.html) is a static part of the page shell shown
+   unconditionally on mobile-width viewports (see the "Bottom nav" mobile
+   media query below) — with NO regard for standalone-view, so every
+   standalone page (kd/kitchen-display included) still showed live links
+   to Dashboard/POS/Register/Orders/Reports/Settings underneath it on a
+   phone. That directly defeats the whole point of the LAN/mobile entry
+   point being locked to Kitchen Display only (see router.js's
+   lockOutNonKitchenAccess()) — clicking one would still have hit that
+   lockout, but the buttons being VISIBLE at all already leaks "there's
+   more here" on a screen meant to show nothing else exists. Hidden here,
+   unconditionally, for every standalone page.  */
+body.standalone-view #bottom-nav {
+  display: none !important;
+}
+
 /* ============================================ SIDEBAR */
 .sidebar-header {
   padding: 16px;

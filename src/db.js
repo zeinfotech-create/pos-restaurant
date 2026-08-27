@@ -1696,6 +1696,28 @@ export async function getSettings(branchId = null) {
       finalSettings.networkId = finalSettings.licenseKey;
       await saveSettings({ ...finalSettings });
     }
+  } else if (finalSettings.licenseKey === 'LOCAL_EXE') {
+    // Self-heal a device that got permanently stuck on the hub's shared
+    // placeholder tenant BEFORE syncEngine.js's register_success handler
+    // was fixed to exclude 'LOCAL_EXE' too (the original cause — a
+    // kd/kitchen-display device's very first connection, always before
+    // login, used to adopt it on the spot and nothing ever corrected it
+    // afterward, even across repeated logins, since Login.js's own
+    // adoption only fires when settings.licenseKey is still empty).
+    // Deliberately does NOT fall through to self-registering a brand-new
+    // key via getDeviceId() the way the branch above does when there's no
+    // session yet — that would mint this device its OWN isolated tenant,
+    // permanently blocking it from ever correctly joining the real shop.
+    // Only corrects once a real login has actually happened (a session
+    // with the real key already exists, from BEFORE this fix even
+    // shipped) — an unauthenticated device just stays on 'LOCAL_EXE',
+    // exactly as before, until Login.js's own (now-correct) adoption runs.
+    const session = await getSession();
+    if (session?.user?.licenseKey && session.user.licenseKey !== 'LOCAL_EXE') {
+      finalSettings.licenseKey = session.user.licenseKey;
+      finalSettings.networkId = session.user.licenseKey;
+      await saveSettings({ ...finalSettings });
+    }
   }
 
   // This build only supports the local/Electron install — always standalone.
