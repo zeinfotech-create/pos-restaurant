@@ -100,7 +100,7 @@ export function renderLogin(container) {
                     </div>
                   </div>
                   <button type="submit" class="btn btn-primary w-full btn-lg mt-8" style="height: 56px; border-radius: 16px;">
-                    Verify Account & Continue <i class="fa-solid fa-arrow-right-long ml-8"></i>
+                    Login <i class="fa-solid fa-arrow-right-long ml-8"></i>
                   </button>
                 </form>
               ` : ''}
