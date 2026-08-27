@@ -1448,6 +1448,25 @@ body.standalone-view #bottom-nav {
   display: none !important;
 }
 
+/* Same leak as #bottom-nav just above, different element: #cart-drawer/
+   #cart-drawer-backdrop/.mobile-checkout-fab are index.html's global mobile
+   companion to the regular POS.js page's desktop .cart-panel (see the
+   "Show cart drawer on mobile" media query below) — NOT used by
+   QuickPOS.js or RestaurantPOS.js, which each build their own dedicated
+   cart UI. Reported on kd/kitchen-display: navigating there by editing the
+   URL hash in an already-open tab (router.js's hashchange listener calls
+   navigate() directly, bypassing main.js's appNavigate() wrapper that
+   would otherwise call closeCartDrawer()) left a previously-opened drawer
+   from browsing POS.js earlier in the SAME tab still open and visible on
+   top of the Kitchen board. Hidden unconditionally for every standalone
+   page, exactly like #bottom-nav — it was never this drawer's page to
+   begin with, on kd or on any other standalone route.  */
+body.standalone-view #cart-drawer,
+body.standalone-view #cart-drawer-backdrop,
+body.standalone-view .mobile-checkout-fab {
+  display: none !important;
+}
+
 /* ============================================ SIDEBAR */
 .sidebar-header {
   padding: 16px;
