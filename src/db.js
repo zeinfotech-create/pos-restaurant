@@ -526,6 +526,8 @@ export async function hasPermission(action) {
       'kitchen': 'pos:access', // Kitchen prep board — same crowd, different station
       'kitchen-display': 'pos:access', // The same board, popped out into its own dedicated window
       'kd': 'pos:access', // Short phone-friendly alias for 'kitchen-display'
+      'mobile-order': 'pos:access', // Order-taking (RestaurantPOS.js) rendered mobile-first for the LAN/phone entry point
+      'mo': 'pos:access', // Short phone-friendly alias for 'mobile-order'
     };
 
     const requiredPerm = modulePermissionMap[module];

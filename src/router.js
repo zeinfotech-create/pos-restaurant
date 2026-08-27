@@ -70,6 +70,14 @@ const routes = {
     // http://<lan-ip>:3030/#kd. Treated identically to 'kitchen-display'
     // everywhere below (standalone, activation-exempt, permission mapping).
     kd: renderKitchen,
+    // Same component as 'restaurant-pos' — RestaurantPOS.js itself detects
+    // this route (vs. the plain in-app one) via location.hash and renders a
+    // mobile-first layout (single-column menu, bottom sheet cart, its own
+    // bottom tab bar) instead of the desktop/tablet two-column one. Meant
+    // for a waiter's phone: http://<lan-ip>:3030/#mo — same LAN entry point
+    // kd already uses, same short-alias pattern.
+    'mobile-order': renderRestaurantPOS,
+    mo: renderRestaurantPOS,
 };
 
 let currentPage = 'dashboard';
@@ -103,8 +111,8 @@ export async function navigate(page) {
     // a login: a black screen, no redirect, no hint of what else exists
     // here. 'login' stays reachable since it's the one step before 'kd'/
     // 'kitchen-display' actually works.
-    if (!isElectron && !['login', 'kitchen-display', 'kd'].includes(mainPage)) {
-        console.warn(`[Router] Non-Electron client requested "${mainPage}" — locking to black screen (LAN access is Kitchen Display only).`);
+    if (!isElectron && !['login', 'kitchen-display', 'kd', 'mobile-order', 'mo'].includes(mainPage)) {
+        console.warn(`[Router] Non-Electron client requested "${mainPage}" — locking to black screen (LAN access is Kitchen Display/mobile ordering only).`);
         lockOutNonKitchenAccess();
         return;
     }
@@ -141,7 +149,7 @@ export async function navigate(page) {
         // a startup glitch, not a genuine enforcement point.
         if (isAlreadySetUp) {
             const { syncEngine } = await import('./services/syncEngine.js');
-            const activationExemptPages = ['login', 'onboarding', 'activation', 'customer-display', 'kitchen-display', 'kd'];
+            const activationExemptPages = ['login', 'onboarding', 'activation', 'customer-display', 'kitchen-display', 'kd', 'mobile-order', 'mo'];
             const loggedInUser = await getCurrentUser();
             if (loggedInUser && !syncEngine.isLifetimeActivated && !activationExemptPages.includes(mainPage)) {
                 console.log('[Router] Electron: Not activated yet. Forcing Activation gate.');
@@ -228,7 +236,7 @@ export async function navigate(page) {
     }
 
     // Handle Standalone Pages (No sidebar/topbar)
-    const standalonePages = ['customer-display', 'login', 'onboarding', 'activation', 'quick-pos', 'restaurant-pos', 'kitchen-display', 'kd'];
+    const standalonePages = ['customer-display', 'login', 'onboarding', 'activation', 'quick-pos', 'restaurant-pos', 'kitchen-display', 'kd', 'mobile-order', 'mo'];
     const isStandalone = standalonePages.includes(mainPage);
 
     document.body.classList.toggle('standalone-view', isStandalone);
@@ -261,7 +269,7 @@ export async function navigate(page) {
             // lockOutNonKitchenAccess() above) must land back on Kitchen
             // Display, not a dashboard it isn't even allowed to reach
             // (which would just re-trigger the black-screen lockout).
-            if (mainPage === 'kd' || mainPage === 'kitchen-display') {
+            if (['kd', 'kitchen-display', 'mo', 'mobile-order'].includes(mainPage)) {
                 sessionStorage.setItem('rpos_post_login_redirect', mainPage);
             }
             // Not logged in, redirect to login
@@ -271,6 +279,20 @@ export async function navigate(page) {
     }
 
     currentPage = page;
+
+    // Update URL hash BEFORE rendering (not after) — several pages read
+    // location.hash synchronously during their own render to tell which
+    // route alias they were invoked as (Kitchen.js's isPopout, RestaurantPOS
+    // .js's isMobile: '#kd' vs 'kitchen', '#mo' vs 'restaurant-pos', ...).
+    // A same-session navigate('kd') call (as opposed to a fresh page load
+    // that already arrives with the right hash) would otherwise render with
+    // the PREVIOUS page's stale hash still in place, since the hash used to
+    // only get updated after the route had already rendered — currentPage is
+    // already set to `page` above, so the hashchange event this triggers
+    // sees hash === currentPage and correctly no-ops instead of re-navigating.
+    if (location.hash !== `#${page}`) {
+        location.hash = page;
+    }
 
     // Update nav highlighting
     document.querySelectorAll('.nav-item').forEach(el => {
@@ -352,11 +374,6 @@ export async function navigate(page) {
       const { getSettings } = await import('./db.js');
       const cur = (await getSettings()).currency;
       window.updateMobileFAB(cur);
-    }
-
-    // Update URL hash
-    if (location.hash !== `#${page}`) {
-        location.hash = page;
     }
 }
 

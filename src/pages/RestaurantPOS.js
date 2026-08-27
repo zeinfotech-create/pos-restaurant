@@ -53,6 +53,19 @@ const KITCHEN_ITEM_META = {
   not_found: { label: 'Not showing in Kitchen — resend', icon: 'fa-triangle-exclamation', color: 'var(--danger)' },
 };
 
+// Set once per page-entry (renderRestaurantPOS()) from location.hash — true
+// for the LAN/phone entry point (#mobile-order / #mo, router.js), false for
+// the normal in-app 'restaurant-pos' tab. Same component either way, same
+// state machine below, only render()/renderPickerView()/renderOrderingView()
+// branch their MARKUP on this — a waiter's phone gets a bottom tab bar and a
+// bottom-sheet cart instead of the desktop two-column layout, but every
+// business rule (sendToKitchen, table sharing, kitchen-status gating, ...)
+// is the exact same code path, never duplicated.
+let isMobile = false;
+// Mobile-only: is the bottom-sheet cart currently expanded? Reset to closed
+// on every fresh page-entry and on Back, so it never carries over open from
+// a previous table/order.
+let mobileCartOpen = false;
 let view = 'picker'; // 'picker' | 'ordering'
 let orderType = null; // 'dine-in' | 'takeaway' | 'delivery'
 let selectedTable = null; // full table doc — dine-in only, purely for capacity/name/section, never holds order data itself
@@ -94,6 +107,7 @@ function currentOrderLabel(allTables) {
 }
 
 export async function renderRestaurantPOS(container, subPage) {
+  isMobile = location.hash.startsWith('#mobile-order') || location.hash.startsWith('#mo');
   // Reset per-visit state every time the page is (re)entered fresh via nav
   // (not on internal re-renders — those call the render*View() functions
   // directly) so a leftover table/orderType from a previous visit never
@@ -127,6 +141,7 @@ export async function renderRestaurantPOS(container, subPage) {
     guestCount = null;
     changeLog = [];
     orderSessionId = null;
+    mobileCartOpen = false;
     setStaff(null);
   }
 
@@ -218,24 +233,82 @@ async function openTable(table) {
 // badge count).
 function updateBackButtonLabel() {
   const btn = document.getElementById('rposBackBtn');
-  if (btn) btn.innerHTML = `<i class="fa-solid fa-arrow-left"></i> ${backButtonLabel()}`;
+  if (!btn) return;
+  // See render()'s hideBackBtn comment — same rule, kept in sync here since
+  // this is the OTHER place the button's state can change (a sub-view
+  // switching 'view' without a full shell re-render).
+  if (isMobile && view === 'picker') { btn.style.display = 'none'; return; }
+  btn.style.display = '';
+  btn.innerHTML = `<i class="fa-solid fa-arrow-left"></i> ${backButtonLabel()}`;
 }
 
 async function render(container) {
+  // On mobile (LAN/phone entry — #mo/#mobile-order), the topbar's own
+  // Back button only ever makes sense at the 'ordering' level (stepping
+  // back to the table/order picker) — at the top-level picker its label is
+  // always "Dashboard" (backButtonLabel()), and 'dashboard' sits OUTSIDE
+  // router.js's mobile lockdown whitelist, so tapping it would black-screen
+  // this same device. Hidden there entirely; the bottom tab bar is this
+  // route's only navigation. The topbar's Kitchen button is hidden on
+  // mobile too — the bottom tab bar's own Kitchen tab replaces it (and
+  // correctly points at 'kd', not the desktop-only 'kitchen' route).
+  const hideBackBtn = isMobile && view === 'picker';
   container.innerHTML = `
-    <div class="rpos-shell">
+    <div class="rpos-shell${isMobile ? ' rpos-mobile' : ''}">
       <div class="rpos-topbar">
-        <button class="btn btn-ghost btn-sm" id="rposBackBtn"><i class="fa-solid fa-arrow-left"></i> ${backButtonLabel()}</button>
-        <div class="rpos-topbar-title"><i class="fa-solid fa-utensils"></i> Restaurant POS</div>
-        <button class="btn btn-ghost btn-sm" id="rposKitchenBtn"><i class="fa-solid fa-kitchen-set"></i> Kitchen<span id="rposKotBadge"></span></button>
+        <button class="btn btn-ghost btn-sm" id="rposBackBtn" style="${hideBackBtn ? 'display:none;' : ''}"><i class="fa-solid fa-arrow-left"></i> ${backButtonLabel()}</button>
+        <div class="rpos-topbar-title"><i class="fa-solid fa-utensils"></i> ${isMobile ? 'Order' : 'Restaurant POS'}</div>
+        ${!isMobile ? `<button class="btn btn-ghost btn-sm" id="rposKitchenBtn"><i class="fa-solid fa-kitchen-set"></i> Kitchen<span id="rposKotBadge"></span></button>` : `<span id="rposKotBadge" style="display:none;"></span>`}
       </div>
       <div id="rposContent"></div>
+      ${isMobile ? `
+        <div class="rpos-mobile-navbar">
+          <button class="rpos-mobile-nav-btn active" id="rposMobileNavOrders"><i class="fa-solid fa-utensils"></i><span>Orders</span></button>
+          <button class="rpos-mobile-nav-btn" id="rposMobileNavKitchen"><i class="fa-solid fa-kitchen-set"></i><span>Kitchen</span><span id="rposMobileKotBadge"></span></button>
+          <button class="rpos-mobile-nav-btn" id="rposMobileNavRefresh"><i class="fa-solid fa-rotate-right"></i><span>Refresh</span></button>
+          <button class="rpos-mobile-nav-btn" id="rposMobileNavLogout" style="color:var(--danger);"><i class="fa-solid fa-right-from-bracket"></i><span>Logout</span></button>
+        </div>
+      ` : ''}
     </div>
     <style>
       .rpos-shell { height: 100vh; display: flex; flex-direction: column; background: var(--bg-main); }
       .rpos-topbar { display:flex; align-items:center; justify-content:space-between; padding:12px 20px; border-bottom:1px solid var(--border); background:var(--bg-elevated); flex-shrink:0; }
       .rpos-topbar-title { font-size:15px; font-weight:800; }
       #rposContent { flex:1; overflow:auto; padding:20px; }
+      /* Mobile (#mo/#mobile-order) only, below — the desktop/tablet 'restaurant-pos'
+         tab is completely unaffected since none of these selectors match
+         without .rpos-mobile on .rpos-shell. */
+      .rpos-mobile-navbar { display:flex; border-top:1px solid var(--border); background:var(--bg-elevated); flex-shrink:0; height:56px; }
+      .rpos-mobile-nav-btn { flex:1; border:none; background:none; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:10px; font-weight:700; color:var(--text-muted); cursor:pointer; position:relative; }
+      .rpos-mobile-nav-btn i { font-size:15px; }
+      .rpos-mobile-nav-btn.active { color:var(--primary); }
+      /* Bottom padding clears the collapsed cart's peek bar (~62px, fixed to
+         the viewport — see .rpos-cart-panel below) so the last row of menu
+         items never ends up permanently hidden behind it. */
+      .rpos-mobile #rposContent { padding:12px; padding-bottom:76px; }
+      .rpos-mobile .rpos-layout { grid-template-columns: 1fr !important; }
+      /* The order cart, sticky-positioned on desktop, becomes a proper
+         bottom SHEET on mobile — collapsed to just its "🛒 Order (N items)"
+         header (peeking above the bottom nav) until tapped, then slides up
+         to cover most of the screen. !important beats the element's own
+         inline position:sticky/top:0 (this same cart panel's markup,
+         unchanged for desktop) since this is the one thing that must win
+         regardless of selector specificity. */
+      .rpos-mobile .rpos-cart-panel {
+        position: fixed !important;
+        top: auto !important;
+        left: 0; right: 0; bottom: 56px;
+        margin: 0 !important;
+        max-height: 78vh;
+        overflow-y: auto;
+        border-radius: 20px 20px 0 0;
+        box-shadow: 0 -10px 30px rgba(0,0,0,.25);
+        z-index: 300;
+        transform: translateY(calc(100% - 62px));
+        transition: transform .3s cubic-bezier(.4,0,.2,1);
+      }
+      .rpos-mobile .rpos-cart-panel.rpos-cart-open { transform: translateY(0); }
+      .rpos-mobile #rposCartPeekHeader { cursor: pointer; }
       /* Same shadow scale the app's own .card class uses (style.css) —
          every card on this page reuses it instead of inventing its own,
          so the whole ordering screen reads as one consistent surface
@@ -283,6 +356,13 @@ async function render(container) {
 
   document.getElementById('rposBackBtn')?.addEventListener('click', handleBack);
   document.getElementById('rposKitchenBtn')?.addEventListener('click', () => navigate('kitchen'));
+  // Mobile bottom tab bar — 'kd' (not 'kitchen') since this device is on
+  // the LAN/phone lockdown; 'kitchen' isn't in that whitelist and would
+  // black-screen it. "Orders" is just the active tab (you're already here);
+  // no-op beyond the visual state, which render() already sets on entry.
+  document.getElementById('rposMobileNavKitchen')?.addEventListener('click', () => navigate('kd'));
+  document.getElementById('rposMobileNavRefresh')?.addEventListener('click', () => window.location.reload());
+  document.getElementById('rposMobileNavLogout')?.addEventListener('click', () => window.logout?.());
   await refreshKotBadge();
   registerKotBadgeLiveRefresh();
 
@@ -291,10 +371,14 @@ async function render(container) {
 }
 
 async function refreshKotBadge() {
-  const badge = document.getElementById('rposKotBadge');
-  if (!badge) return;
   const pending = (await getKots()).filter(k => k.status !== 'served');
-  badge.innerHTML = pending.length > 0 ? `<span class="rpos-kot-badge">${pending.length}</span>` : '';
+  const badgeHtml = pending.length > 0 ? `<span class="rpos-kot-badge">${pending.length}</span>` : '';
+  const badge = document.getElementById('rposKotBadge');
+  if (badge) badge.innerHTML = badgeHtml;
+  // Mobile's bottom-nav Kitchen tab carries its own copy of this same badge
+  // (the topbar one is hidden entirely on mobile — see render()).
+  const mobileBadge = document.getElementById('rposMobileKotBadge');
+  if (mobileBadge) mobileBadge.innerHTML = badgeHtml;
 }
 
 let kotBadgeLiveListenerRegistered = false;
@@ -319,6 +403,7 @@ function registerKotBadgeLiveRefresh() {
 
 function handleBack() {
   const container = document.getElementById('page-container');
+  mobileCartOpen = false;
   if (view === 'ordering') {
     if (orderType === 'dine-in' && selectedTable) {
       // Step back to THIS table's box picker, not the whole table grid —
@@ -345,6 +430,12 @@ function handleBack() {
     setStaff(null);
     return render(container);
   }
+  // The LAN/phone entry point has no 'dashboard' to go back to — it's
+  // outside the mobile lockdown whitelist (router.js's
+  // lockOutNonKitchenAccess()), so navigating there would black-screen this
+  // same device. Nothing to do at the top level on mobile; the Back button
+  // is hidden there anyway (see render()) — this is just the defensive floor.
+  if (isMobile) return;
   navigate('dashboard');
 }
 
@@ -379,9 +470,9 @@ async function renderPickerView() {
       `;
     };
     area.innerHTML = `
-      <div style="max-width:700px; margin:60px auto; text-align:center;">
-        <h2 style="font-size:20px; font-weight:800; margin-bottom:24px;">What kind of order is this?</h2>
-        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:16px;">
+      <div style="max-width:700px; margin:${isMobile ? '12px' : '60px'} auto; text-align:center;">
+        <h2 style="font-size:${isMobile ? '17px' : '20px'}; font-weight:800; margin-bottom:${isMobile ? '16px' : '24px'};">What kind of order is this?</h2>
+        <div style="display:grid; grid-template-columns:${isMobile ? '1fr' : 'repeat(3,1fr)'}; gap:${isMobile ? '12px' : '16px'};">
           ${orderTypeCard('dine-in', 'fa-utensils', 'Dine-in')}
           ${orderTypeCard('takeaway', 'fa-bag-shopping', 'Takeaway')}
           ${orderTypeCard('delivery', 'fa-motorcycle', 'Delivery')}
@@ -420,11 +511,11 @@ async function renderPickerView() {
   area.innerHTML = `
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
       <h2 style="font-size:16px; font-weight:800;">Select a Table</h2>
-      <a href="#tables" style="font-size:12px; color:var(--primary); font-weight:700;"><i class="fa-solid fa-gear"></i> Manage Tables</a>
+      ${!isMobile ? `<a href="#tables" style="font-size:12px; color:var(--primary); font-weight:700;"><i class="fa-solid fa-gear"></i> Manage Tables</a>` : ''}
     </div>
     ${tables.length === 0 ? `
       <div class="card" style="padding:40px; text-align:center; color:var(--text-muted);">
-        No tables set up yet. <a href="#tables" style="color:var(--primary); font-weight:700;">Add tables</a> to get started.
+        ${isMobile ? 'No tables set up yet — ask the shop owner to add tables from the main POS.' : 'No tables set up yet. <a href="#tables" style="color:var(--primary); font-weight:700;">Add tables</a> to get started.'}
       </div>
     ` : grouped.map(({ section, tables: sectionTables }) => `
       <div style="margin-bottom:22px;">
@@ -847,10 +938,14 @@ async function renderOrderingView() {
         </div>
       </div>
 
-      <div class="card" style="padding:16px; position:sticky; top:0;">
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+      <div class="card rpos-cart-panel${isMobile && mobileCartOpen ? ' rpos-cart-open' : ''}" id="rposCartPanel" style="padding:16px; position:sticky; top:0;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;" id="rposCartPeekHeader">
           <div style="width:28px; height:28px; border-radius:8px; background:var(--bg-main); display:flex; align-items:center; justify-content:center; font-size:13px;">🛒</div>
-          <div style="font-size:13px; font-weight:800;">Order <span style="color:var(--text-muted); font-weight:600;">(${store.cart.length} item${store.cart.length === 1 ? '' : 's'})</span></div>
+          <div style="font-size:13px; font-weight:800; flex:1;">Order <span style="color:var(--text-muted); font-weight:600;">(${store.cart.length} item${store.cart.length === 1 ? '' : 's'})</span></div>
+          ${isMobile ? `
+            <div style="font-size:13px; font-weight:800; color:var(--primary);">${cur}${totals.total.toFixed(2)}</div>
+            <i class="fa-solid ${mobileCartOpen ? 'fa-chevron-down' : 'fa-chevron-up'}" style="font-size:12px; color:var(--text-muted);"></i>
+          ` : ''}
         </div>
         <div style="max-height:36vh; overflow-y:auto;">
           ${store.cart.length === 0 ? `<div style="text-align:center; padding:24px; color:var(--text-muted); font-size:12px;">No items yet — tap a menu item to add it</div>` : store.cart.map(i => {
@@ -977,6 +1072,19 @@ async function renderOrderingView() {
 
   document.getElementById('rposPreviewBillBtn')?.addEventListener('click', previewBill);
   document.getElementById('rposBillBtn')?.addEventListener('click', openPaymentPanel);
+  // Mobile-only: tapping the cart's peek header (the bit that's still
+  // visible when the sheet is collapsed) expands/collapses it. A plain
+  // class toggle — nothing about the cart's actual content changed, so no
+  // need to re-render it, just flip the CSS transform (.rpos-cart-open,
+  // see render()'s <style>) and swap the chevron.
+  if (isMobile) {
+    document.getElementById('rposCartPeekHeader')?.addEventListener('click', () => {
+      mobileCartOpen = !mobileCartOpen;
+      document.getElementById('rposCartPanel')?.classList.toggle('rpos-cart-open', mobileCartOpen);
+      const chevron = document.querySelector('#rposCartPeekHeader .fa-chevron-up, #rposCartPeekHeader .fa-chevron-down');
+      if (chevron) chevron.className = `fa-solid ${mobileCartOpen ? 'fa-chevron-down' : 'fa-chevron-up'}`;
+    });
+  }
   registerOrderingViewLiveRefresh();
 }
 

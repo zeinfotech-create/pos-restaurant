@@ -14,6 +14,7 @@ import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { formatElapsed } from '../utils/tableDisplay.js';
 import { syncEngine } from '../services/syncEngine.js';
+import { navigate } from '../router.js';
 
 let kitchenTimerInterval = null;
 let liveListenerRegistered = false;
@@ -74,6 +75,7 @@ export async function renderKitchen(container) {
     <div id="kitchenContent" ${isPopout ? 'style="padding-bottom:64px;"' : ''}></div>
     ${isPopout ? `
       <div style="position:fixed; left:0; right:0; bottom:0; display:flex; gap:1px; background:var(--border); box-shadow:0 -2px 10px rgba(0,0,0,.08); z-index:500;">
+        <button id="kitchenOrdersBtn" style="flex:1; border:none; background:var(--bg-elevated); color:var(--text-main); padding:14px; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;"><i class="fa-solid fa-utensils"></i> Orders</button>
         <button id="kitchenRefreshBtn" style="flex:1; border:none; background:var(--bg-elevated); color:var(--text-main); padding:14px; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
         <button id="kitchenLogoutBtn" style="flex:1; border:none; background:var(--bg-elevated); color:var(--danger); padding:14px; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
       </div>
@@ -92,12 +94,17 @@ export async function renderKitchen(container) {
   container.innerHTML = isPopout ? `<div style="padding:24px; height:100vh; overflow-y:auto; box-sizing:border-box;">${headerHtml}</div>` : headerHtml;
 
   // The popout route (kd/kitchen-display) has no sidebar/topbar at all —
-  // this is the ONLY way to get back out of it (reload to recover from a
-  // stuck sync state, or sign out entirely). Deliberately just these two;
-  // matches the explicit ask for a minimal bottom bar rather than the
-  // full app's #bottom-nav (index.html), which showed live links to
-  // every other page and was hidden for every standalone view in
-  // style.css for exactly this reason.
+  // this bottom bar is the ONLY way to navigate anywhere from it. Orders
+  // hands off to the mobile order-taking screen (RestaurantPOS.js's own
+  // #mo/#mobile-order route — same LAN lockdown whitelist as this one, see
+  // router.js), so a waiter's phone can flip between taking orders and
+  // checking the kitchen board without ever leaving the LAN entry point;
+  // Refresh/Logout recover from a stuck sync state or sign out entirely.
+  // Deliberately just these three — matches the explicit ask for a minimal
+  // bar rather than the full app's #bottom-nav (index.html), which showed
+  // live links to every other page and was hidden for every standalone
+  // view in style.css for exactly this reason.
+  document.getElementById('kitchenOrdersBtn')?.addEventListener('click', () => navigate('mo'));
   document.getElementById('kitchenRefreshBtn')?.addEventListener('click', () => window.location.reload());
   document.getElementById('kitchenLogoutBtn')?.addEventListener('click', () => window.logout?.());
 
