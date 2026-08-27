@@ -366,7 +366,6 @@ async function render(container) {
          thumb-sized hit areas, not the same compact ones the mouse-driven
          desktop cart panel uses. */
       .rpos-mobile .rpos-cart-panel .rpos-cart-item { padding:14px 0; }
-      .rpos-mobile .rpos-cart-panel .btn-icon { width:34px; height:34px; display:inline-flex; align-items:center; justify-content:center; }
       .rpos-mobile .rpos-cart-panel .btn { min-height:48px; font-size:14px; }
       .rpos-mobile .rpos-cart-panel .btn-sm { min-height:40px; font-size:12.5px; }
       /* Same shadow scale the app's own .card class uses (style.css) —
@@ -387,7 +386,32 @@ async function render(container) {
       .rpos-product-card { padding:14px; border-radius:12px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; transition:transform .2s cubic-bezier(.4,0,.2,1), box-shadow .2s cubic-bezier(.4,0,.2,1), border-color .2s; box-shadow:0 2px 6px rgba(0,0,0,.04); }
       .rpos-product-card:hover { border-color:var(--primary); transform:translateY(-3px); box-shadow:0 8px 20px rgba(0,0,0,.1); }
       .rpos-product-card:active { transform:translateY(-1px) scale(.98); }
-      .rpos-cart-item { padding:10px 0; border-bottom:1px solid var(--border); transition:background-color .15s; }
+      /* Cart item row redesign — was a single flex-wrap row cramming qty
+         controls, kitchen-status text, a modify button and the price
+         together, which read as cluttered on both desktop and (worse) on
+         mobile's narrower cart sheet. Same three logical zones, clearer
+         separation: name+remove on top, an optional kitchen-status PILL of
+         its own (was plain colored text), then a bottom row pairing a
+         proper qty stepper (was three separate boxy buttons) against the
+         price. One shared design for both — the .rpos-mobile overrides
+         further down only bump sizing for touch, the shape is identical. */
+      .rpos-cart-item { padding:12px 0; border-bottom:1px solid var(--border); }
+      .rpos-cart-item-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+      .rpos-cart-item-name { font-size:13px; font-weight:700; flex:1; }
+      .rpos-cart-item-remove { width:26px; height:26px; flex-shrink:0; border:none; background:none; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:12px; cursor:pointer; transition:background-color .15s, color .15s; }
+      .rpos-cart-item-remove:hover { background:rgba(239,68,68,0.12); color:var(--danger); }
+      .rpos-cart-status-chip { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:6px; padding:4px 10px; border-radius:999px; background:var(--bg-main); font-size:10.5px; font-weight:700; }
+      .rpos-cart-chip-action { width:20px; height:20px; border:none; background:var(--bg-elevated); border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:9.5px; cursor:pointer; }
+      .rpos-cart-item-bottom { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; flex-wrap:wrap; }
+      .rpos-qty-stepper { display:inline-flex; align-items:center; gap:2px; background:var(--bg-main); border-radius:999px; padding:3px; }
+      .rpos-qty-stepper button { width:24px; height:24px; border:none; background:var(--bg-elevated); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:9.5px; color:var(--text-main); cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+      .rpos-qty-stepper span { min-width:22px; text-align:center; font-size:12.5px; font-weight:700; }
+      .rpos-cart-item-customize { width:26px; height:26px; border:1px solid var(--border); background:var(--bg-elevated); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--text-muted); cursor:pointer; }
+      .rpos-cart-item-price { font-size:13px; font-weight:800; margin-left:auto; }
+      .rpos-mobile .rpos-cart-panel .rpos-qty-stepper button,
+      .rpos-mobile .rpos-cart-panel .rpos-cart-item-customize { width:30px; height:30px; }
+      .rpos-mobile .rpos-cart-panel .rpos-cart-item-remove { width:30px; height:30px; }
+      .rpos-mobile .rpos-cart-panel .rpos-cart-status-chip { font-size:11.5px; }
       .rpos-kot-badge { display:inline-block; min-width:16px; padding:1px 5px; border-radius:999px; background:var(--danger); color:white; font-size:10px; font-weight:800; margin-left:4px; }
       /* A billed box gets a little green "confirmed" pop, then fades and
          shrinks away in place — so completing ONE box on a shared table
@@ -1043,36 +1067,36 @@ async function renderOrderingView() {
               if (kStatus === 'not_found') console.error(`[RestaurantPOS] "${i.name}" is marked sent but has no matching KOT entry (orderSessionId=${orderSessionId}) — offering Resend.`);
               const meta = KITCHEN_ITEM_META[kStatus] || KITCHEN_ITEM_META.pending;
               sentBadge = `
-                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  <span style="font-size:10px; font-weight:700; color:${meta.color};"><i class="fa-solid ${meta.icon}"></i> ${sentQty}x ${meta.label}${i.course ? ` · ${escapeHtml(i.course)}` : ''}</span>
-                  ${pendingQty > 0 ? `<span style="font-size:10px; font-weight:700; color:var(--warning);">+${pendingQty} new</span>` : ''}
-                  ${kStatus === 'not_found' ? `<button class="btn-icon rpos-resend-item" data-cart-id="${i.cartId}" title="Resend to kitchen"><i class="fa-solid fa-rotate-right" style="font-size:10px; color:var(--danger);"></i></button>` : ''}
-                  ${pendingQty <= 0 && kStatus !== 'served' && kStatus !== 'not_found' ? `<button class="btn-icon rpos-modify-item" data-cart-id="${i.cartId}" title="Modify"><i class="fa-solid fa-pen" style="font-size:10px;"></i></button>` : ''}
+                <div class="rpos-cart-status-chip" style="color:${meta.color};">
+                  <i class="fa-solid ${meta.icon}"></i> ${sentQty}x ${meta.label}${i.course ? ` · ${escapeHtml(i.course)}` : ''}
+                  ${pendingQty > 0 ? `<span style="color:var(--warning); margin-left:2px;">+${pendingQty} new</span>` : ''}
+                  ${kStatus === 'not_found' ? `<button class="rpos-cart-chip-action rpos-resend-item" data-cart-id="${i.cartId}" title="Resend to kitchen"><i class="fa-solid fa-rotate-right" style="color:var(--danger);"></i></button>` : ''}
+                  ${pendingQty <= 0 && kStatus !== 'served' && kStatus !== 'not_found' ? `<button class="rpos-cart-chip-action rpos-modify-item" data-cart-id="${i.cartId}" title="Modify"><i class="fa-solid fa-pen"></i></button>` : ''}
                 </div>
               `;
             }
             return `
             <div class="rpos-cart-item">
-              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
-                <div style="font-size:12.5px; font-weight:700; flex:1;">${escapeHtml(i.name)}</div>
-                <button class="btn-icon rpos-remove-item" data-cart-id="${i.cartId}" title="Remove"><i class="fa-solid fa-xmark" style="font-size:11px; color:var(--danger);"></i></button>
+              <div class="rpos-cart-item-top">
+                <div class="rpos-cart-item-name">${escapeHtml(i.name)}</div>
+                <button class="rpos-cart-item-remove rpos-remove-item" data-cart-id="${i.cartId}" title="Remove"><i class="fa-solid fa-xmark"></i></button>
               </div>
               ${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(' · ')}</div>` : ''}
-              <div style="display:flex; align-items:center; justify-content:space-between; margin-top:6px; flex-wrap:wrap; gap:6px;">
-                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  <button class="btn-icon rpos-qty-minus" data-cart-id="${i.cartId}"><i class="fa-solid fa-minus" style="font-size:10px;"></i></button>
-                  <span style="font-size:12px; font-weight:700; min-width:18px; text-align:center;">${i.qty}</span>
-                  <button class="btn-icon rpos-qty-plus" data-cart-id="${i.cartId}"><i class="fa-solid fa-plus" style="font-size:10px;"></i></button>
-                  ${sentQty <= 0 ? `
-                    <button class="btn-icon rpos-customize-item" data-cart-id="${i.cartId}" title="Customize"><i class="fa-solid fa-sliders" style="font-size:10px;"></i></button>
-                    <select class="form-input rpos-course-select" data-cart-id="${i.cartId}" style="font-size:10px; padding:2px 4px; max-width:82px;">
-                      <option value="">Course</option>
-                      ${COURSES.map(c => `<option value="${c}" ${i.course === c ? 'selected' : ''}>${c}</option>`).join('')}
-                    </select>
-                  ` : ''}
+              ${sentBadge}
+              <div class="rpos-cart-item-bottom">
+                <div class="rpos-qty-stepper">
+                  <button class="rpos-qty-minus" data-cart-id="${i.cartId}"><i class="fa-solid fa-minus"></i></button>
+                  <span>${i.qty}</span>
+                  <button class="rpos-qty-plus" data-cart-id="${i.cartId}"><i class="fa-solid fa-plus"></i></button>
                 </div>
-                ${sentBadge}
-                <div style="font-size:12px; font-weight:800;">${cur}${(i.price * i.qty).toFixed(2)}</div>
+                ${sentQty <= 0 ? `
+                  <button class="rpos-cart-item-customize rpos-customize-item" data-cart-id="${i.cartId}" title="Customize"><i class="fa-solid fa-sliders"></i></button>
+                  <select class="form-input rpos-course-select" data-cart-id="${i.cartId}" style="font-size:10px; padding:2px 4px; max-width:82px; height:auto;">
+                    <option value="">Course</option>
+                    ${COURSES.map(c => `<option value="${c}" ${i.course === c ? 'selected' : ''}>${c}</option>`).join('')}
+                  </select>
+                ` : ''}
+                <div class="rpos-cart-item-price">${cur}${(i.price * i.qty).toFixed(2)}</div>
               </div>
             </div>
           `;
