@@ -934,7 +934,24 @@ async function renderOrderingView() {
 
   const settings = store.settings || await getSettings();
   const cur = settings.currency || '₹';
-  const categories = await getCategories();
+  // De-duped by name before rendering the filter chips. A device that spent
+  // any time on the placeholder 'LOCAL_EXE' tenant before identifying with
+  // its real licenseKey (see syncEngine.js's register_success handler and
+  // db.js's getSettings() recovery — the LOCAL_EXE architecture notes) can
+  // end up with genuinely duplicated category records locally (seen live:
+  // one real device had "Food"/"Beverages"/"Desserts" each repeated 19-25
+  // times) — nothing about picking a menu filter needs to show the same
+  // category as several identical chips, regardless of how many duplicate
+  // records exist underneath, so this collapses them for DISPLAY only
+  // (doesn't touch/merge the underlying records — Categories.js's own
+  // management page is still the right place to actually clean those up).
+  const seenCategoryNames = new Set();
+  const categories = (await getCategories()).filter(c => {
+    const key = (c.name || '').trim().toLowerCase();
+    if (!key || seenCategoryNames.has(key)) return false;
+    seenCategoryNames.add(key);
+    return true;
+  });
   const staffList = await getStaff();
   const allTables = orderType === 'dine-in' ? await getTables() : [];
   const orderLabel = currentOrderLabel(allTables);
