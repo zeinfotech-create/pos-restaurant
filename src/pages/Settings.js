@@ -15,6 +15,67 @@ import { stateOptionsHtml } from '../utils/indianStates.js';
 
 let activeSettingsTab = 'general';
 let advancedConnectionExpanded = false;
+// Cached result of the last syncEngine.listDevices() call — null means
+// "not fetched yet for this panel-open" (shows a loading state), an array
+// (possibly empty) means it resolved. Re-fetched every time the panel is
+// (re)opened or Refresh is clicked, not on every Settings render, since
+// it's a network round-trip to the hub.
+let connectedDevices = null;
+let devicesLoading = false;
+let maxDevicesLimit = 3;
+
+const DEVICE_TYPE_ICON = { desktop: 'fa-desktop', mobile: 'fa-mobile-screen-button', browser: 'fa-globe', unknown: 'fa-circle-question' };
+
+function formatDeviceElapsed(iso) {
+  if (!iso) return '';
+  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+async function refreshDeviceList() {
+  devicesLoading = true;
+  await renderSettings(document.getElementById('page-container')); // show the spinner immediately, don't wait on the network round-trip first
+  const result = await syncEngine.listDevices();
+  connectedDevices = result.devices || [];
+  maxDevicesLimit = result.maxDevices || 3;
+  devicesLoading = false;
+  await renderSettings(document.getElementById('page-container'));
+}
+
+function renderDeviceListHtml() {
+  if (devicesLoading) {
+    return `<div style="text-align:center; padding:16px; color:var(--text-muted); font-size:12px;"><i class="fa-solid fa-spinner fa-spin"></i> Loading devices…</div>`;
+  }
+  if (connectedDevices === null) {
+    return `<div style="text-align:center; padding:12px; color:var(--text-muted); font-size:11.5px;">Click <i class="fa-solid fa-rotate-right"></i> to load connected devices</div>`;
+  }
+  if (connectedDevices.length === 0) {
+    return `<div style="text-align:center; padding:12px; color:var(--text-muted); font-size:12px;">No devices connected right now</div>`;
+  }
+  return `
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${connectedDevices.map(d => `
+        <div style="display:flex; align-items:center; gap:10px; padding:9px 10px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:10px;">
+          <div style="width:30px; height:30px; border-radius:8px; background:var(--bg-main); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            <i class="fa-solid ${DEVICE_TYPE_ICON[d.deviceType] || DEVICE_TYPE_ICON.unknown}" style="font-size:12px; color:var(--text-muted);"></i>
+          </div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:12px; font-weight:700; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              ${escapeHtml(d.ip)}
+              ${d.isThisDevice ? `<span style="font-size:9.5px; font-weight:800; color:var(--primary); background:var(--bg-main); padding:1px 6px; border-radius:999px;">THIS DEVICE</span>` : ''}
+            </div>
+            <div style="font-size:10.5px; color:var(--text-muted); text-transform:capitalize;">${escapeHtml(d.deviceType)}${d.connectedAt ? ` · connected ${formatDeviceElapsed(d.connectedAt)}` : ''}</div>
+          </div>
+          ${!d.isThisDevice ? `<button class="btn-icon device-disconnect-btn" data-device-id="${escapeHtml(d.deviceId)}" title="Disconnect this device"><i class="fa-solid fa-plug-circle-xmark" style="font-size:12px; color:var(--danger);"></i></button>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
 let exportHistoryPage = 1;
 let importHistoryPage = 1;
 const BACKUP_HISTORY_PAGE_SIZE = 5;
@@ -892,7 +953,15 @@ export async function renderSettings(container) {
                 <div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${syncEngine.isConnected ? 'var(--success)' : 'var(--danger)'};box-shadow:0 0 6px ${syncEngine.isConnected ? 'var(--success)' : 'var(--danger)'}"></div>
                 <div style="flex:1">
                   <div style="font-weight:700;font-size:13px;color:var(--text-main)">Sync Hub — ${syncEngine.isConnected ? '🟢 Online' : '🔴 Offline'}</div>
-                  <div style="font-size:11px;color:var(--text-muted)">${syncEngine.isConnected ? `Connected to ws://${s.syncHubIp || window.location.hostname}:3030` : 'Not connected — set Hub IP below and click Reconnect'}</div>
+                  <div style="font-size:11px;color:var(--text-muted)">${(() => {
+                    if (!syncEngine.isConnected) return 'Not connected — set Hub IP below and click Reconnect';
+                    // 'localhost'/empty means THIS device IS the hub — show its
+                    // actual LAN address (what a phone/second PC would need to
+                    // type in) instead of a hostname meaningless to anyone else.
+                    const isLocalHub = !s.syncHubIp || s.syncHubIp === 'localhost' || s.syncHubIp === '127.0.0.1';
+                    const shownIp = isLocalHub ? (syncEngine.lanIp || window.location.hostname || 'localhost') : s.syncHubIp;
+                    return `Connected to ws://${shownIp}:3030${isLocalHub ? ' (this device is the hub)' : ''}`;
+                  })()}</div>
                 </div>
               </div>
               <div style="padding:0 16px 14px; display:flex; gap:8px;">
@@ -900,6 +969,16 @@ export async function renderSettings(container) {
                 <button class="btn btn-ghost" id="gReconnectHubBtn" style="flex-shrink:0; border:1px solid var(--border); border-radius:10px; font-weight:700; white-space:nowrap;">
                   🔄 Reconnect Hub
                 </button>
+              </div>
+              <div style="padding:14px 16px; border-top:1px solid var(--border);">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                  <div style="font-weight:700; font-size:12.5px; color:var(--text-main);">
+                    <i class="fa-solid fa-mobile-screen-button" style="margin-right:6px; opacity:.6;"></i>
+                    Connected Devices${connectedDevices !== null ? ` (${connectedDevices.length}/${maxDevicesLimit})` : ''}
+                  </div>
+                  <button type="button" id="gRefreshDevicesBtn" class="btn-icon" title="Refresh device list"><i class="fa-solid fa-rotate-right ${devicesLoading ? 'fa-spin' : ''}" style="font-size:11px;"></i></button>
+                </div>
+                ${renderDeviceListHtml()}
               </div>
             </div>
             ` : ''}
@@ -1266,6 +1345,16 @@ export async function renderSettings(container) {
 
   container.querySelector('#toggleAdvancedConnectionBtn')?.addEventListener('click', async () => {
     advancedConnectionExpanded = !advancedConnectionExpanded;
+    // Opening the panel is the natural moment to load the device list —
+    // matches how the panel already behaves (nothing fetched/shown until
+    // you actually expand it). Re-fetches every time it's opened rather
+    // than caching indefinitely, so it can't show a stale device that
+    // disconnected minutes ago.
+    if (advancedConnectionExpanded) {
+      connectedDevices = null;
+      await refreshDeviceList();
+      return; // refreshDeviceList() already re-renders
+    }
     await renderSettings(document.getElementById('page-container'));
   });
 
@@ -1285,6 +1374,24 @@ export async function renderSettings(container) {
       syncEngine.connect();
       setTimeout(async () => await renderSettings(document.getElementById('page-container')), 2000);
     }, 300);
+  });
+
+  container.querySelector('#gRefreshDevicesBtn')?.addEventListener('click', refreshDeviceList);
+
+  container.querySelectorAll('.device-disconnect-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const deviceId = btn.dataset.deviceId;
+      const confirmed = await showConfirm({
+        title: 'Disconnect Device',
+        message: 'This device will be signed out of the sync hub immediately. It can reconnect any time by reopening the app.',
+        okText: 'Disconnect', okClass: 'btn-danger'
+      });
+      if (!confirmed) return;
+      const result = await syncEngine.disconnectDevice(deviceId);
+      if (result.success) showToast('Device disconnected', 'success');
+      else showToast('Could not reach the hub to disconnect that device', 'error');
+      await refreshDeviceList();
+    });
   });
 
   // 1. General Settings

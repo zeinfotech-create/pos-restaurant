@@ -1,5 +1,5 @@
 import { db, getSettings, getDeviceId, updateData, deleteData, getDataById, updateSettings, getOrders, saveOrder, updateOrder, clearStore, read, KEYS, getCachedLicenseStatus, saveCachedLicenseStatus, getDeletedTombstones, clearExpiredTombstones, verifyLocalUser } from '../db.js';
-import { showSuspendedOverlay, showDeviceLimitOverlay } from './LicenseService.js';
+import { showSuspendedOverlay, showDeviceLimitOverlay, showManualDisconnectOverlay } from './LicenseService.js';
 import { refreshTrueTimeOffset } from '../utils/trueTime.js';
 
 // Real, permanent public URL of the vendor-only license-signing server
@@ -496,6 +496,46 @@ class SyncEngine {
         });
     }
 
+    // Settings' device-management panel — every device currently holding
+    // one of this shop's (up to MAX_DEVICES_PER_LICENSE) connection slots,
+    // scoped server-side to THIS connection's own already-registered
+    // licenseKey (see server/index.js's 'list_devices' handler — a client
+    // can never ask for another shop's device list, even by intent).
+    async listDevices() {
+        if (!this.isConnected) return { devices: [], maxDevices: 3, offline: true };
+        return new Promise((resolve) => {
+            const requestId = 'devlist-' + Date.now();
+            this.pendingRequests.set(requestId, { resolve });
+            this.ws.send(JSON.stringify({ type: 'list_devices', requestId }));
+            setTimeout(() => {
+                if (this.pendingRequests.has(requestId)) {
+                    this.pendingRequests.delete(requestId);
+                    resolve({ devices: [], maxDevices: 3, timedOut: true });
+                }
+            }, 8000);
+        });
+    }
+
+    // Kicks a device off — frees its slot immediately so a new one can
+    // register. The target device itself gets a force_disconnect (see the
+    // 'manual_disconnect' branch in the message handler above) rather than
+    // just silently vanishing, so whoever's looking at THAT screen isn't
+    // left wondering why it suddenly went offline.
+    async disconnectDevice(deviceId) {
+        if (!this.isConnected) return { success: false };
+        return new Promise((resolve) => {
+            const requestId = 'devkick-' + Date.now();
+            this.pendingRequests.set(requestId, { resolve: (msg) => resolve({ success: true, ...msg }) });
+            this.ws.send(JSON.stringify({ type: 'disconnect_device', deviceId, requestId }));
+            setTimeout(() => {
+                if (this.pendingRequests.has(requestId)) {
+                    this.pendingRequests.delete(requestId);
+                    resolve({ success: false, timedOut: true });
+                }
+            }, 8000);
+        });
+    }
+
     async fetchLoginData() {
         if (!this.isConnected) return { success: false, message: 'Offline' };
 
@@ -822,8 +862,25 @@ class SyncEngine {
 
                     case 'force_disconnect':
                         console.warn('SyncEngine: Received force_disconnect from Hub:', message.message);
-                        showSuspendedOverlay(message.message);
+                        // A shop owner manually disconnecting a device from
+                        // Settings' device-management panel reuses this same
+                        // kick mechanism, but showing THAT device the
+                        // "Account Suspended, contact support" overlay would
+                        // be actively misleading — nothing is suspended,
+                        // someone just freed this device's slot on purpose.
+                        if (message.reason === 'manual_disconnect') {
+                            showManualDisconnectOverlay(message.message);
+                        } else {
+                            showSuspendedOverlay(message.message);
+                        }
                         this.disconnect();
+                        break;
+
+                    case 'device_list':
+                    case 'device_disconnected':
+                        for (const [rid, req] of this.pendingRequests) {
+                            if (rid === message.requestId) { req.resolve(message); this.pendingRequests.delete(rid); }
+                        }
                         break;
 
                     case 'server_status':
@@ -875,6 +932,13 @@ class SyncEngine {
                     case 'register_success':
                         console.log('SyncEngine: Registration confirmed by Hub');
                         this.isRegistered = true;
+                        // The hub's own LAN IPv4 — what Settings' device panel
+                        // shows for "this device's own address other devices
+                        // should use", since window.location.hostname/
+                        // syncHubIp is 'localhost' for the device that IS the
+                        // hub, which is correct for ITS OWN connection but
+                        // useless as an address anyone ELSE would type in.
+                        if (message.lanIp) this.lanIp = message.lanIp;
                         if (message.licenseKey && message.type === 'register_success') {
                             await getSettings().then(current => {
                                 // Only ever ADOPT a hub-assigned key on a device that has

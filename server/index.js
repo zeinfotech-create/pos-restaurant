@@ -52,6 +52,7 @@ dns.setServers(['8.8.8.8', '8.8.4.4']);
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const crypto = require('crypto');
 const WebSocket = require('ws');
 const mongoose = require('mongoose');
@@ -753,6 +754,37 @@ function unregisterDeviceSlot(ws) {
     if (devices.size === 0) deviceMap.delete(lk);
 }
 
+// A rough label for Settings' device list — not authoritative (a spoofed
+// User-Agent would fool it), just enough for a shop owner glancing at the
+// list to tell "that's probably my phone" from "that's the counter PC"
+// without needing to cross-reference IPs by hand.
+// This machine's own LAN-reachable IPv4 address — what Settings' "Connected
+// to ws://..." line SHOULD show for the local hub itself (this device IS
+// the hub) instead of the meaningless 'localhost'/'127.0.0.1' it otherwise
+// resolves to: that's correct for THIS device's own connection, but useless
+// as the actual address another device (a phone, a second PC) would need to
+// type in to reach it. Picks the first non-internal IPv4 interface — good
+// enough for the common single-NIC/Wi-Fi shop setup this is built for; a
+// machine with several active network adapters may need to try more than
+// one if this guess isn't the right one.
+function getLanIp() {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name] || []) {
+            if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+        }
+    }
+    return null;
+}
+
+function classifyDeviceType(userAgent) {
+    const ua = userAgent || '';
+    if (/Electron/i.test(ua)) return 'desktop'; // the real .exe app
+    if (/Android|iPhone|iPad|Mobile/i.test(ua)) return 'mobile';
+    if (ua) return 'browser'; // some other browser hitting the LAN url
+    return 'unknown';
+}
+
 function broadcastToLicense(licenseKey, payload, excludeWs = null) {
     const group = clientMap.get(licenseKey);
     if (!group) return;
@@ -915,7 +947,12 @@ wss.on('connection', (ws, req) => {
     const url = new URL(req.url, `http://localhost:${PORT}`);
     const queryLicense = url.searchParams.get('licenseKey') || 'GLOBAL';
     ws._licenseKey = queryLicense;
-    ws._ip = req.socket.remoteAddress; // Store IP for deduplication
+    // ::ffff:192.168.1.4-style IPv4-mapped-IPv6 notation is technically
+    // correct but meaningless to a shop owner reading a device list in
+    // Settings — stripped for display purposes everywhere this is shown.
+    ws._ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+    ws._userAgent = req.headers['user-agent'] || '';
+    ws._connectedAt = new Date().toISOString();
     console.log(`[Hub] New connection: ${ws._ip} | licenseKey: ${queryLicense}`);
 
     // Send server status immediately
@@ -1001,9 +1038,67 @@ wss.on('connection', (ws, req) => {
                         type: 'register_success',
                         licenseKey: key,
                         message: `Registered with POS Sync Hub (${DB_TYPE.toUpperCase()})`,
-                        licenseStatus: status
+                        licenseStatus: status,
+                        lanIp: getLanIp(),
                     });
                     send(ws, { type: 'server_status', dbConnected: isDbConnected });
+                    break;
+                }
+
+                // --------------------------------------------------------
+                // list_devices — Settings' device-management panel. Scoped
+                // to THIS connection's own already-registered licenseKey
+                // (never a client-supplied one — same reasoning as every
+                // other case here) so a device can only ever see its own
+                // shop's connections.
+                // --------------------------------------------------------
+                case 'list_devices': {
+                    const devices = deviceMap.get(licenseKey);
+                    const list = [];
+                    if (devices) {
+                        devices.forEach((socketSet, devId) => {
+                            // Any live socket for this device carries the same
+                            // display info (IP/UA/connectedAt) — there's
+                            // normally exactly one, briefly two during a
+                            // reconnect's old/new overlap.
+                            const rep = [...socketSet][0];
+                            if (!rep) return;
+                            list.push({
+                                deviceId: devId,
+                                ip: rep._ip || 'unknown',
+                                deviceType: classifyDeviceType(rep._userAgent),
+                                connectedAt: rep._connectedAt || null,
+                                isThisDevice: devId === ws._deviceId,
+                            });
+                        });
+                    }
+                    list.sort((a, b) => (a.isThisDevice ? -1 : b.isThisDevice ? 1 : new Date(a.connectedAt) - new Date(b.connectedAt)));
+                    send(ws, { type: 'device_list', devices: list, maxDevices: MAX_DEVICES_PER_LICENSE, requestId: msg.requestId });
+                    break;
+                }
+
+                // --------------------------------------------------------
+                // disconnect_device — manually free a device's slot from
+                // Settings. Only ever operates within the requester's OWN
+                // licenseKey's device map, so one shop can never disconnect
+                // another's device even by guessing/enumerating deviceIds.
+                // --------------------------------------------------------
+                case 'disconnect_device': {
+                    const targetDeviceId = msg.deviceId;
+                    const devices = deviceMap.get(licenseKey);
+                    const socketSet = devices?.get(targetDeviceId);
+                    if (socketSet) {
+                        console.log(`[Hub] 🔌 Manually disconnecting device ${targetDeviceId} for ${licenseKey}`);
+                        [...socketSet].forEach(targetWs => {
+                            send(targetWs, {
+                                type: 'force_disconnect',
+                                reason: 'manual_disconnect',
+                                message: 'This device was disconnected from another device\'s Settings screen.',
+                            });
+                            setTimeout(() => { if (targetWs.readyState === 1 || targetWs.readyState === 0) targetWs.terminate(); }, 200);
+                        });
+                    }
+                    send(ws, { type: 'device_disconnected', deviceId: targetDeviceId, requestId: msg.requestId });
                     break;
                 }
 
