@@ -1574,12 +1574,15 @@ window.addEventListener('sync-settings-updated', (e) => {
   }
 });
 
-// Tracks, per shift, the highest 8h milestone already shown — keyed by
-// shift.id so closing this register and opening a new one (or a different
-// register entirely) starts fresh instead of inheriting a stale count, and
-// so this doesn't re-show the same milestone every 5 minutes once it's
-// already been surfaced once.
-let registerReminderShown = {};
+// Both of these used to be plain in-memory objects — reset to {} on every
+// page load, so a refresh made the reminder look "never shown" for the
+// current milestone and immediately pop right back up, even seconds after
+// being dismissed. localStorage survives a refresh (and a fresh login,
+// since the register/shift itself typically stays open across many
+// different staff logins) — keyed by shift.id so closing this register and
+// opening a new one starts fresh instead of inheriting a stale value.
+const REGISTER_REMINDER_SHOWN_PREFIX = 'rpos_reg_reminder_shown_';
+const REGISTER_REMINDER_SNOOZE_PREFIX = 'rpos_reg_reminder_snooze_';
 
 async function checkRegisterOpenReminder() {
   try {
@@ -1606,11 +1609,19 @@ async function checkRegisterOpenReminder() {
     const shift = await getCurrentShift(branchId, registerId);
     if (!shift || !shift.openedAt) return;
 
+    // Explicit "Remind Me Later" snooze — set below when that button is
+    // clicked, checked FIRST regardless of milestone, so tapping it always
+    // buys a clean 6h of silence even if the natural 8h milestone would
+    // otherwise have fired again sooner.
+    const snoozeUntilRaw = localStorage.getItem(REGISTER_REMINDER_SNOOZE_PREFIX + shift.id);
+    if (snoozeUntilRaw && Date.now() < Number(snoozeUntilRaw)) return;
+
     const hoursOpen = (Date.now() - new Date(shift.openedAt).getTime()) / (1000 * 60 * 60);
     const milestone = Math.floor(hoursOpen / 8); // 1 at 8h, 2 at 16h, 3 at 24h...
     if (milestone < 1) return;
-    if (registerReminderShown[shift.id] === milestone) return; // already shown for this exact milestone
-    registerReminderShown[shift.id] = milestone;
+    const shownKey = REGISTER_REMINDER_SHOWN_PREFIX + shift.id;
+    if (Number(localStorage.getItem(shownKey)) === milestone) return; // already shown for this exact milestone
+    localStorage.setItem(shownKey, String(milestone));
 
     const wholeHours = Math.floor(hoursOpen);
     const mins = Math.round((hoursOpen - wholeHours) * 60);
@@ -1619,16 +1630,19 @@ async function checkRegisterOpenReminder() {
       body: `
         <div style="padding:8px 4px">
           <p>This register has been open for <b>${wholeHours}h ${mins}m</b> straight (since ${new Date(shift.openedAt).toLocaleString('en-IN')}).</p>
-          <p style="margin-top:8px; color:var(--text-muted); font-size:13px">If the shift is genuinely still going, just continue. Otherwise, close it out now so cash counts and shift reports stay accurate.</p>
+          <p style="margin-top:8px; color:var(--text-muted); font-size:13px">If the shift is genuinely still going, remind me later — otherwise close it out now so cash counts and shift reports stay accurate.</p>
         </div>
       `,
       footer: `
-        <button class="btn btn-ghost" id="registerReminderContinueBtn">Continue Working</button>
+        <button class="btn btn-ghost" id="registerReminderSnoozeBtn"><i class="fa-solid fa-clock"></i> Remind Me in 6h</button>
         <button class="btn btn-danger" id="registerReminderCloseBtn"><i class="fa-solid fa-lock"></i> Close Register</button>
       `
     });
     setTimeout(() => {
-      document.getElementById('registerReminderContinueBtn')?.addEventListener('click', () => closeModal());
+      document.getElementById('registerReminderSnoozeBtn')?.addEventListener('click', () => {
+        localStorage.setItem(REGISTER_REMINDER_SNOOZE_PREFIX + shift.id, String(Date.now() + 6 * 60 * 60 * 1000));
+        closeModal();
+      });
       document.getElementById('registerReminderCloseBtn')?.addEventListener('click', () => {
         closeModal();
         navigate('register');
