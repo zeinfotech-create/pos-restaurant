@@ -25,7 +25,7 @@
 // ============================================================
 
 import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder } from '../db.js';
-import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff } from '../store.js';
+import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff, clearCart } from '../store.js';
 import { confirmOrder, printReceiptHtml } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
@@ -1132,6 +1132,15 @@ async function getOrderServeStatus() {
 async function renderOrderingView() {
   const area = document.getElementById('rposContent');
   if (!area) return;
+  // A live-refresh listener (registerOrderingViewLiveRefresh()) can fire
+  // this mid-transition — e.g. cancelWholeOrder()'s own KOT-voiding saves
+  // dispatch 'storage-change' synchronously, kicking off a fire-and-forget
+  // renderOrderingView() call that then resumes (after its own awaits)
+  // concurrently with the cancel flow that's about to reset orderType to
+  // null and navigate away entirely. Bail out quietly rather than crashing
+  // on ORDER_TYPE_META[null] — the cancel flow's own final render is the
+  // authoritative one and will land right after this no-ops.
+  if (view !== 'ordering' || !orderType || (orderType !== 'dine-in' && !ORDER_TYPE_META[orderType])) return;
 
   const settings = store.settings || await getSettings();
   const cur = settings.currency || '₹';
@@ -1287,6 +1296,7 @@ async function renderOrderingView() {
             <button class="btn btn-primary" id="rposBillBtn" ${store.cart.length === 0 || !serveStatus.fullyServed ? 'disabled' : ''}><i class="fa-solid fa-receipt"></i> Bill Now — ${cur}${totals.total.toFixed(2)}</button>
             ${store.cart.length > 0 && !serveStatus.fullyServed ? `<div style="font-size:11px; color:var(--warning); text-align:center; display:flex; align-items:center; justify-content:center; gap:6px;"><i class="fa-solid fa-hourglass-half"></i> ${serveStatus.outstanding} dish${serveStatus.outstanding === 1 ? '' : 'es'} still not served — check Kitchen</div>` : ''}
           ` : ''}
+          ${store.cart.length > 0 ? `<button class="btn btn-ghost btn-sm" id="rposCancelOrderBtn" style="color:var(--danger); border:1px solid rgba(239,68,68,0.25); margin-top:2px;"><i class="fa-solid fa-ban"></i> Cancel Order</button>` : ''}
         </div>
       </div>
     </div>
@@ -1360,6 +1370,7 @@ async function renderOrderingView() {
 
   document.getElementById('rposPreviewBillBtn')?.addEventListener('click', previewBill);
   document.getElementById('rposBillBtn')?.addEventListener('click', openPaymentPanel);
+  document.getElementById('rposCancelOrderBtn')?.addEventListener('click', promptCancelWholeOrder);
   // Mobile-only: tapping the cart's peek header (the bit that's still
   // visible when the sheet is collapsed) expands/collapses it. A plain
   // class toggle — nothing about the cart's actual content changed, so no
@@ -1391,7 +1402,7 @@ function registerOrderingViewLiveRefresh() {
   if (orderingViewLiveListenerRegistered) return;
   const onKotChange = (e) => {
     if (e.detail?.store !== 'kots') return;
-    if (!(view === 'ordering')) return;
+    if (!(view === 'ordering') || !orderType) return;
     if (!document.getElementById('rposContent')) return;
     renderOrderingView();
   };
@@ -1885,6 +1896,125 @@ function animateBoxExit(partyId) {
     card.addEventListener('animationend', finish, { once: true });
     setTimeout(finish, 700);
   });
+}
+
+// ── Cancel Order — voids EVERY item already sent to kitchen and clears the
+// whole order out in one action, instead of the existing single-item
+// Cancel (requestRemoveItem()) needing to be repeated per line. "kitchen ku
+// anupiyachu but inum ready pannalana atha cancel order panidalam" — meant
+// for a ticket that's gone out but the kitchen hasn't finished (or even
+// started) it, though nothing here hard-blocks it once something IS
+// ready/served either, same as single-item cancel never has — a real
+// business reason (customer walked out, wrong table, allergic reaction
+// found after cooking) can come up at any stage, and blocking the owner
+// from cancelling wouldn't actually undo any wasted food either way. ─────
+function promptCancelWholeOrder() {
+  if (store.cart.length === 0) return;
+  const hasSentItems = store.cart.some(i => (i.sentQty || 0) > 0);
+  if (!hasSentItems) {
+    // Nothing's reached the kitchen yet — zero kitchen impact, so a plain
+    // confirm is enough (mirrors requestRemoveItem()'s same distinction
+    // for a single not-yet-sent item).
+    showConfirm({
+      title: 'Cancel Order',
+      message: 'Nothing on this order has been sent to the kitchen yet — cancel it and clear the cart?',
+      okText: 'Cancel Order', okClass: 'btn-danger'
+    }).then(confirmed => { if (confirmed) cancelWholeOrder(''); });
+    return;
+  }
+  openModal({
+    title: '<i class="fa-solid fa-ban mr-8" style="color:var(--danger);"></i> Cancel Entire Order',
+    body: `
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">This order has already been sent to the kitchen. Cancelling voids every item on it — please note why, for the record.</div>
+      <div class="form-group">
+        <label class="form-label required">Reason</label>
+        <textarea class="form-input" id="rposCancelOrderReason" rows="2" placeholder="e.g. Customer left, wrong table, duplicate order..." autofocus></textarea>
+      </div>
+    `,
+    footer: `
+      <button class="btn btn-ghost" onclick="closeModal()">Keep Order</button>
+      <button class="btn btn-danger" id="rposCancelOrderConfirmBtn"><i class="fa-solid fa-ban mr-4"></i> Cancel Order</button>
+    `
+  });
+  setTimeout(() => {
+    const reasonInput = document.getElementById('rposCancelOrderReason');
+    reasonInput?.focus();
+    document.getElementById('rposCancelOrderConfirmBtn')?.addEventListener('click', () => {
+      const reason = reasonInput?.value.trim();
+      if (!reason) return showToast('Please enter a reason', 'error');
+      closeModal();
+      cancelWholeOrder(reason);
+    });
+  }, 50);
+}
+
+async function cancelWholeOrder(reason) {
+  const container = document.getElementById('page-container');
+  const wasDineIn = orderType === 'dine-in';
+  const cancelledTable = selectedTable;
+  const cancelledPartyId = selectedCounterOrder?.id;
+
+  // Leave 'ordering' state FIRST, before any of the awaits below — a real
+  // bug found live: voidCartItemInKots()'s saveKot() calls dispatch
+  // 'storage-change' synchronously, which registerOrderingViewLiveRefresh()
+  // 's listener picks up (view was still 'ordering') and fires a
+  // fire-and-forget renderOrderingView() call. That stray call runs
+  // CONCURRENTLY with the rest of this function — by the time it resumes
+  // past its own awaits and reaches ORDER_TYPE_META[orderType], this
+  // function had often already reset orderType to null, crashing on
+  // .icon of undefined. orderType/selectedTable/etc. below still need to
+  // stay as-is for the void loop and the dine-in animation, but view is
+  // the ONE thing the listener's guard actually checks — flipping it here
+  // makes every subsequent stray trigger a no-op instead of a race.
+  view = 'picker';
+
+  // Void every already-sent line's KOT entries — same voidCartItemInKots()
+  // single-item Cancel already uses, just looped over the whole cart
+  // instead of one line, with one shared changeLog reason for all of them.
+  for (const item of store.cart) {
+    if ((item.sentQty || 0) > 0) {
+      logChange(item, reason || 'Order cancelled', 'cancel');
+      await voidCartItemInKots(item.cartId);
+    }
+  }
+
+  if (wasDineIn && cancelledTable) {
+    // Same "land on the box picker first so the departure animates" flow
+    // completeBill() already uses — reusing animateBoxExit() here reads
+    // fine either way ("gone" is "gone"), no need for a second animation.
+    drillTable = cancelledTable;
+    view = 'picker';
+    updateBackButtonLabel();
+    await renderTablePartyPicker(cancelledTable);
+    await animateBoxExit(cancelledPartyId);
+  }
+
+  if (selectedCounterOrder) {
+    await deleteCounterOrder(selectedCounterOrder.id);
+  }
+  await clearCart();
+  takeawayContact = { name: '', phone: '', address: '', pickupTime: '', platformOrderId: '' };
+  selectedTable = null;
+  selectedCounterOrder = null;
+  guestCount = null;
+  changeLog = [];
+  orderSessionId = null;
+  setStaff(null);
+
+  showToast('Order cancelled', 'success');
+
+  if (wasDineIn && cancelledTable) {
+    const stillHasParties = (await getCounterOrders()).some(o => o.tableId === cancelledTable.id);
+    orderType = 'dine-in';
+    drillTable = stillHasParties ? cancelledTable : null;
+    view = 'picker';
+    await render(container);
+  } else {
+    view = 'picker';
+    orderType = null;
+    drillTable = null;
+    await renderRestaurantPOS(container);
+  }
 }
 
 async function completeBill(payments) {
