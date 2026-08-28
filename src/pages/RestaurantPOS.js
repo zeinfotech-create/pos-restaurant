@@ -514,9 +514,13 @@ async function render(container) {
       .rpos-product-card { padding:14px; border-radius:12px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; transition:transform .2s cubic-bezier(.4,0,.2,1), box-shadow .2s cubic-bezier(.4,0,.2,1), border-color .2s; box-shadow:0 2px 6px rgba(0,0,0,.04); }
       .rpos-product-card:hover { border-color:var(--primary); transform:translateY(-3px); box-shadow:0 8px 20px rgba(0,0,0,.1); }
       .rpos-product-card:active { transform:translateY(-1px) scale(.98); }
-      /* Custom Order drag-and-drop — same visual language as POS.js's own
-         product grid, adapted to this file's naming. */
-      .rpos-drag-handle { cursor:grab; color:var(--text-muted); }
+      /* Custom Order drag-and-drop — Pointer Events based (not native HTML5
+         draggable, which mobile touch browsers largely don't fire at all),
+         so this works identically on a touchscreen finger-drag, mouse, or
+         pen. touch-action:none on the handle stops the browser trying to
+         scroll the page instead of starting the drag gesture; the handle
+         itself is sized well above the ~40px touch-target minimum. */
+      .rpos-drag-handle { cursor:grab; color:var(--text-muted); touch-action:none; display:flex; align-items:center; justify-content:center; width:40px; height:40px; flex-shrink:0; font-size:16px; }
       .rpos-product-card.dragging { opacity:.4; }
       .rpos-product-card.drag-over { border-color:var(--primary); box-shadow:0 0 0 2px var(--primary) inset; }
       /* Cart item row redesign — was a single flex-wrap row cramming qty
@@ -1353,7 +1357,7 @@ async function renderOrderingView() {
         ` : ''}
         <div id="rposProductGrid" style="${isMobile ? 'display:flex; flex-direction:column; gap:10px;' : 'display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:12px;'}">
           ${products.length === 0 ? `<div style="${isMobile ? '' : 'grid-column:1/-1;'} text-align:center; padding:30px; color:var(--text-muted);">No items match</div>` : products.map(p => isMobile ? `
-            <div class="rpos-product-card rpos-product-row" data-id="${p.id}" ${currentSort === 'custom' ? 'draggable="true"' : ''}>
+            <div class="rpos-product-card rpos-product-row" data-id="${p.id}">
               ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
               <div class="rpos-product-emoji">${p.emoji || '🍽️'}</div>
               <div class="rpos-product-info">
@@ -1363,8 +1367,8 @@ async function renderOrderingView() {
               <div class="rpos-product-add-btn"><i class="fa-solid fa-plus"></i></div>
             </div>
           ` : `
-            <div class="rpos-product-card" data-id="${p.id}" style="position:relative;" ${currentSort === 'custom' ? 'draggable="true"' : ''}>
-              ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder" style="position:absolute; top:4px; right:6px; font-size:11px; color:var(--text-muted); opacity:.6;"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
+            <div class="rpos-product-card" data-id="${p.id}" style="position:relative;">
+              ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder" style="position:absolute; top:2px; right:2px;"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
               <div style="width:44px; height:44px; margin:0 auto; border-radius:12px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:22px;">${p.emoji || '🍽️'}</div>
               <div style="font-size:12px; font-weight:700; margin-top:8px; text-align:center; line-height:1.3;">${escapeHtml(p.name)}</div>
               <div style="font-size:12px; color:var(--primary); font-weight:800; text-align:center; margin-top:3px;">${cur}${Number(p.price || 0).toFixed(2)}</div>
@@ -1580,50 +1584,60 @@ async function resendItem(cartId) {
   await renderOrderingView();
 }
 
-// Custom Order drag-and-drop for the menu grid — same mechanism as POS.js's
-// own product grid (wireProductGridDrag/persistCustomOrder there), reusing
-// the exact same visual language, just adapted to this file's class names.
-// Unlike POS.js, renderOrderingView() replaces #rposContent's whole
-// innerHTML on every re-render (no persistent grid element to guard a
-// "wire once" flag on), so these listeners are simply re-attached fresh
-// each render like every other handler in this file.
+// Custom Order drag-and-drop for the menu grid — Pointer Events, NOT
+// native HTML5 draggable/dragstart/drop. That native API is mouse-first;
+// most mobile touch browsers never fire it at all for a finger drag (this
+// is a real POS run on a touchscreen — a first version built on native DnD
+// simply didn't work there, confirmed live). Pointer Events fire
+// identically for touch, mouse, and pen, so one implementation covers all
+// three. Started only from the small .rpos-drag-handle (not the whole
+// card) so ordinary scrolling/tapping elsewhere in the grid is untouched;
+// the handle's own touch-action:none stops the browser trying to scroll
+// the page the instant a finger lands on it.
 function wireProductGridDrag(grid) {
-  grid.addEventListener('dragstart', (e) => {
-    const card = e.target.closest('.rpos-product-card[draggable="true"]');
-    if (!card) return;
-    dragSrcProductId = card.dataset.id;
-    card.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', card.dataset.id);
-  });
-  grid.addEventListener('dragover', (e) => {
-    const card = e.target.closest('.rpos-product-card[draggable="true"]');
-    if (!card || !dragSrcProductId || card.dataset.id === dragSrcProductId) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    grid.querySelectorAll('.rpos-product-card.drag-over').forEach(el => el.classList.remove('drag-over'));
-    card.classList.add('drag-over');
-  });
-  grid.addEventListener('dragleave', (e) => {
-    const card = e.target.closest('.rpos-product-card[draggable="true"]');
-    if (card && !card.contains(e.relatedTarget)) card.classList.remove('drag-over');
-  });
-  grid.addEventListener('drop', async (e) => {
-    const card = e.target.closest('.rpos-product-card[draggable="true"]');
-    e.preventDefault();
-    if (!card || !dragSrcProductId) return;
-    const targetId = card.dataset.id;
-    card.classList.remove('drag-over');
-    if (targetId === dragSrcProductId) return;
-    await persistCustomOrder(dragSrcProductId, targetId);
-    await renderOrderingView();
-  });
-  grid.addEventListener('dragend', () => {
-    grid.querySelectorAll('.rpos-product-card.dragging, .rpos-product-card.drag-over').forEach(el => el.classList.remove('dragging', 'drag-over'));
-    // Cleared on a short delay, not immediately — the click listener needs
-    // to still see it on the click event Chromium fires right after a
-    // drag-and-drop sequence ends on the same element.
-    setTimeout(() => { dragSrcProductId = null; }, 50);
+  grid.querySelectorAll('.rpos-drag-handle').forEach(handle => {
+    handle.addEventListener('pointerdown', (e) => {
+      const card = handle.closest('.rpos-product-card[data-id]');
+      if (!card) return;
+      e.preventDefault();
+      dragSrcProductId = card.dataset.id;
+      card.classList.add('dragging');
+      try { handle.setPointerCapture(e.pointerId); } catch { /* ignore — capture is a nice-to-have, not required */ }
+
+      const onMove = (moveEvent) => {
+        const target = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest('.rpos-product-card[data-id]');
+        grid.querySelectorAll('.rpos-product-card.drag-over').forEach(el => el.classList.remove('drag-over'));
+        if (target && target.dataset.id !== dragSrcProductId) target.classList.add('drag-over');
+      };
+      const onUp = async (upEvent) => {
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onCancel);
+        card.classList.remove('dragging');
+        const target = document.elementFromPoint(upEvent.clientX, upEvent.clientY)?.closest('.rpos-product-card[data-id]');
+        grid.querySelectorAll('.rpos-product-card.drag-over').forEach(el => el.classList.remove('drag-over'));
+        const targetId = target?.dataset.id;
+        // Cleared on a short delay, not immediately — the card's own click
+        // listener needs to still see this set on the click event some
+        // browsers fire right after a pointerup on the same element, so a
+        // completed drag never also adds the item to the cart.
+        setTimeout(() => { dragSrcProductId = null; }, 50);
+        if (!targetId || targetId === dragSrcProductId) return;
+        await persistCustomOrder(card.dataset.id, targetId);
+        await renderOrderingView();
+      };
+      const onCancel = () => {
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onCancel);
+        card.classList.remove('dragging');
+        grid.querySelectorAll('.rpos-product-card.drag-over').forEach(el => el.classList.remove('drag-over'));
+        dragSrcProductId = null;
+      };
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onCancel);
+    });
   });
 }
 
