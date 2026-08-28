@@ -703,6 +703,11 @@ async function renderPickerView() {
     document.querySelectorAll('.rpos-order-type-btn').forEach(el => {
       el.addEventListener('click', async () => {
         orderType = el.dataset.type;
+        // Just picked an order type from the top-level picker, where the
+        // back button is hidden (see render()'s hideBackBtn) — it needs to
+        // un-hide itself now that orderType is set, and renderPickerView()
+        // below only touches #rposContent, not the topbar shell.
+        updateBackButtonLabel();
         await renderPickerView();
       });
     });
