@@ -31,7 +31,7 @@ import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, summarizeCartIdStatus, buildKitchenStatusMapFor, partyServeStatus, tableReadyToBill } from '../utils/tableDisplay.js';
 
 // A fixed, common set of toggle-able modifiers — every menu item shares the
 // same list rather than per-product-configured modifier groups. Simpler to
@@ -624,6 +624,12 @@ async function renderPickerView() {
   const tables = visibleTables(allTables).sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
   const grouped = groupBySection(tables);
   const allParties = (await getCounterOrders()).filter(o => o.orderType === 'dine-in');
+  // Fetched once for every table's tableReadyToBill() check below — a
+  // table whose every active box is fully served gets the same green
+  // "Ready to Bill" treatment the box picker already gives a single box,
+  // right on the grid card, so staff can see which tables need collecting
+  // without drilling into each one first.
+  const kotsForReadyCheck = await getKots();
 
   area.innerHTML = `
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
@@ -644,16 +650,27 @@ async function renderPickerView() {
             const statusKey = tableStatusKey(occ, capacity);
             const status = STATUS_META[statusKey];
             const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
+            // Overrides the occupied/full styling above (not free/empty —
+            // an unoccupied table has nothing to bill) once every active
+            // box at this table is fully served. Same visual language the
+            // box picker already uses for one box (rpos-box-ready's pulse,
+            // the green tint) so "this needs collecting" reads the same
+            // way everywhere on this screen.
+            const ready = occ.isOccupied && tableReadyToBill(occ, kotsForReadyCheck);
+            const cardBg = ready ? 'rgba(34,197,94,0.1)' : status.bg;
+            const cardBorder = ready ? 'var(--success)' : 'var(--border)';
+            const statusColor = ready ? 'var(--success)' : status.color;
+            const statusLabel = ready ? 'Ready to Bill' : (occ.isOccupied ? `${occ.usedSeats}/${capacity} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : status.label);
             return `
-              <div class="rpos-table-card" data-id="${t.id}" style="background:${status.bg}; border:1px solid var(--border);">
+              <div class="rpos-table-card ${ready ? 'rpos-box-ready' : ''}" data-id="${t.id}" style="background:${cardBg}; border:1px solid ${cardBorder};">
                 <div style="font-weight:800; font-size:16px;">${escapeHtml(tableDisplayName(t, allTables))}</div>
                 <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${capacity}</div>
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
-                  <div style="font-size:11px; font-weight:700; color:${status.color};"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>${occ.isOccupied ? `${occ.usedSeats}/${capacity} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : status.label}</div>
+                  <div style="font-size:11px; font-weight:700; color:${statusColor};"><i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '11px' : '6px'}; margin-right:5px;"></i>${statusLabel}</div>
                   ${elapsed !== null ? `<div class="rpos-table-timer" data-created-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color}; white-space:nowrap;">${formatElapsed(elapsed)}</div>` : ''}
                 </div>
                 ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;">${occ.totalItems} item(s)</div>` : ''}
-                ${capacityBarHtml(occ.usedSeats, capacity, status.color)}
+                ${capacityBarHtml(occ.usedSeats, capacity, statusColor)}
               </div>
             `;
           }).join('')}
@@ -709,8 +726,11 @@ async function renderTablePartyPicker(table) {
   const remaining = Math.max(0, capacity - usedSeats);
   // Checked per-box (not just "has this box been opened and looked at") so
   // a box that finished cooking while the cashier was elsewhere in the app
-  // still shows up here as ready the moment this screen is looked at.
-  const partiesWithStatus = await Promise.all(parties.map(async p => ({ p, serve: await getPartyServeStatus(p) })));
+  // still shows up here as ready the moment this screen is looked at. One
+  // getKots() call for every box on this table (partyServeStatus() takes
+  // the already-fetched array), not one per box.
+  const kotsForStatus = await getKots();
+  const partiesWithStatus = parties.map(p => ({ p, serve: partyServeStatus(p, kotsForStatus) }));
 
   area.innerHTML = `
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
@@ -931,54 +951,13 @@ function promptGuestCount(onConfirm, capacity = null, capacityLabel = null, hard
 // has actually been served, not just cooked. Reads straight from the KOT
 // docs (the Kitchen page's own source of truth) rather than trusting
 // anything cached on the cart item itself, so it can never go stale.
-//
-// A cartId can end up with MORE than one KOT entry — re-adding an
-// already-sent item un-fires the whole line, and Modify voids the old entry
-// and creates a fresh one on the next Send — so this maps each cartId to
-// the *array* of every entry it has ever had, and summarizeCartIdStatus()
-// below only calls it "served" once every non-voided entry is served. ─────
-async function buildKitchenStatusMapFor(sessionId, tableId = null) {
-  const map = new Map();
-  if (!sessionId) return map;
-  const kots = (await getKots()).filter(k =>
-    k.orderSessionId === sessionId ||
-    // Backward compatibility for a dine-in order resumed from a build where
-    // orderSessionId was the TABLE's id (before table sharing existed, one
-    // order per table) rather than this specific box's own id — without
-    // this, every KOT sent under that older scheme would look orphaned the
-    // moment this build's box-based ids take over.
-    (tableId && k.orderSessionId === tableId) ||
-    (!k.orderSessionId && tableId && k.tableId === tableId)
-  );
-  kots.forEach(kot => (kot.items || []).forEach(i => {
-    if (!i.cartId) return;
-    const arr = map.get(i.cartId) || [];
-    arr.push(i.itemStatus || 'pending');
-    map.set(i.cartId, arr);
-  }));
-  return map;
-}
-
-// The currently-open order's status map — a thin wrapper over
-// buildKitchenStatusMapFor() bound to this module's live orderSessionId/
-// selectedTable, kept as its own function since it's called from many spots
-// in the ordering view without needing to thread those two through.
+// buildKitchenStatusMapFor()/summarizeCartIdStatus()/partyServeStatus() now
+// live in utils/tableDisplay.js (shared with the table grids' own "Ready to
+// Bill" check — see tableReadyToBill()) — this is just the thin wrapper
+// bound to this module's live orderSessionId/selectedTable state. ─────────
 async function buildKitchenStatusMap() {
-  return buildKitchenStatusMapFor(orderSessionId, selectedTable?.id || null);
-}
-
-function summarizeCartIdStatus(statuses) {
-  // No entry at all is NOT the same as "queued" — a genuinely pending item
-  // always has a real KOT entry (sendToKitchen() creates one before marking
-  // the cart item sent). Zero entries means the link between this cart item
-  // and its kitchen ticket is broken, which needs to be visible and
-  // recoverable, not silently indistinguishable from normal pending.
-  if (!statuses || statuses.length === 0) return 'not_found';
-  const live = statuses.filter(s => s !== 'voided');
-  if (live.length === 0) return 'served'; // every portion of this line was cancelled — nothing left to wait on
-  if (live.every(s => s === 'served')) return 'served';
-  if (live.some(s => s === 'ready')) return 'ready'; // at least one portion ready, though not everything is done yet
-  return 'pending';
+  const kots = await getKots();
+  return buildKitchenStatusMapFor(kots, orderSessionId, selectedTable?.id || null);
 }
 
 async function getOrderServeStatus() {
@@ -989,23 +968,6 @@ async function getOrderServeStatus() {
     if (summarizeCartIdStatus(kitchenStatusMap.get(i.cartId)) !== 'served') outstanding++;
   });
   return { kitchenStatusMap, outstanding, fullyServed: store.cart.length > 0 && outstanding === 0 };
-}
-
-// Same "is everything actually served" check as getOrderServeStatus(), but
-// for a party/box that ISN'T the one currently open in the cart — reads its
-// own saved `items` snapshot against its own KOTs instead of `store.cart`.
-// Lets the box picker mark a box "Ready to Bill" the moment its kitchen
-// work is genuinely done, without the cashier needing to open it first.
-async function getPartyServeStatus(party) {
-  const items = party.items || [];
-  if (items.length === 0) return { outstanding: 0, fullyServed: false }; // nothing ordered yet isn't "ready to bill" either
-  const kitchenStatusMap = await buildKitchenStatusMapFor(party.id, party.tableId);
-  let outstanding = 0;
-  items.forEach(i => {
-    if (i.qty > (i.sentQty || 0)) { outstanding++; return; }
-    if (summarizeCartIdStatus(kitchenStatusMap.get(i.cartId)) !== 'served') outstanding++;
-  });
-  return { outstanding, fullyServed: outstanding === 0 };
 }
 
 // ── Ordering view: menu + cart ────────────────────────────────────────────

@@ -139,3 +139,85 @@ export function timerTier(ms) {
   if (mins < 60) return { color: 'var(--warning)' };
   return { color: 'var(--danger)' };
 }
+
+// ============================================================
+// Kitchen-status derivation — shared by RestaurantPOS.js (its box picker
+// and live cart) and any table GRID that wants to show a "Ready to Bill"
+// state without the cashier needing to drill into each table first
+// (Tables.js's own grid, RestaurantPOS.js's table-picker grid). Moved here
+// from RestaurantPOS.js's own private copies specifically so a table
+// grid's "is this table ready to bill" check and a box's own "is THIS box
+// ready" check can never quietly drift apart into two different answers —
+// one shared definition of "served" for the whole app.
+// ============================================================
+
+// Collapses every "did the kitchen serve this portion" entry for one cart
+// line into a single status word. A cartId can end up with MORE than one
+// KOT entry — re-adding an already-sent item un-fires the whole line, and
+// Modify voids the old entry and creates a fresh one on the next Send —
+// so "served" only applies once every non-voided entry is served.
+export function summarizeCartIdStatus(statuses) {
+  // No entry at all is NOT the same as "queued" — a genuinely pending item
+  // always has a real KOT entry (sendToKitchen() creates one before
+  // marking the cart item sent). Zero entries means the link between this
+  // cart item and its kitchen ticket is broken.
+  if (!statuses || statuses.length === 0) return 'not_found';
+  const live = statuses.filter(s => s !== 'voided');
+  if (live.length === 0) return 'served'; // every portion of this line was cancelled — nothing left to wait on
+  if (live.every(s => s === 'served')) return 'served';
+  if (live.some(s => s === 'ready')) return 'ready'; // at least one portion ready, though not everything is done yet
+  return 'pending';
+}
+
+// Every KOT item entry for one order session (or table, for backward
+// compatibility with pre-table-sharing builds where orderSessionId was the
+// TABLE's id), keyed by cartId -> array of itemStatus strings. `allKots` is
+// every currently-open KOT — fetch once via getKots() and pass the SAME
+// array in for every party/session being checked in one render, rather
+// than re-fetching per party (this is what lets a whole table grid's worth
+// of "is this table ready" checks cost one getKots() call, not N).
+export function buildKitchenStatusMapFor(allKots, sessionId, tableId = null) {
+  const map = new Map();
+  if (!sessionId) return map;
+  const kots = allKots.filter(k =>
+    k.orderSessionId === sessionId ||
+    (tableId && k.orderSessionId === tableId) ||
+    (!k.orderSessionId && tableId && k.tableId === tableId)
+  );
+  kots.forEach(kot => (kot.items || []).forEach(i => {
+    if (!i.cartId) return;
+    const arr = map.get(i.cartId) || [];
+    arr.push(i.itemStatus || 'pending');
+    map.set(i.cartId, arr);
+  }));
+  return map;
+}
+
+// Is EVERY item in this party/box's own saved `items` snapshot actually
+// served (not just cooked)? Lets a table grid or the box picker mark a box
+// "Ready to Bill" the moment its kitchen work is genuinely done, without
+// the cashier needing to open its cart first.
+export function partyServeStatus(party, allKots) {
+  const items = party.items || [];
+  if (items.length === 0) return { outstanding: 0, fullyServed: false }; // nothing ordered yet isn't "ready to bill" either
+  const kitchenStatusMap = buildKitchenStatusMapFor(allKots, party.id, party.tableId);
+  let outstanding = 0;
+  items.forEach(i => {
+    if (i.qty > (i.sentQty || 0)) { outstanding++; return; }
+    if (summarizeCartIdStatus(kitchenStatusMap.get(i.cartId)) !== 'served') outstanding++;
+  });
+  return { outstanding, fullyServed: outstanding === 0 };
+}
+
+// A table's own "ready to bill" flag for grid cards — true only once
+// EVERY active (non-empty — see tableOccupancy()) party at this table is
+// fully served. A single-box table simply mirrors that box's own status;
+// a shared table with several boxes only counts as ready once ALL of them
+// are, since there's still genuinely occupied/active work at the table
+// otherwise. `occ` is this table's own tableOccupancy() result (its
+// `.parties` field, unfiltered, is what gets checked here).
+export function tableReadyToBill(occ, allKots) {
+  const activeParties = occ.parties.filter(p => (p.items?.length || 0) > 0);
+  if (activeParties.length === 0) return false;
+  return activeParties.every(p => partyServeStatus(p, allKots).fullyServed);
+}

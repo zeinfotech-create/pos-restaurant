@@ -7,11 +7,11 @@
 // does the actual selling.
 // ============================================================
 
-import { getTables, saveTable, deleteTable, getCounterOrders } from '../db.js';
+import { getTables, saveTable, deleteTable, getCounterOrders, getKots } from '../db.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, tableReadyToBill } from '../utils/tableDisplay.js';
 
 let timerInterval = null;
 
@@ -42,6 +42,9 @@ async function renderTablesContent() {
   // SHARING means a table can have several independent parties/"boxes" at
   // once) — never trusted off the table doc itself, see tableOccupancy().
   const allParties = (await getCounterOrders()).filter(o => o.orderType === 'dine-in');
+  // For renderTableCard()'s "Ready to Bill" check below (tableReadyToBill())
+  // — fetched once for the whole grid, not once per card.
+  const allKots = await getKots();
 
   area.innerHTML = `
     ${tables.length === 0 ? `
@@ -54,7 +57,7 @@ async function renderTablesContent() {
       <div style="margin-bottom:22px;">
         ${grouped.length > 1 ? `<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid var(--border);"><span style="font-size:12px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeAttr(section)}</span><span style="font-size:10.5px; color:var(--text-muted); background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; padding:1px 8px;">${sectionTables.length}</span></div>` : ''}
         <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:14px;">
-          ${sectionTables.map(t => renderTableCard(t, allTables, allParties)).join('')}
+          ${sectionTables.map(t => renderTableCard(t, allTables, allParties, allKots)).join('')}
         </div>
       </div>
     `).join('')}
@@ -70,6 +73,18 @@ async function renderTablesContent() {
          "which tables are free" first, not a wall of identical buttons. */
       .table-card-actions { opacity:.4; transition:opacity .15s ease; }
       .table-card:hover .table-card-actions, .table-card:focus-within .table-card-actions { opacity:1; }
+      /* A table whose every active box is fully served gets a slow,
+         continuous glow so "this needs collecting" stands out from the
+         rest of the grid without opening each table first. Same
+         keyframes/class name as RestaurantPOS.js's own box picker and
+         table grid (each page injects its own scoped <style>, so this is
+         a deliberate copy, not a shared import) — kept pixel-identical on
+         purpose so the same state reads the same way everywhere. */
+      @keyframes rposBoxReadyPulse {
+        0%, 100% { box-shadow:0 0 0 0 rgba(34,197,94,0.35); }
+        50%      { box-shadow:0 0 0 7px rgba(34,197,94,0); }
+      }
+      .rpos-box-ready { animation:rposBoxReadyPulse 1.8s ease-in-out infinite; }
     </style>
   `;
 
@@ -77,13 +92,22 @@ async function renderTablesContent() {
   startTimerLoop();
 }
 
-function renderTableCard(t, allTables, allParties) {
+function renderTableCard(t, allTables, allParties, allKots) {
   const occ = tableOccupancy(t, allParties);
   const displayCap = tableDisplayCapacity(t, allTables);
   const status = STATUS_META[tableStatusKey(occ, displayCap)];
   const displayName = tableDisplayName(t, allTables);
   const elapsed = occ.oldestCreatedAt ? Date.now() - new Date(occ.oldestCreatedAt).getTime() : null;
   const hasMerge = t.mergedTableIds?.length > 0;
+  // Every active box at this table fully served — same "Ready to Bill"
+  // green treatment RestaurantPOS.js's own table grid and box picker
+  // already give this exact state, now visible here too instead of only
+  // after drilling into the ordering screen.
+  const ready = occ.isOccupied && tableReadyToBill(occ, allKots);
+  const cardBg = ready ? 'rgba(34,197,94,0.1)' : status.bg;
+  const cardBorder = ready ? 'var(--success)' : 'var(--border)';
+  const statusColor = ready ? 'var(--success)' : status.color;
+  const statusLabel = ready ? 'Ready to Bill' : (occ.isOccupied ? `${occ.usedSeats}/${displayCap} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : status.label);
   // Name gets its own full-width row rather than sharing one with the
   // action buttons — three 36px .btn-icon buttons (the app's fixed
   // icon-button size everywhere else) already eat well over 100px on
@@ -92,7 +116,7 @@ function renderTableCard(t, allTables, allParties) {
   // Stacking makes that structurally impossible: each row only ever has
   // one thing competing for its width.
   return `
-    <div class="table-card" data-id="${t.id}" style="padding:16px 18px; border-radius:14px; border:1px solid var(--border); background:${status.bg}; cursor:pointer;">
+    <div class="table-card ${ready ? 'rpos-box-ready' : ''}" data-id="${t.id}" style="padding:16px 18px; border-radius:14px; border:1px solid ${cardBorder}; background:${cardBg}; cursor:pointer;">
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
         <div style="font-size:17px; font-weight:800; overflow-wrap:break-word;">${escapeAttr(displayName)}</div>
         <div class="table-card-actions" style="display:flex; gap:4px; flex-shrink:0;" onclick="event.stopPropagation()">
@@ -105,13 +129,13 @@ function renderTableCard(t, allTables, allParties) {
       </div>
       <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${displayCap}</div>
       <div style="margin-top:14px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
-        <div style="font-size:11px; font-weight:700; color:${status.color};">
-          <i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px"></i>${occ.isOccupied ? `${occ.usedSeats}/${displayCap} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : status.label}
+        <div style="font-size:11px; font-weight:700; color:${statusColor};">
+          <i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '11px' : '6px'}; margin-right:5px"></i>${statusLabel}
         </div>
         ${elapsed !== null ? `<div class="table-timer" data-occupied-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
       </div>
       ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;">${occ.totalItems} item(s)</div>` : ''}
-      ${capacityBarHtml(occ.usedSeats, displayCap, status.color)}
+      ${capacityBarHtml(occ.usedSeats, displayCap, statusColor)}
     </div>
   `;
 }
