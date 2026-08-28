@@ -1833,7 +1833,11 @@ async function previewBill() {
   const cur = settings.currency || '₹';
   const totals = getCartTotals();
   const allTables = orderType === 'dine-in' ? await getTables() : [];
-  const orderLabel = currentOrderLabel(allTables);
+  // currentOrderLabel() appends " · Box N" once a table has more than one
+  // simultaneous party — genuinely useful on staff-facing screens/KOTs to
+  // tell them apart, but internal jargon a customer reading their own bill
+  // shouldn't see. Stripped here only, right before it reaches print.
+  const orderLabel = (currentOrderLabel(allTables) || '').replace(/ · Box \d+$/, '');
   await printReceiptHtml(renderProformaHtml(totals, settings, cur, orderLabel), 'Bill Preview');
 }
 
