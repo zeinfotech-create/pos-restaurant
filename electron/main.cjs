@@ -701,6 +701,23 @@ ipcMain.handle('get-printers', async () => {
 ipcMain.handle('print-receipt-silent', async (event, html, opts = {}) => {
   let hiddenWin;
   try {
+    // Verify a specifically-chosen printer (e.g. Settings > Printing > KOT
+    // Printer) is actually still present BEFORE handing it to
+    // webContents.print() — Windows' own print spooler doesn't reliably
+    // report back a clean failure for an unknown/disconnected deviceName
+    // (the callback below can come back success:true having silently
+    // printed nothing, or queued the job to a printer that no longer
+    // exists), which is indistinguishable from "it worked" without this
+    // check. Caught here once, with a specific, actionable error message,
+    // instead of a mysterious "nothing happened".
+    if (opts.printerName) {
+      const available = mainWindow && !mainWindow.isDestroyed() ? await mainWindow.webContents.getPrintersAsync() : [];
+      if (!available.some(p => p.name === opts.printerName)) {
+        console.error('[Print] print-receipt-silent: printer not found', { requested: opts.printerName, available: available.map(p => p.name) });
+        return { success: false, error: `Printer "${opts.printerName}" not found — check it's powered on and connected, then re-select it in Settings > Printing.` };
+      }
+    }
+
     // A4/A5 are standard sheets — Chromium accepts these as plain strings.
     // Thermal rolls aren't a fixed sheet size, so those two keep the original
     // custom {width, height} approach: fixed roll width, height fitted to the
@@ -750,6 +767,7 @@ ipcMain.handle('print-receipt-silent', async (event, html, opts = {}) => {
       pageSize = { width: widthMicrons, height: heightMicrons };
     }
 
+    console.log('[Print] print-receipt-silent: printing', { deviceName: opts.printerName || '(system default)', paperSize, copies: opts.copies || 1 });
     const result = await new Promise((resolve) => {
       hiddenWin.webContents.print({
         silent: true,
@@ -764,6 +782,7 @@ ipcMain.handle('print-receipt-silent', async (event, html, opts = {}) => {
         resolve({ success, error: success ? null : failureReason });
       });
     });
+    console.log('[Print] print-receipt-silent: result', result);
 
     hiddenWin.destroy();
     hiddenWin = null;
