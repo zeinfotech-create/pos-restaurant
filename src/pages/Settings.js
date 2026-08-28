@@ -15,6 +15,59 @@ import { stateOptionsHtml } from '../utils/indianStates.js';
 
 let activeSettingsTab = 'general';
 let advancedConnectionExpanded = false;
+let aggregatorSettingsExpanded = false;
+
+// Swiggy/Zomato "Orders" panel — settings.${key}Enabled / ${key}Mode
+// ('demo'|'live') / ${key}ApiKey / ${key}StoreId, read by RestaurantPOS.js's
+// getEnabledAggregators()/aggregatorMode(). See the panel's own explainer
+// text in renderSettingsTab() for why 'live' has no real sync behind it yet
+// — Swiggy/Zomato's Partner API is a business-partnership integration, not
+// a self-serve signup, so this shop can't have real credentials to
+// validate against without one. The fields are still saved so they're
+// ready the moment that changes.
+const AGGREGATOR_PLATFORMS = [
+  { key: 'swiggy', label: 'Swiggy', color: '#FC8019' },
+  { key: 'zomato', label: 'Zomato', color: '#E23744' },
+];
+
+function renderAggregatorPlatformBlock(platform, s) {
+  const { key, label, color } = platform;
+  const enabled = !!s[`${key}Enabled`];
+  const mode = s[`${key}Mode`] === 'live' ? 'live' : 'demo';
+  return `
+    <div>
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <div style="display:flex; align-items:center; gap:8px; font-weight:700; font-size:12.5px; color:var(--text-main);">
+          <span style="width:8px; height:8px; border-radius:50%; background:${color}; flex-shrink:0;"></span>
+          ${label}
+        </div>
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; color:var(--text-muted); font-weight:600;">
+          <input type="checkbox" class="agg-enable-toggle" data-platform="${key}" ${enabled ? 'checked' : ''} />
+          Enabled
+        </label>
+      </div>
+      ${enabled ? `
+        <div style="display:flex; gap:16px; margin:10px 0;">
+          <label style="display:flex; align-items:center; gap:5px; cursor:pointer; font-size:12px; color:var(--text-main);">
+            <input type="radio" name="${key}Mode" class="agg-mode-radio" data-platform="${key}" value="demo" ${mode === 'demo' ? 'checked' : ''} /> Demo Mode
+          </label>
+          <label style="display:flex; align-items:center; gap:5px; cursor:pointer; font-size:12px; color:var(--text-main);">
+            <input type="radio" name="${key}Mode" class="agg-mode-radio" data-platform="${key}" value="live" ${mode === 'live' ? 'checked' : ''} /> Live API
+          </label>
+        </div>
+        ${mode === 'live' ? `
+          <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+            <input class="form-input agg-api-key" data-platform="${key}" placeholder="${label} API Key" value="${escapeHtml(s[`${key}ApiKey`] || '')}" style="flex:1; min-width:140px; font-size:12px; margin:0;" type="password" />
+            <input class="form-input agg-store-id" data-platform="${key}" placeholder="${label} Store/Outlet ID" value="${escapeHtml(s[`${key}StoreId`] || '')}" style="flex:1; min-width:140px; font-size:12px; margin:0;" />
+          </div>
+          <p style="font-size:10.5px; color:var(--text-muted); margin:0;"><i class="fa-solid fa-circle-info" style="margin-right:4px; opacity:.6;"></i>Saved for when live sync is available — real-time order sync needs ${label}'s official Partner API access, only granted through a business partnership with them.</p>
+        ` : `
+          <p style="font-size:10.5px; color:var(--text-muted); margin:0;"><i class="fa-solid fa-flask" style="margin-right:4px; opacity:.6;"></i>"Simulate Order" appears on the ${label} Orders screen (Restaurant POS) to try the full flow with a fake order.</p>
+        `}
+      ` : ''}
+    </div>
+  `;
+}
 // Cached result of the last syncEngine.listDevices() call — null means
 // "not fetched yet for this panel-open" (shows a loading state), an array
 // (possibly empty) means it resolved. Re-fetched every time the panel is
@@ -995,7 +1048,24 @@ export async function renderSettings(container) {
             ` : ''}
           </div>
 
-          <div style="opacity: ${syncEngine.checkCapability('pro_addons') ? '1' : '0.5'}; pointer-events: ${syncEngine.checkCapability('pro_addons') ? 'auto' : 'none'}; position: relative;">
+          <div class="card" style="padding:0; overflow:hidden; margin-top:16px;">
+            <button type="button" id="toggleAggregatorSettingsBtn" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px; background:none; border:none; cursor:pointer; font-weight:700; font-size:13px; color:var(--text-main);">
+              <span><i class="fa-solid fa-motorcycle" style="color:var(--text-muted); margin-right:8px"></i> Swiggy &amp; Zomato Orders</span>
+              <i class="fa-solid ${aggregatorSettingsExpanded ? 'fa-chevron-up' : 'fa-chevron-down'}" style="color:var(--text-muted); font-size:11px"></i>
+            </button>
+            ${aggregatorSettingsExpanded ? `
+              <div style="padding:0 16px 16px;">
+                <p style="font-size:11.5px; color:var(--text-muted); margin:0 0 14px; line-height:1.5;">
+                  Turn on a platform to see it as an order type in Restaurant POS. Real-time order sync needs Swiggy/Zomato's official Partner API access — a business partnership, not a self-serve signup — so it isn't available yet; use <b>Demo Mode</b> to try the full order flow with fake orders now, or switch to <b>Live API</b> once you have real credentials (saved here, ready for when sync is wired in).
+                </p>
+                ${renderAggregatorPlatformBlock(AGGREGATOR_PLATFORMS[0], s)}
+                <div style="height:1px; background:var(--border); margin:16px 0;"></div>
+                ${renderAggregatorPlatformBlock(AGGREGATOR_PLATFORMS[1], s)}
+              </div>
+            ` : ''}
+          </div>
+
+          <div style="opacity: ${syncEngine.checkCapability('pro_addons') ? '1' : '0.5'}; pointer-events: ${syncEngine.checkCapability('pro_addons') ? 'auto' : 'none'}; position: relative; margin-top:16px;">
             ${!syncEngine.checkCapability('pro_addons') ? '<div style="position:absolute; top:12px; right:12px; font-size:10px; background:var(--bg-elevated); border:1px solid var(--border); padding:2px 8px; border-radius:10px; color:var(--text-muted); font-weight:700;"><i class="fa-solid fa-lock mr-4"></i> PRO ONLY</div>' : ''}
 
             <div class="card" style="opacity: ${syncEngine.checkCapability('register_shift') ? '1' : '0.5'}; pointer-events: ${syncEngine.checkCapability('register_shift') ? 'auto' : 'none'}; position: relative;">
@@ -1422,6 +1492,44 @@ export async function renderSettings(container) {
       if (result.success) showToast('Device disconnected', 'success');
       else showToast('Could not reach the hub to disconnect that device', 'error');
       await refreshDeviceList();
+    });
+  });
+
+  container.querySelector('#toggleAggregatorSettingsBtn')?.addEventListener('click', async () => {
+    aggregatorSettingsExpanded = !aggregatorSettingsExpanded;
+    await renderSettings(document.getElementById('page-container'));
+  });
+  // Enable/mode toggles save immediately (no separate Save button needed
+  // for these two — matches how instantly a checkbox/radio's effect is
+  // expected to show up) and re-render so the API-key fields and the
+  // right explainer text appear/disappear for the mode just picked.
+  // Re-fetching settings fresh each time rather than trusting `s` (this
+  // render's already-closed-over snapshot) avoids clobbering the OTHER
+  // platform's fields if both get toggled in quick succession.
+  container.querySelectorAll('.agg-enable-toggle').forEach(el => {
+    el.addEventListener('change', async () => {
+      const cur = await getSettings();
+      cur[`${el.dataset.platform}Enabled`] = el.checked;
+      await updateSettings(cur);
+      await renderSettings(document.getElementById('page-container'));
+    });
+  });
+  container.querySelectorAll('.agg-mode-radio').forEach(el => {
+    el.addEventListener('change', async () => {
+      if (!el.checked) return;
+      const cur = await getSettings();
+      cur[`${el.dataset.platform}Mode`] = el.value;
+      await updateSettings(cur);
+      await renderSettings(document.getElementById('page-container'));
+    });
+  });
+  container.querySelectorAll('.agg-api-key, .agg-store-id').forEach(el => {
+    el.addEventListener('change', async () => {
+      const cur = await getSettings();
+      const field = el.classList.contains('agg-api-key') ? 'ApiKey' : 'StoreId';
+      cur[`${el.dataset.platform}${field}`] = el.value.trim();
+      await updateSettings(cur);
+      showToast(`${AGGREGATOR_PLATFORMS.find(p => p.key === el.dataset.platform)?.label || 'Platform'} ${field === 'ApiKey' ? 'API key' : 'store ID'} saved`, 'success');
     });
   });
 

@@ -42,6 +42,11 @@ const SERVE_ACTION_META = {
   'dine-in': { verb: 'Serve', doneLabel: 'Served', icon: 'fa-bell' },
   takeaway: { verb: 'Mark Packed', doneLabel: 'Packed', icon: 'fa-bag-shopping' },
   delivery: { verb: 'Mark Dispatched', doneLabel: 'Dispatched', icon: 'fa-motorcycle' },
+  // Swiggy/Zomato — the restaurant's own job ends at packing it; the
+  // platform's own delivery rider (not this app) handles pickup/dispatch
+  // from there, so this mirrors takeaway's wording, not delivery's.
+  swiggy: { verb: 'Mark Packed', doneLabel: 'Packed', icon: 'fa-bag-shopping' },
+  zomato: { verb: 'Mark Packed', doneLabel: 'Packed', icon: 'fa-bag-shopping' },
 };
 function serveActionMeta(orderType) {
   return SERVE_ACTION_META[orderType] || SERVE_ACTION_META['dine-in'];

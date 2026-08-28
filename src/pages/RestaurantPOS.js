@@ -41,6 +41,52 @@ const COMMON_MODIFIERS = ['No Onion', 'No Garlic', 'Extra Spicy', 'Less Spicy', 
 const COURSES = ['Starters', 'Mains', 'Desserts', 'Other'];
 
 
+// Every non-dine-in order type this screen knows about, dine-in included
+// for completeness even though its label/icon aren't read from here (its
+// own markup is more involved — table/box picker, not a flat counter-order
+// list). Adding a new aggregator platform is meant to be just one more
+// entry here plus a settings flag (see ENABLED aggregator check in
+// renderPickerView()) — every ternary that used to hardcode
+// 'delivery'-vs-'takeaway' now reads from this instead, so Swiggy/Zomato
+// automatically get correct labels/icons everywhere those ternaries used
+// to only handle two cases.
+const ORDER_TYPE_META = {
+  'dine-in': { label: 'Dine-in', icon: 'fa-utensils' },
+  takeaway: { label: 'Takeaway', icon: 'fa-bag-shopping' },
+  delivery: { label: 'Delivery', icon: 'fa-motorcycle' },
+  // Swiggy/Zomato have no free FontAwesome brand icon available — a
+  // platform-colored accent (their real brand colors) on a generic bag
+  // icon is what actually reads as "which platform" at a glance instead
+  // of a plain gray icon+label everything else already uses.
+  swiggy: { label: 'Swiggy', icon: 'fa-bag-shopping', accent: '#FC8019' },
+  zomato: { label: 'Zomato', icon: 'fa-utensils', accent: '#E23744' },
+};
+// Platforms that go through the SAME manual counter-order flow as
+// takeaway/delivery (pick type -> New Order -> add items -> Send to
+// Kitchen -> Bill) rather than dine-in's table/box picker. Only reachable
+// from the order-type picker when enabled in Settings (see
+// getEnabledAggregators() below) — a shop that's never turned Swiggy/
+// Zomato on never sees them as an option at all.
+const AGGREGATOR_TYPES = ['swiggy', 'zomato'];
+
+// Which aggregator platforms Settings has actually turned on for this shop
+// — see Settings.js's "Swiggy & Zomato Orders" panel for the fields these
+// read (`${type}Enabled`, `${type}Mode`, `${type}ApiKey`, `${type}StoreId`).
+function getEnabledAggregators(settings) {
+  return AGGREGATOR_TYPES.filter(t => settings[`${t}Enabled`]);
+}
+// 'demo' (the only mode that actually does anything today — see
+// simulateAggregatorOrder()) vs 'live' (API key/store id saved and ready,
+// but there's no real Swiggy/Zomato Partner API wiring behind it yet —
+// that needs their official integration spec, only available once this
+// shop has a real Partner account. 'live' mode's own UI says so plainly
+// rather than silently pretending to sync.) Demo is the default for a
+// freshly-enabled platform so turning one on is never mistaken for "now
+// actually connected to Swiggy".
+function aggregatorMode(settings, type) {
+  return settings[`${type}Mode`] === 'live' ? 'live' : 'demo';
+}
+
 const KITCHEN_ITEM_META = {
   pending: { label: 'In kitchen queue', icon: 'fa-hourglass-half', color: 'var(--text-muted)' },
   ready: { label: 'Ready — pickup!', icon: 'fa-bell', color: 'var(--success)' },
@@ -76,7 +122,11 @@ let menuSearch = '';
 let guestCount = null; // dine-in only
 let changeLog = []; // {type:'cancel'|'modify', name, qty, reason, at, by} — audit trail for anything edited after being fired to the kitchen
 let orderSessionId = null; // ties every KOT sent during this one order together — always the current order's own persisted id, deterministic
-let takeawayContact = { name: '', phone: '', address: '', pickupTime: '' };
+// platformOrderId: only meaningful for swiggy/zomato — the platform's OWN
+// order number/reference, typed in by whoever's accepting the order on
+// their Swiggy/Zomato partner app, kept here so it shows on the KOT/
+// receipt/box label for reconciling against that platform later.
+let takeawayContact = { name: '', phone: '', address: '', pickupTime: '', platformOrderId: '' };
 let cartListenerRegistered = false;
 let tablesTimerInterval = null;
 let counterOrdersTimerInterval = null;
@@ -86,11 +136,15 @@ function backButtonLabel() {
   return orderType === 'dine-in' ? 'Change Table' : 'Change Order';
 }
 
-// A takeaway/delivery order's display name — the contact name once given,
+// A counter order's display name — the contact name once given, otherwise
+// the platform's own order reference (Swiggy/Zomato) if one was entered,
 // otherwise a stable per-type number assigned when it was created.
 function counterOrderLabel(order) {
   if (order.contactName) return order.contactName;
-  return `${order.orderType === 'delivery' ? 'Delivery' : 'Takeaway'} #${order.orderNumber || '?'}`;
+  if (AGGREGATOR_TYPES.includes(order.orderType) && order.platformOrderId) {
+    return `${ORDER_TYPE_META[order.orderType].label} #${order.platformOrderId}`;
+  }
+  return `${ORDER_TYPE_META[order.orderType]?.label || 'Order'} #${order.orderNumber || '?'}`;
 }
 
 // The current order's display label, for KOTs/receipts/the ordering-view
@@ -172,6 +226,7 @@ async function enterCounterOrder(order, table = null) {
     phone: order.contactPhone || '',
     address: order.deliveryAddress || '',
     pickupTime: order.pickupTime || '',
+    platformOrderId: order.platformOrderId || '',
   };
   changeLog = order.changeLog || [];
   loadTableOrderIntoCart(order.items?.length ? { currentOrder: { items: order.items } } : null);
@@ -191,7 +246,7 @@ async function enterCounterOrder(order, table = null) {
 async function startNewCounterOrder(type) {
   const existing = await getCounterOrders();
   const orderNumber = existing.filter(o => o.orderType === type).length + 1;
-  const order = await saveCounterOrder({ orderType: type, orderNumber, items: [], contactName: '', contactPhone: '', deliveryAddress: '', pickupTime: '', changeLog: [] });
+  const order = await saveCounterOrder({ orderType: type, orderNumber, items: [], contactName: '', contactPhone: '', deliveryAddress: '', pickupTime: '', platformOrderId: '', changeLog: [] });
   await enterCounterOrder(order);
 }
 
@@ -570,29 +625,37 @@ async function renderPickerView() {
     // grid both already compute from getCounterOrders() — just surfaced a
     // level earlier here.
     const openOrders = await getCounterOrders();
-    const orderTypeCount = {
-      'dine-in': openOrders.filter(o => o.orderType === 'dine-in').length,
-      takeaway: openOrders.filter(o => o.orderType === 'takeaway').length,
-      delivery: openOrders.filter(o => o.orderType === 'delivery').length,
-    };
-    const orderTypeCard = (type, icon, label) => {
-      const count = orderTypeCount[type];
+    // Read fresh rather than trusting store.settings — that cache gets
+    // populated early in this app's boot (initStore()) and isn't
+    // guaranteed to already reflect a Swiggy/Zomato toggle flipped in
+    // Settings moments ago, or synced in from another device just before
+    // this screen was opened. getEnabledAggregators() below needs the
+    // CURRENT value every time this picker renders, not a boot-time snapshot.
+    const settings = await getSettings();
+    // Dine-in/takeaway/delivery are always offered; Swiggy/Zomato only
+    // once Settings' "Swiggy & Zomato Orders" panel has actually turned
+    // them on — a shop that's never touched that setting sees the exact
+    // same 3-card picker as before this feature existed.
+    const visibleTypes = ['dine-in', 'takeaway', 'delivery', ...getEnabledAggregators(settings)];
+    const orderTypeCard = (type) => {
+      const meta = ORDER_TYPE_META[type];
+      const count = openOrders.filter(o => o.orderType === type).length;
+      const isAgg = AGGREGATOR_TYPES.includes(type);
       return `
-        <div class="rpos-order-type-btn" data-type="${type}" style="position:relative;">
+        <div class="rpos-order-type-btn" data-type="${type}" style="position:relative; ${isAgg ? `border-color:${meta.accent}40;` : ''}">
           ${count > 0 ? `<span class="rpos-kot-badge" style="position:absolute; top:10px; right:10px;">${count}</span>` : ''}
-          <i class="fa-solid ${icon}" style="font-size:28px; color:var(--primary);"></i>
-          <div style="margin-top:10px; font-weight:700;">${label}</div>
+          <i class="fa-solid ${meta.icon}" style="font-size:28px; color:${isAgg ? meta.accent : 'var(--primary)'};"></i>
+          <div style="margin-top:10px; font-weight:700;">${meta.label}</div>
           <div style="margin-top:3px; font-size:11px; color:var(--text-muted);">${count > 0 ? `${count} open` : 'Nothing open'}</div>
+          ${isAgg && aggregatorMode(settings, type) === 'demo' ? `<div style="margin-top:6px; font-size:9.5px; font-weight:800; color:${meta.accent}; letter-spacing:.3px;">DEMO MODE</div>` : ''}
         </div>
       `;
     };
     area.innerHTML = `
-      <div style="max-width:700px; margin:${isMobile ? '12px' : '60px'} auto; text-align:center;">
+      <div style="max-width:820px; margin:${isMobile ? '12px' : '60px'} auto; text-align:center;">
         <h2 style="font-size:${isMobile ? '17px' : '20px'}; font-weight:800; margin-bottom:${isMobile ? '16px' : '24px'};">What kind of order is this?</h2>
-        <div style="display:grid; grid-template-columns:${isMobile ? '1fr' : 'repeat(3,1fr)'}; gap:${isMobile ? '12px' : '16px'};">
-          ${orderTypeCard('dine-in', 'fa-utensils', 'Dine-in')}
-          ${orderTypeCard('takeaway', 'fa-bag-shopping', 'Takeaway')}
-          ${orderTypeCard('delivery', 'fa-motorcycle', 'Delivery')}
+        <div style="display:grid; grid-template-columns:${isMobile ? '1fr' : `repeat(${visibleTypes.length},1fr)`}; gap:${isMobile ? '12px' : '16px'};">
+          ${visibleTypes.map(orderTypeCard).join('')}
         </div>
       </div>
     `;
@@ -824,8 +887,15 @@ function registerPartyPickerLiveRefresh() {
 async function renderCounterOrderPicker() {
   const area = document.getElementById('rposContent');
   if (!area) return;
-  const typeLabel = orderType === 'delivery' ? 'Delivery' : 'Takeaway';
-  const icon = orderType === 'delivery' ? 'fa-motorcycle' : 'fa-bag-shopping';
+  const meta = ORDER_TYPE_META[orderType];
+  const typeLabel = meta.label;
+  const icon = meta.icon;
+  const isAgg = AGGREGATOR_TYPES.includes(orderType);
+  // Fresh, not store.settings — same reasoning as the order-type picker
+  // above (a just-flipped Demo/Live toggle needs to take effect immediately
+  // here, not after some other unrelated event happens to refresh the cache).
+  const settings = await getSettings();
+  const isDemo = isAgg && aggregatorMode(settings, orderType) === 'demo';
   const orders = (await getCounterOrders()).filter(o => o.orderType === orderType);
   // Same two rules dine-in's table grid/box picker already got (see
   // tableOccupancy()/tableReadyToBill(), utils/tableDisplay.js) — a slot
@@ -836,10 +906,20 @@ async function renderCounterOrderPicker() {
   const kotsForStatus = await getKots();
 
   area.innerHTML = `
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-      <h2 style="font-size:16px; font-weight:800;"><i class="fa-solid ${icon}"></i> ${typeLabel} Orders</h2>
-      <button class="btn btn-primary btn-sm" id="rposNewCounterOrderBtn"><i class="fa-solid fa-plus"></i> New ${typeLabel} Order</button>
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+      <h2 style="font-size:16px; font-weight:800;"><i class="fa-solid ${icon}" style="${isAgg ? `color:${meta.accent};` : ''}"></i> ${typeLabel} Orders${isDemo ? ` <span style="font-size:10px; font-weight:800; color:${meta.accent}; letter-spacing:.3px; vertical-align:middle;">DEMO MODE</span>` : ''}</h2>
+      <div style="display:flex; gap:8px;">
+        ${isDemo ? `<button class="btn btn-ghost btn-sm" id="rposSimulateOrderBtn" style="border:1px solid ${meta.accent}66; color:${meta.accent};"><i class="fa-solid fa-wand-magic-sparkles"></i> Simulate Order</button>` : ''}
+        <button class="btn btn-primary btn-sm" id="rposNewCounterOrderBtn"><i class="fa-solid fa-plus"></i> New ${typeLabel} Order</button>
+      </div>
     </div>
+    ${isAgg ? `
+      <div style="font-size:11.5px; color:var(--text-muted); margin:-8px 0 16px; padding:8px 12px; background:var(--bg-elevated); border-radius:10px; border:1px solid var(--border);">
+        ${isDemo
+          ? `<i class="fa-solid fa-flask" style="margin-right:6px; opacity:.6;"></i>Demo mode — "Simulate Order" creates a fake ${typeLabel} order to test the flow. Real orders: accept them in the ${typeLabel} partner app, then tap "New ${typeLabel} Order" here and enter the details.`
+          : `<i class="fa-solid fa-circle-info" style="margin-right:6px; opacity:.6;"></i>Live sync isn't available yet — accept the order in the ${typeLabel} partner app, then tap "New ${typeLabel} Order" here to add it to your kitchen/billing flow.`}
+      </div>
+    ` : ''}
     ${orders.length === 0 ? `
       <div class="card" style="padding:40px; text-align:center; color:var(--text-muted);">
         No ${typeLabel.toLowerCase()} orders open right now. Click "New ${typeLabel} Order" to start one.
@@ -862,6 +942,7 @@ async function renderCounterOrderPicker() {
                 <div style="font-size:11px; font-weight:700; color:${statusColor};"><i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '11px' : '6px'}; margin-right:5px;"></i>${statusLabel}</div>
                 ${!isEmpty ? `<div class="rpos-counter-order-timer" data-created-at="${o.createdAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color}; white-space:nowrap;">${formatElapsed(elapsed)}</div>` : ''}
               </div>
+              ${o.platformOrderId ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;"><i class="fa-solid fa-hashtag" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(o.platformOrderId)}</div>` : ''}
               ${o.contactPhone ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;"><i class="fa-solid fa-phone" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(o.contactPhone)}</div>` : ''}
             </div>
           `;
@@ -875,6 +956,10 @@ async function renderCounterOrderPicker() {
     updateBackButtonLabel();
     await renderOrderingView();
   });
+  document.getElementById('rposSimulateOrderBtn')?.addEventListener('click', async () => {
+    await simulateAggregatorOrder(orderType);
+    await renderCounterOrderPicker();
+  });
   document.querySelectorAll('.rpos-table-card').forEach(el => {
     el.addEventListener('click', async () => {
       const order = orders.find(o => o.id === el.dataset.id);
@@ -885,6 +970,52 @@ async function renderCounterOrderPicker() {
     });
   });
   startCounterOrdersTimerLoop();
+}
+
+// ── Demo-mode simulation — creates a realistic-looking incoming order (2-3
+// real menu items, a fake customer name, a fake platform order reference)
+// so the FULL flow (appears here -> Send to Kitchen -> shows on Kitchen.js
+// -> served -> billed) can be tried end to end without a real Swiggy/
+// Zomato Partner API connection, which this shop doesn't have yet. Saved
+// directly as a normal CounterOrder — nothing about the rest of the app
+// can tell a demo order apart from a manually-entered real one; it's the
+// exact same record shape, just pre-filled instead of typed by hand. ─────
+const DEMO_CUSTOMER_NAMES = ['Arjun', 'Priya', 'Rahul', 'Sneha', 'Vikram', 'Divya', 'Karthik', 'Meera'];
+async function simulateAggregatorOrder(type) {
+  const meta = ORDER_TYPE_META[type];
+  const products = await getProducts();
+  if (products.length === 0) {
+    showToast('Add some products first — nothing to simulate an order with.', 'error');
+    return;
+  }
+  const itemCount = Math.min(products.length, 1 + Math.floor(Math.random() * 3)); // 1-3 items
+  const shuffled = [...products].sort(() => Math.random() - 0.5).slice(0, itemCount);
+  const items = shuffled.map(p => ({
+    name: p.name,
+    qty: 1 + Math.floor(Math.random() * 2), // 1-2 qty
+    price: p.price || 0,
+    modifiers: [],
+    notes: '',
+    course: null,
+    cartId: 'cart-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+    sentQty: 0,
+  }));
+  const platformPrefix = type === 'swiggy' ? 'SW' : 'ZM';
+  const platformOrderId = `${platformPrefix}${Math.floor(100000 + Math.random() * 900000)}`;
+  const existing = await getCounterOrders();
+  const orderNumber = existing.filter(o => o.orderType === type).length + 1;
+  await saveCounterOrder({
+    orderType: type,
+    orderNumber,
+    items,
+    contactName: DEMO_CUSTOMER_NAMES[Math.floor(Math.random() * DEMO_CUSTOMER_NAMES.length)],
+    contactPhone: '',
+    deliveryAddress: '',
+    pickupTime: '',
+    platformOrderId,
+    changeLog: [],
+  });
+  showToast(`Simulated ${meta.label} order ${platformOrderId} — ${items.length} item(s)`, 'success');
 }
 
 function startCounterOrdersTimerLoop() {
@@ -1029,7 +1160,7 @@ async function renderOrderingView() {
           <div style="font-size:14px; font-weight:800; display:flex; align-items:center; gap:8px;">
             ${orderType === 'dine-in'
               ? `<i class="fa-solid fa-chair"></i> ${escapeHtml(orderLabel || 'Table')}`
-              : `<i class="fa-solid ${orderType === 'delivery' ? 'fa-motorcycle' : 'fa-bag-shopping'}"></i> ${escapeHtml(orderLabel || (orderType === 'delivery' ? 'Delivery' : 'Takeaway'))}`}
+              : `<i class="fa-solid ${ORDER_TYPE_META[orderType].icon}" style="${AGGREGATOR_TYPES.includes(orderType) ? `color:${ORDER_TYPE_META[orderType].accent};` : ''}"></i> ${escapeHtml(orderLabel || ORDER_TYPE_META[orderType].label)}`}
             ${orderType === 'dine-in' ? `<button class="btn-icon" id="rposEditGuestsBtn" style="font-size:11px; font-weight:600; color:var(--text-muted);" title="Edit party size"><i class="fa-solid fa-users" style="margin-right:4px;"></i>${guestCount || '—'}<i class="fa-solid fa-pen" style="font-size:9px; margin-left:4px; opacity:.5;"></i></button>` : ''}
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
@@ -1039,7 +1170,9 @@ async function renderOrderingView() {
             </select>
             ${orderType !== 'dine-in' ? `
               <input class="form-input" id="rposContactName" placeholder="Customer name" value="${escapeHtml(takeawayContact.name)}" style="max-width:140px; font-size:12px;" />
-              <input class="form-input" id="rposContactPhone" placeholder="Phone" value="${escapeHtml(takeawayContact.phone)}" style="max-width:120px; font-size:12px;" />
+              ${AGGREGATOR_TYPES.includes(orderType)
+                ? `<input class="form-input" id="rposPlatformOrderId" placeholder="${ORDER_TYPE_META[orderType].label} order #" value="${escapeHtml(takeawayContact.platformOrderId)}" style="max-width:150px; font-size:12px;" />`
+                : `<input class="form-input" id="rposContactPhone" placeholder="Phone" value="${escapeHtml(takeawayContact.phone)}" style="max-width:120px; font-size:12px;" />`}
               ${orderType === 'delivery' ? `<input class="form-input" id="rposContactAddress" placeholder="Delivery address" value="${escapeHtml(takeawayContact.address)}" style="max-width:200px; font-size:12px;" />` : ''}
               ${orderType === 'takeaway' ? `<input class="form-input" id="rposPickupTime" type="time" value="${escapeHtml(takeawayContact.pickupTime)}" title="Pickup time" style="max-width:110px; font-size:12px;" />` : ''}
             ` : ''}
@@ -1208,6 +1341,8 @@ async function renderOrderingView() {
   document.getElementById('rposContactAddress')?.addEventListener('change', () => persistOrderState());
   document.getElementById('rposPickupTime')?.addEventListener('input', e => { takeawayContact.pickupTime = e.target.value; });
   document.getElementById('rposPickupTime')?.addEventListener('change', () => persistOrderState());
+  document.getElementById('rposPlatformOrderId')?.addEventListener('input', e => { takeawayContact.platformOrderId = e.target.value; });
+  document.getElementById('rposPlatformOrderId')?.addEventListener('change', () => persistOrderState());
 
   document.getElementById('rposPreviewBillBtn')?.addEventListener('click', previewBill);
   document.getElementById('rposBillBtn')?.addEventListener('click', openPaymentPanel);
@@ -1490,6 +1625,7 @@ async function persistOrderState() {
     contactPhone: orderType !== 'dine-in' ? (takeawayContact.phone || '') : undefined,
     deliveryAddress: orderType === 'delivery' ? (takeawayContact.address || '') : undefined,
     pickupTime: orderType === 'takeaway' ? (takeawayContact.pickupTime || '') : undefined,
+    platformOrderId: AGGREGATOR_TYPES.includes(orderType) ? (takeawayContact.platformOrderId || '') : undefined,
     changeLog,
     waiterId: store.selectedStaff?.id || null,
     waiterName: store.selectedStaff?.name || null,
@@ -1751,6 +1887,7 @@ async function completeBill(payments) {
     contactPhone: takeawayContact.phone || undefined,
     deliveryAddress: orderType === 'delivery' ? (takeawayContact.address || undefined) : undefined,
     pickupTime: orderType === 'takeaway' ? (takeawayContact.pickupTime || undefined) : undefined,
+    platformOrderId: AGGREGATOR_TYPES.includes(orderType) ? (takeawayContact.platformOrderId || undefined) : undefined,
     changeLog: changeLog.length ? changeLog : undefined,
   };
 
@@ -1783,7 +1920,7 @@ async function completeBill(payments) {
     await deleteCounterOrder(selectedCounterOrder.id);
   }
 
-  takeawayContact = { name: '', phone: '', address: '', pickupTime: '' };
+  takeawayContact = { name: '', phone: '', address: '', pickupTime: '', platformOrderId: '' };
   selectedTable = null;
   selectedCounterOrder = null;
   guestCount = null;
