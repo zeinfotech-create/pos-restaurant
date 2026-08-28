@@ -827,6 +827,13 @@ async function renderCounterOrderPicker() {
   const typeLabel = orderType === 'delivery' ? 'Delivery' : 'Takeaway';
   const icon = orderType === 'delivery' ? 'fa-motorcycle' : 'fa-bag-shopping';
   const orders = (await getCounterOrders()).filter(o => o.orderType === orderType);
+  // Same two rules dine-in's table grid/box picker already got (see
+  // tableOccupancy()/tableReadyToBill(), utils/tableDisplay.js) — a slot
+  // opened but never actually ordered into shouldn't sit there forever
+  // claiming to be "In progress" (this screen's version of the same "empty
+  // box holding a table hostage" bug), and once everything's genuinely
+  // served this card should say so at a glance, not just after opening it.
+  const kotsForStatus = await getKots();
 
   area.innerHTML = `
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
@@ -841,13 +848,19 @@ async function renderCounterOrderPicker() {
       <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); gap:14px;">
         ${orders.map(o => {
           const elapsed = Date.now() - new Date(o.createdAt).getTime();
+          const isEmpty = (o.items?.length || 0) === 0;
+          const ready = !isEmpty && partyServeStatus(o, kotsForStatus).fullyServed;
+          const cardBg = isEmpty ? STATUS_META.free.bg : (ready ? 'rgba(34,197,94,0.1)' : 'rgba(59,130,246,0.06)');
+          const cardBorder = isEmpty ? 'var(--border)' : (ready ? 'var(--success)' : 'var(--border)');
+          const statusColor = isEmpty ? STATUS_META.free.color : (ready ? 'var(--success)' : 'var(--warning)');
+          const statusLabel = isEmpty ? 'Empty — no order yet' : (ready ? 'Ready to Bill' : 'In progress');
           return `
-            <div class="rpos-table-card" data-id="${o.id}" style="background:rgba(59,130,246,0.06); border:1px solid var(--border);">
+            <div class="rpos-table-card ${ready ? 'rpos-box-ready' : ''}" data-id="${o.id}" style="background:${cardBg}; border:1px solid ${cardBorder};">
               <div style="font-weight:800; font-size:16px;"><i class="fa-solid ${icon}" style="opacity:.4; margin-right:6px; font-size:13px;"></i>${escapeHtml(counterOrderLabel(o))}</div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${o.items?.length || 0} item(s)</div>
               <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
-                <div style="font-size:11px; font-weight:700; color:var(--warning);"><i class="fa-solid fa-circle" style="font-size:6px; margin-right:5px;"></i>In progress</div>
-                <div class="rpos-counter-order-timer" data-created-at="${o.createdAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color}; white-space:nowrap;">${formatElapsed(elapsed)}</div>
+                <div style="font-size:11px; font-weight:700; color:${statusColor};"><i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '11px' : '6px'}; margin-right:5px;"></i>${statusLabel}</div>
+                ${!isEmpty ? `<div class="rpos-counter-order-timer" data-created-at="${o.createdAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color}; white-space:nowrap;">${formatElapsed(elapsed)}</div>` : ''}
               </div>
               ${o.contactPhone ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;"><i class="fa-solid fa-phone" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(o.contactPhone)}</div>` : ''}
             </div>
