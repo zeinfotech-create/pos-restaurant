@@ -749,6 +749,54 @@ export async function renderSettings(container) {
                 <label class="form-label">Copies to Print</label>
                 <input class="form-input" type="number" id="sPrintCopies" min="1" max="5" value="${s.printCopies || 1}" />
               </div>
+              <div class="form-group" style="border-top:1px dashed var(--border); padding-top:14px; margin-top:4px">
+                <label class="form-label" style="font-weight:700">KOT (Kitchen) Printer</label>
+                <p class="form-help-text" style="margin-top:-4px; margin-bottom:10px">By default kitchen tickets print on the same printer as bills, above. Turn this on to send KOTs to a second, dedicated printer instead — e.g. one at the billing counter, one in the kitchen.</p>
+                <div style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin-bottom:${s.kotUseSeparatePrinter ? '14px' : '0'}">
+                  <input type="checkbox" id="sKotUseSeparatePrinter" ${s.kotUseSeparatePrinter ? 'checked' : ''} />
+                  <label class="form-label" style="margin:0" for="sKotUseSeparatePrinter">Use a separate printer for KOT tickets</label>
+                </div>
+                <div id="sKotPrinterFields" style="${s.kotUseSeparatePrinter ? '' : 'display:none'}">
+                  <div class="form-grid">
+                    <div class="form-group">
+                      <label class="form-label">KOT Paper Size</label>
+                      <select class="form-input" id="sKotPaperSize">
+                        ${[
+                          { v: 'thermal-58', label: 'Thermal 2" (58mm)' },
+                          { v: 'thermal-80', label: 'Thermal 3" (80mm)' },
+                          { v: 'thermal-104', label: 'Thermal 4" (104mm)' },
+                          { v: 'a5', label: 'A5' },
+                          { v: 'a4', label: 'A4' }
+                        ].map(o => `<option value="${o.v}" ${(s.kotPaperSize || 'thermal-80') === o.v ? 'selected' : ''}>${o.label}</option>`).join('')}
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label">KOT Connection Type</label>
+                      <select class="form-input" id="sKotPrintConnectionType">
+                        <option value="system" ${(s.kotPrintConnectionType || 'system') === 'system' ? 'selected' : ''}>System Printer (Windows)</option>
+                        <option value="network" ${s.kotPrintConnectionType === 'network' ? 'selected' : ''}>Network Printer (IP address)</option>
+                      </select>
+                    </div>
+                    <div class="form-group" id="sKotPrinterNameGroup" style="${s.kotPrintConnectionType === 'network' ? 'display:none' : ''}">
+                      <label class="form-label">KOT Printer</label>
+                      <select class="form-input" id="sKotPrinterName">
+                        <option value="">System Default</option>
+                      </select>
+                    </div>
+                    <div class="form-group" id="sKotPrinterIpGroup" style="${s.kotPrintConnectionType === 'network' ? '' : 'display:none'}">
+                      <label class="form-label">KOT Printer IP Address</label>
+                      <div style="display:flex; gap:8px">
+                        <input class="form-input" id="sKotPrinterIp" value="${escapeHtml(s.kotPrinterIp || '')}" placeholder="e.g. 192.168.1.51" style="flex:2" />
+                        <input class="form-input" type="number" id="sKotPrinterPort" value="${s.kotPrinterPort || 9100}" placeholder="Port" style="flex:1" />
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label">KOT Copies to Print</label>
+                      <input class="form-input" type="number" id="sKotPrintCopies" min="1" max="5" value="${s.kotPrintCopies || 1}" />
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div class="form-group">
                 <label class="form-label">Receipt Layout Theme</label>
                 <div style="display:flex; gap:12px">
@@ -1641,6 +1689,13 @@ export async function renderSettings(container) {
       printConnectionType: container.querySelector('#sPrintConnectionType')?.value || 'system',
       printerIp: container.querySelector('#sPrinterIp')?.value.trim() || '',
       printerPort: parseInt(container.querySelector('#sPrinterPort')?.value, 10) || 9100,
+      kotUseSeparatePrinter: container.querySelector('#sKotUseSeparatePrinter')?.checked || false,
+      kotPaperSize: container.querySelector('#sKotPaperSize')?.value || 'thermal-80',
+      kotPrintCopies: Math.min(5, Math.max(1, parseInt(container.querySelector('#sKotPrintCopies')?.value, 10) || 1)),
+      kotPrinterName: container.querySelector('#sKotPrinterName')?.value || '',
+      kotPrintConnectionType: container.querySelector('#sKotPrintConnectionType')?.value || 'system',
+      kotPrinterIp: container.querySelector('#sKotPrinterIp')?.value.trim() || '',
+      kotPrinterPort: parseInt(container.querySelector('#sKotPrinterPort')?.value, 10) || 9100,
       receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1',
       showReceiptTitle: container.querySelector('#sShowReceiptTitle')?.checked !== false,
       receiptTitle: container.querySelector('#sReceiptTitle')?.value.trim() || 'TAX INVOICE',
@@ -1666,6 +1721,20 @@ export async function renderSettings(container) {
     const isNetwork = e.target.value === 'network';
     const nameGroup = container.querySelector('#sPrinterNameGroup');
     const ipGroup = container.querySelector('#sPrinterIpGroup');
+    if (nameGroup) nameGroup.style.display = isNetwork ? 'none' : '';
+    if (ipGroup) ipGroup.style.display = isNetwork ? '' : 'none';
+  });
+
+  // KOT Printer — same "System" vs "Network (IP)" toggle as the main
+  // printer, plus its own master on/off (hidden entirely until enabled).
+  container.querySelector('#sKotUseSeparatePrinter')?.addEventListener('change', (e) => {
+    const fields = container.querySelector('#sKotPrinterFields');
+    if (fields) fields.style.display = e.target.checked ? '' : 'none';
+  });
+  container.querySelector('#sKotPrintConnectionType')?.addEventListener('change', (e) => {
+    const isNetwork = e.target.value === 'network';
+    const nameGroup = container.querySelector('#sKotPrinterNameGroup');
+    const ipGroup = container.querySelector('#sKotPrinterIpGroup');
     if (nameGroup) nameGroup.style.display = isNetwork ? 'none' : '';
     if (ipGroup) ipGroup.style.display = isNetwork ? '' : 'none';
   });
@@ -1740,20 +1809,33 @@ export async function renderSettings(container) {
     setTimeout(() => { unsubWeight(); unsubError(); }, 15000);
   });
 
-  // Populate the printer dropdown from the OS (Electron-only — a plain
+  // Populate the printer dropdown(s) from the OS (Electron-only — a plain
   // browser tab has no such list and just keeps the System Default option).
+  // Same OS printer list feeds both selects — the bill printer and the
+  // (optional) separate KOT printer just default to different saved values.
   (async () => {
     const printerSelect = container.querySelector('#sPrinterName');
-    if (!printerSelect || !window.electronAPI?.getPrinters) return;
+    const kotPrinterSelect = container.querySelector('#sKotPrinterName');
+    if ((!printerSelect && !kotPrinterSelect) || !window.electronAPI?.getPrinters) return;
     try {
       const printers = await window.electronAPI.getPrinters();
       const savedPrinter = s.printerName || '';
+      const savedKotPrinter = s.kotPrinterName || '';
       printers.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.name;
-        opt.textContent = p.displayName || p.name;
-        if (p.name === savedPrinter) opt.selected = true;
-        printerSelect.appendChild(opt);
+        if (printerSelect) {
+          const opt = document.createElement('option');
+          opt.value = p.name;
+          opt.textContent = p.displayName || p.name;
+          if (p.name === savedPrinter) opt.selected = true;
+          printerSelect.appendChild(opt);
+        }
+        if (kotPrinterSelect) {
+          const kotOpt = document.createElement('option');
+          kotOpt.value = p.name;
+          kotOpt.textContent = p.displayName || p.name;
+          if (p.name === savedKotPrinter) kotOpt.selected = true;
+          kotPrinterSelect.appendChild(kotOpt);
+        }
       });
     } catch (e) {
       console.warn('[Settings] Could not list printers:', e.message);

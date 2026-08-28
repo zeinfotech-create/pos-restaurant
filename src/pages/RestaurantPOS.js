@@ -1790,7 +1790,7 @@ async function sendToKitchen(courseFilter = null) {
     showToast('Sent to kitchen, but the order status may be out of date — it will self-correct shortly.', 'warning');
   }
 
-  await printReceiptHtml(renderKotHtml(kot, settings), `KOT - ${kot.id}`);
+  await printReceiptHtml(renderKotHtml(kot, settings), `KOT - ${kot.id}`, { purpose: 'kot' });
   showToast(`Sent to kitchen 🍳${courseFilter ? ` — ${courseFilter}` : ''}`, 'success');
   await refreshKotBadge();
   await renderOrderingView();

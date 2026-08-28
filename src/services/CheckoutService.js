@@ -977,24 +977,33 @@ async function buildStandaloneReceiptHtml(contentHtml, title) {
  * ever surfacing the OS dialog. In a plain browser, fall back to
  * window.print(), which already shows its own native preview.
  */
-export async function printReceiptHtml(contentHtml, title = 'Receipt') {
+export async function printReceiptHtml(contentHtml, title = 'Receipt', opts = {}) {
   const isElectron = /Electron/i.test(navigator.userAgent);
   if (isElectron && window.electronAPI?.printReceiptSilent) {
     const settings = await getSettings();
-    const paperSize = settings.paperSize || 'thermal-80';
-    const defaultCopies = settings.printCopies || 1;
+    // KOT tickets route to a second, dedicated printer ONLY once the owner
+    // has actually turned that on in Settings > Printing > KOT (Kitchen)
+    // Printer — otherwise (the default) everything, KOTs included, keeps
+    // going to the one main printer exactly as before this existed.
+    const useKotPrinter = opts.purpose === 'kot' && settings.kotUseSeparatePrinter;
+    const paperSize = (useKotPrinter ? settings.kotPaperSize : settings.paperSize) || 'thermal-80';
+    const defaultCopies = (useKotPrinter ? settings.kotPrintCopies : settings.printCopies) || 1;
+    const connectionType = useKotPrinter ? settings.kotPrintConnectionType : settings.printConnectionType;
+    const printerIp = useKotPrinter ? settings.kotPrinterIp : settings.printerIp;
+    const printerPort = useKotPrinter ? settings.kotPrinterPort : settings.printerPort;
+    const printerName = useKotPrinter ? settings.kotPrinterName : settings.printerName;
 
     const doSilentPrint = async (copies) => {
       const fullHtml = await buildStandaloneReceiptHtml(contentHtml, title);
       let res;
-      if (settings.printConnectionType === 'network') {
-        if (!settings.printerIp) {
-          showToast('No printer IP address configured — set one in Settings > Printing.', 'error');
+      if (connectionType === 'network') {
+        if (!printerIp) {
+          showToast(`No ${useKotPrinter ? 'KOT ' : ''}printer IP address configured — set one in Settings > Printing.`, 'error');
           return;
         }
-        res = await window.electronAPI.printReceiptNetwork(fullHtml, { ip: settings.printerIp, port: settings.printerPort || 9100, paperSize, copies });
+        res = await window.electronAPI.printReceiptNetwork(fullHtml, { ip: printerIp, port: printerPort || 9100, paperSize, copies });
       } else {
-        res = await window.electronAPI.printReceiptSilent(fullHtml, { paperSize, copies, printerName: settings.printerName || '' });
+        res = await window.electronAPI.printReceiptSilent(fullHtml, { paperSize, copies, printerName: printerName || '' });
       }
       if (!res?.success) showToast('Print failed: ' + (res?.error || 'unknown error'), 'error');
     };
