@@ -281,7 +281,14 @@ async function startNewCounterOrder(type) {
 // Kitchen.js and printed tickets can tell two boxes on the same table apart.
 async function startNewParty(table, count) {
   const existingAtTable = (await getCounterOrders()).filter(o => o.tableId === table.id);
-  const partyNumber = existingAtTable.length + 1;
+  // One more than the HIGHEST partyNumber currently at this table — NOT a
+  // plain count. A count collides the moment an earlier box is billed/
+  // cancelled (deleteCounterOrder) while a later-numbered one is still
+  // open: e.g. Box 1 and Box 2 both open, Box 1 gets billed — a plain
+  // count+1 off the remaining 1 box would hand the next new box the
+  // number 2 again, duplicating Box 2's own label. Real bug, seen live
+  // (a table showing three simultaneous "Box 1" cards).
+  const partyNumber = Math.max(0, ...existingAtTable.map(o => o.partyNumber || 0)) + 1;
   const order = await saveCounterOrder({ orderType: 'dine-in', tableId: table.id, partyNumber, guestCount: count, items: [], changeLog: [] });
   await enterCounterOrder(order, table);
 }
