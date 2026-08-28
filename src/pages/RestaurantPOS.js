@@ -326,7 +326,9 @@ async function render(container) {
     <div class="rpos-shell${isMobile ? ' rpos-mobile' : ''}">
       <div class="rpos-topbar">
         <button class="btn btn-ghost btn-sm" id="rposBackBtn" style="${hideBackBtn ? 'display:none;' : ''}"><i class="fa-solid fa-arrow-left"></i> ${backButtonLabel()}</button>
-        <div class="rpos-topbar-title"><i class="fa-solid fa-utensils"></i> ${isMobile ? 'Order' : 'Restaurant POS'}</div>
+        ${isMobile
+          ? `<div class="rpos-topbar-title"><i class="fa-solid fa-utensils"></i> Order</div>`
+          : `<button class="rpos-topbar-title rpos-topbar-title-btn" id="rposTitleBtn" title="Back to Dashboard"><i class="fa-solid fa-utensils"></i> Restaurant POS</button>`}
         ${!isMobile ? `<button class="btn btn-ghost btn-sm" id="rposKitchenBtn"><i class="fa-solid fa-kitchen-set"></i> Kitchen<span id="rposKotBadge"></span></button>` : `<span id="rposKotBadge" style="display:none;"></span>`}
       </div>
       <div id="rposContent"></div>
@@ -351,6 +353,15 @@ async function render(container) {
       .rpos-shell { height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--bg-app); }
       .rpos-topbar { display:flex; align-items:center; justify-content:space-between; padding:12px 20px; border-bottom:1px solid var(--border); background:var(--bg-elevated); flex-shrink:0; }
       .rpos-topbar-title { font-size:15px; font-weight:800; }
+      /* Desktop only (mobile's title stays a plain non-interactive div —
+         'dashboard' sits outside the LAN lockdown whitelist and would
+         black-screen a phone; the bottom tab bar is mobile's only nav).
+         With the explicit "Dashboard" back button now gone from the
+         top-level picker, this branding label doubles as the one way back
+         to Dashboard from anywhere in Restaurant POS — a standard
+         click-the-logo-to-go-home affordance, not a new concept. */
+      .rpos-topbar-title-btn { background:none; border:none; cursor:pointer; padding:6px 10px; margin:-6px -10px; border-radius:8px; color:var(--text-primary); transition:background .15s; }
+      .rpos-topbar-title-btn:hover { background:var(--bg-app); }
       #rposContent { flex:1; overflow:auto; padding:20px; }
       /* Mobile (#mo/#mobile-order) only, below — the desktop/tablet 'restaurant-pos'
          tab is completely unaffected since none of these selectors match
@@ -541,6 +552,7 @@ async function render(container) {
   `;
 
   document.getElementById('rposBackBtn')?.addEventListener('click', handleBack);
+  document.getElementById('rposTitleBtn')?.addEventListener('click', () => navigate('dashboard'));
   document.getElementById('rposKitchenBtn')?.addEventListener('click', () => navigate('kitchen'));
   // Mobile bottom tab bar — 'kd' (not 'kitchen') since this device is on
   // the LAN/phone lockdown; 'kitchen' isn't in that whitelist and would
