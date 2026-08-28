@@ -24,7 +24,7 @@
 // unaffected by anything here.
 // ============================================================
 
-import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder } from '../db.js';
+import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, updateSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder, getOrders } from '../db.js';
 import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff, clearCart } from '../store.js';
 import { confirmOrder, printReceiptHtml } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
@@ -119,6 +119,12 @@ let drillTable = null; // dine-in only — a table whose box picker is currently
 let selectedCounterOrder = null; // the ACTUAL in-progress order for every order type now — a dine-in "box", a takeaway order, or a delivery order all live here
 let activeCategory = null;
 let menuSearch = '';
+// Menu sort — same 6 options + the same "Custom Order" drag-and-drop
+// concept as the regular POS's own product grid (POS.js), sharing that
+// screen's saved arrangement (settings.posCustomProductOrder) rather than
+// keeping a second, separate order to maintain.
+let currentSort = 'name-asc';
+let dragSrcProductId = null; // set during a custom-order drag, mirrors POS.js's own mechanism
 let guestCount = null; // dine-in only
 let changeLog = []; // {type:'cancel'|'modify', name, qty, reason, at, by} — audit trail for anything edited after being fired to the kitchen
 let orderSessionId = null; // ties every KOT sent during this one order together — always the current order's own persisted id, deterministic
@@ -145,6 +151,14 @@ function backButtonLabel() {
   // entirely (see render()'s hideBackBtn), kept as a safety-net default.
   if (orderType === 'dine-in' && drillTable) return 'All Tables';
   return orderType ? 'Restaurant POS' : 'Dashboard';
+}
+
+// Normalizes a string for SKU/barcode searching — same idea as POS.js's own
+// normalizeSearchQuery(): strip spaces/dashes/dots and lowercase, so
+// "SW-1023" and "sw 1023" both match a scanned/typed "sw1023".
+function normalizeSearchQuery(q) {
+  if (!q) return '';
+  return String(q).toLowerCase().replace(/[\s\-.]/g, '');
 }
 
 // A counter order's display name — the contact name once given, otherwise
@@ -500,6 +514,11 @@ async function render(container) {
       .rpos-product-card { padding:14px; border-radius:12px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; transition:transform .2s cubic-bezier(.4,0,.2,1), box-shadow .2s cubic-bezier(.4,0,.2,1), border-color .2s; box-shadow:0 2px 6px rgba(0,0,0,.04); }
       .rpos-product-card:hover { border-color:var(--primary); transform:translateY(-3px); box-shadow:0 8px 20px rgba(0,0,0,.1); }
       .rpos-product-card:active { transform:translateY(-1px) scale(.98); }
+      /* Custom Order drag-and-drop — same visual language as POS.js's own
+         product grid, adapted to this file's naming. */
+      .rpos-drag-handle { cursor:grab; color:var(--text-muted); }
+      .rpos-product-card.dragging { opacity:.4; }
+      .rpos-product-card.drag-over { border-color:var(--primary); box-shadow:0 0 0 2px var(--primary) inset; }
       /* Cart item row redesign — was a single flex-wrap row cramming qty
          controls, kitchen-status text, a modify button and the price
          together, which read as cluttered on both desktop and (worse) on
@@ -1204,7 +1223,11 @@ async function renderOrderingView() {
   // authoritative one and will land right after this no-ops.
   if (view !== 'ordering' || !orderType || (orderType !== 'dine-in' && !ORDER_TYPE_META[orderType])) return;
 
-  const settings = store.settings || await getSettings();
+  // Fresh read (not store.settings' boot-time cache) — needed so a
+  // Custom Order drag-drop, which persists via updateSettings() and
+  // immediately re-renders this same view, shows the new arrangement right
+  // away instead of momentarily snapping back to the stale cached order.
+  const settings = await getSettings();
   const cur = settings.currency || '₹';
   // De-duped by name before rendering the filter chips. A device that spent
   // any time on the placeholder 'LOCAL_EXE' tenant before identifying with
@@ -1228,7 +1251,50 @@ async function renderOrderingView() {
   const allTables = orderType === 'dine-in' ? await getTables() : [];
   const orderLabel = currentOrderLabel(allTables);
   const search = menuSearch.trim().toLowerCase();
-  const products = (await getProducts()).filter(p => (!activeCategory || p.category === activeCategory) && (!search || (p.name || '').toLowerCase().includes(search)));
+  const normSearch = normalizeSearchQuery(search);
+  let products = (await getProducts()).filter(p => {
+    if (activeCategory && p.category !== activeCategory) return false;
+    if (!search) return true;
+    const name = (p.name || '').toLowerCase();
+    const sku = normalizeSearchQuery(p.sku || '');
+    const barcode = normalizeSearchQuery(p.barcode || '');
+    return name.includes(search) || (sku && sku.includes(normSearch)) || (barcode && barcode.includes(normSearch));
+  });
+
+  // Sort — same 6 options as POS.js's own product grid, including "Custom
+  // Order" drag-and-drop, sharing that screen's saved arrangement
+  // (settings.posCustomProductOrder) so the shop's product layout is one
+  // consistent thing across both screens, not two separately-maintained
+  // orders.
+  let popularMap = {};
+  if (currentSort === 'most-sold') {
+    const orderHistory = await getOrders(store.branch?.id);
+    orderHistory.forEach(o => { (o.items || []).forEach(item => { popularMap[item.id] = (popularMap[item.id] || 0) + item.qty; }); });
+  }
+  let customOrderMap = {};
+  if (currentSort === 'custom') {
+    const savedOrder = Array.isArray(settings.posCustomProductOrder) ? settings.posCustomProductOrder : [];
+    savedOrder.forEach((id, idx) => { customOrderMap[String(id)] = idx; });
+  }
+  products = [...products].sort((a, b) => {
+    switch (currentSort) {
+      case 'name-asc': return a.name.localeCompare(b.name);
+      case 'name-desc': return b.name.localeCompare(a.name);
+      case 'price-asc': return (a.price || 0) - (b.price || 0);
+      case 'price-desc': return (b.price || 0) - (a.price || 0);
+      case 'most-sold': return (popularMap[b.id] || 0) - (popularMap[a.id] || 0);
+      case 'custom': {
+        const aIdx = customOrderMap[String(a.id)];
+        const bIdx = customOrderMap[String(b.id)];
+        const aPlaced = aIdx !== undefined, bPlaced = bIdx !== undefined;
+        if (aPlaced && bPlaced) return aIdx - bIdx;
+        if (aPlaced) return -1;
+        if (bPlaced) return 1;
+        return a.name.localeCompare(b.name);
+      }
+      default: return 0;
+    }
+  });
   const totals = getCartTotals();
   // "Pending" means QUANTITY still owed to the kitchen, not just whether the
   // line has ever been sent at all — a line already partly sent (e.g. 1 of
@@ -1263,16 +1329,32 @@ async function renderOrderingView() {
             ` : ''}
           </div>
         </div>
-        <div style="margin-bottom:12px;">
-          <input class="form-input" id="rposMenuSearch" placeholder="🔍 Search menu…" value="${escapeHtml(menuSearch)}" style="font-size:13px; ${isMobile ? 'height:44px; font-size:14px;' : ''}" />
+        <div style="margin-bottom:12px; display:flex; gap:8px; align-items:center;">
+          <input class="form-input" id="rposMenuSearch" placeholder="🔍 Search menu, SKU, barcode…" value="${escapeHtml(menuSearch)}" style="flex:1; min-width:0; font-size:13px; ${isMobile ? 'height:44px; font-size:14px;' : ''}" />
+          <select class="form-input" id="rposSortSelect" title="Sort menu" style="width:auto; flex-shrink:0; font-size:12px; ${isMobile ? 'height:44px;' : ''}">
+            <option value="name-asc" ${currentSort === 'name-asc' ? 'selected' : ''}>A to Z</option>
+            <option value="name-desc" ${currentSort === 'name-desc' ? 'selected' : ''}>Z to A</option>
+            <option value="price-asc" ${currentSort === 'price-asc' ? 'selected' : ''}>Price: Low to High</option>
+            <option value="price-desc" ${currentSort === 'price-desc' ? 'selected' : ''}>Price: High to Low</option>
+            <option value="most-sold" ${currentSort === 'most-sold' ? 'selected' : ''}>Most Sold First</option>
+            <option value="custom" ${currentSort === 'custom' ? 'selected' : ''}>Custom Order</option>
+          </select>
         </div>
         <div class="rpos-cat-bar" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:10px; margin-bottom:14px;">
           <div class="rpos-cat-tab ${!activeCategory ? 'active' : ''}" data-cat="">All</div>
           ${categories.map(c => `<div class="rpos-cat-tab ${activeCategory === c.name ? 'active' : ''}" data-cat="${escapeHtml(c.name)}">${escapeHtml(c.name)}</div>`).join('')}
         </div>
-        <div style="${isMobile ? 'display:flex; flex-direction:column; gap:10px;' : 'display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:12px;'}">
+        ${currentSort === 'custom' ? `
+          <div style="display:flex; align-items:center; gap:10px; background:rgba(99,102,241,0.08); border:1px dashed var(--primary); border-radius:8px; padding:8px 14px; margin-bottom:14px; font-size:12px; color:var(--text-primary);">
+            <i class="fa-solid fa-hand-pointer" style="color:var(--primary);"></i>
+            <span style="flex:1;"><b>Drag &amp; drop</b> any item to arrange your own menu order. Saved automatically.</span>
+            <button id="rposResetCustomOrderBtn" class="btn btn-ghost btn-sm" style="font-size:11px; padding:4px 10px;"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+          </div>
+        ` : ''}
+        <div id="rposProductGrid" style="${isMobile ? 'display:flex; flex-direction:column; gap:10px;' : 'display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:12px;'}">
           ${products.length === 0 ? `<div style="${isMobile ? '' : 'grid-column:1/-1;'} text-align:center; padding:30px; color:var(--text-muted);">No items match</div>` : products.map(p => isMobile ? `
-            <div class="rpos-product-card rpos-product-row" data-id="${p.id}">
+            <div class="rpos-product-card rpos-product-row" data-id="${p.id}" ${currentSort === 'custom' ? 'draggable="true"' : ''}>
+              ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
               <div class="rpos-product-emoji">${p.emoji || '🍽️'}</div>
               <div class="rpos-product-info">
                 <div class="rpos-product-name">${escapeHtml(p.name)}</div>
@@ -1281,7 +1363,8 @@ async function renderOrderingView() {
               <div class="rpos-product-add-btn"><i class="fa-solid fa-plus"></i></div>
             </div>
           ` : `
-            <div class="rpos-product-card" data-id="${p.id}">
+            <div class="rpos-product-card" data-id="${p.id}" style="position:relative;" ${currentSort === 'custom' ? 'draggable="true"' : ''}>
+              ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder" style="position:absolute; top:4px; right:6px; font-size:11px; color:var(--text-muted); opacity:.6;"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
               <div style="width:44px; height:44px; margin:0 auto; border-radius:12px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:22px;">${p.emoji || '🍽️'}</div>
               <div style="font-size:12px; font-weight:700; margin-top:8px; text-align:center; line-height:1.3;">${escapeHtml(p.name)}</div>
               <div style="font-size:12px; color:var(--primary); font-weight:800; text-align:center; margin-top:3px;">${cur}${Number(p.price || 0).toFixed(2)}</div>
@@ -1369,6 +1452,9 @@ async function renderOrderingView() {
   });
   document.querySelectorAll('.rpos-product-card').forEach(el => {
     el.addEventListener('click', async () => {
+      // In Custom Order mode, a click firing right after a drag (dragstart
+      // already set this) shouldn't also add the item to the cart.
+      if (dragSrcProductId) return;
       const product = products.find(p => String(p.id) === el.dataset.id);
       if (!product) return;
       // addToCart() just increments qty on the existing line — sentQty is
@@ -1377,6 +1463,16 @@ async function renderOrderingView() {
       // touched or re-fired, so quantities can never double up.
       addToCart(product);
     });
+  });
+  const rposProductGrid = document.getElementById('rposProductGrid');
+  if (rposProductGrid) wireProductGridDrag(rposProductGrid);
+  document.getElementById('rposResetCustomOrderBtn')?.addEventListener('click', async () => {
+    await updateSettings({ posCustomProductOrder: [] });
+    await renderOrderingView();
+  });
+  document.getElementById('rposSortSelect')?.addEventListener('change', async e => {
+    currentSort = e.target.value;
+    await renderOrderingView();
   });
   document.querySelectorAll('.rpos-remove-item').forEach(el => el.addEventListener('click', () => requestRemoveItem(el.dataset.cartId)));
   document.querySelectorAll('.rpos-qty-plus').forEach(el => el.addEventListener('click', () => updateQty(el.dataset.cartId, 1)));
@@ -1482,6 +1578,80 @@ async function resendItem(cartId) {
   item.sentQty = 0;
   showToast('Ready to resend — tap Send to Kitchen again.', 'info');
   await renderOrderingView();
+}
+
+// Custom Order drag-and-drop for the menu grid — same mechanism as POS.js's
+// own product grid (wireProductGridDrag/persistCustomOrder there), reusing
+// the exact same visual language, just adapted to this file's class names.
+// Unlike POS.js, renderOrderingView() replaces #rposContent's whole
+// innerHTML on every re-render (no persistent grid element to guard a
+// "wire once" flag on), so these listeners are simply re-attached fresh
+// each render like every other handler in this file.
+function wireProductGridDrag(grid) {
+  grid.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('.rpos-product-card[draggable="true"]');
+    if (!card) return;
+    dragSrcProductId = card.dataset.id;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', card.dataset.id);
+  });
+  grid.addEventListener('dragover', (e) => {
+    const card = e.target.closest('.rpos-product-card[draggable="true"]');
+    if (!card || !dragSrcProductId || card.dataset.id === dragSrcProductId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    grid.querySelectorAll('.rpos-product-card.drag-over').forEach(el => el.classList.remove('drag-over'));
+    card.classList.add('drag-over');
+  });
+  grid.addEventListener('dragleave', (e) => {
+    const card = e.target.closest('.rpos-product-card[draggable="true"]');
+    if (card && !card.contains(e.relatedTarget)) card.classList.remove('drag-over');
+  });
+  grid.addEventListener('drop', async (e) => {
+    const card = e.target.closest('.rpos-product-card[draggable="true"]');
+    e.preventDefault();
+    if (!card || !dragSrcProductId) return;
+    const targetId = card.dataset.id;
+    card.classList.remove('drag-over');
+    if (targetId === dragSrcProductId) return;
+    await persistCustomOrder(dragSrcProductId, targetId);
+    await renderOrderingView();
+  });
+  grid.addEventListener('dragend', () => {
+    grid.querySelectorAll('.rpos-product-card.dragging, .rpos-product-card.drag-over').forEach(el => el.classList.remove('dragging', 'drag-over'));
+    // Cleared on a short delay, not immediately — the click listener needs
+    // to still see it on the click event Chromium fires right after a
+    // drag-and-drop sequence ends on the same element.
+    setTimeout(() => { dragSrcProductId = null; }, 50);
+  });
+}
+
+// Moves `draggedId` to just before `targetId` in the branch's saved custom
+// order, persisting the FULL product id list (not just the currently
+// filtered/visible ones) so a drag performed while searching/filtering
+// doesn't silently drop every other product out of the saved order. Shares
+// settings.posCustomProductOrder with POS.js's own product grid — one
+// arrangement for the shop's catalog, not two to separately maintain.
+async function persistCustomOrder(draggedId, targetId) {
+  const [allProductsFresh, settings] = await Promise.all([getProducts(), getSettings()]);
+  const savedOrder = Array.isArray(settings.posCustomProductOrder) ? settings.posCustomProductOrder : [];
+
+  const idToProduct = new Map(allProductsFresh.map(p => [String(p.id), p]));
+  const placed = savedOrder.map(String).filter(id => idToProduct.has(id));
+  const placedSet = new Set(placed);
+  const unplaced = allProductsFresh
+    .filter(p => !placedSet.has(String(p.id)))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(p => String(p.id));
+
+  let fullOrder = [...placed, ...unplaced];
+  const dId = String(draggedId), tId = String(targetId);
+  fullOrder = fullOrder.filter(id => id !== dId);
+  const targetIdx = fullOrder.indexOf(tId);
+  fullOrder.splice(targetIdx === -1 ? fullOrder.length : targetIdx, 0, dId);
+
+  await updateSettings({ posCustomProductOrder: fullOrder });
 }
 
 // Multiple courses are only worth surfacing once staff actually start using
