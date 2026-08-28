@@ -1602,7 +1602,9 @@ async function openModifyModal(cartId) {
       const qty = Math.max(0.001, parseFloat(document.getElementById('rposModifyQty')?.value) || item.qty);
       const notes = document.getElementById('rposModifyNotes')?.value.trim() || '';
       logChange(item, reason, 'modify');
+      const cancelledQty = item.sentQty || 0;
       await voidCartItemInKots(cartId);
+      if (cancelledQty > 0) await printItemCancelTicket(item, cancelledQty, reason);
       closeModal();
       updateCartItem(cartId, { qty, modifiers: Array.from(selected), notes, sentQty: 0 });
       await persistOrderState();
@@ -1664,13 +1666,29 @@ async function voidCartItemInKots(cartId) {
   }
 }
 
+// Same reasoning as cancelWholeOrder()'s ticket, just for ONE line instead
+// of the whole order: the kitchen already has a physical paper ticket for
+// `qty` of this item sitting on their counter, with no way to know it's
+// been voided unless this prints. `qty` is always the ORIGINAL sent
+// quantity being voided (not just the delta of a reduction) — that's what
+// actually happened at the KOT level (see requestQtyMinus() below), and
+// matches what renderKotHtml()'s own strike-through would show if this
+// exact ticket were ever displayed again.
+async function printItemCancelTicket(item, qty, reason) {
+  const allTables = orderType === 'dine-in' ? await getTables() : [];
+  const ticketLabel = currentOrderLabel(allTables);
+  await printReceiptHtml(renderCancelledKotHtml([{ name: item.name, qty }], ticketLabel, reason), 'Item Cancelled', { purpose: 'kot' });
+}
+
 function requestRemoveItem(cartId) {
   const item = store.cart.find(i => i.cartId === cartId);
   if (!item) return;
   if ((item.sentQty || 0) > 0) {
     promptVoidReason(item, async (reason) => {
       logChange(item, reason, 'cancel');
+      const cancelledQty = item.sentQty;
       await voidCartItemInKots(cartId);
+      await printItemCancelTicket(item, cancelledQty, reason);
       removeFromCart(cartId);
       await persistOrderState();
     });
@@ -1690,7 +1708,9 @@ function requestQtyMinus(cartId) {
     // on the next Send rather than trying to shrink an already-fired ticket.
     promptVoidReason(item, async (reason) => {
       logChange(item, reason, 'cancel');
+      const cancelledQty = item.sentQty;
       await voidCartItemInKots(cartId);
+      await printItemCancelTicket(item, cancelledQty, reason);
       item.sentQty = 0;
       await updateQty(cartId, -1);
       await persistOrderState();
