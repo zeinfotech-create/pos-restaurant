@@ -935,8 +935,9 @@ async function renderCounterOrderPicker() {
           const statusColor = isEmpty ? STATUS_META.free.color : (ready ? 'var(--success)' : 'var(--warning)');
           const statusLabel = isEmpty ? 'Empty — no order yet' : (ready ? 'Ready to Bill' : 'In progress');
           return `
-            <div class="rpos-table-card ${ready ? 'rpos-box-ready' : ''}" data-id="${o.id}" style="background:${cardBg}; border:1px solid ${cardBorder};">
-              <div style="font-weight:800; font-size:16px;"><i class="fa-solid ${icon}" style="opacity:.4; margin-right:6px; font-size:13px;"></i>${escapeHtml(counterOrderLabel(o))}</div>
+            <div class="rpos-table-card ${ready ? 'rpos-box-ready' : ''}" data-id="${o.id}" style="background:${cardBg}; border:1px solid ${cardBorder}; position:relative;">
+              ${isEmpty ? `<button class="btn-icon rpos-remove-empty-order" data-id="${o.id}" title="Remove this empty order" style="position:absolute; top:8px; right:8px;" onclick="event.stopPropagation()"><i class="fa-solid fa-xmark" style="font-size:11px; color:var(--danger);"></i></button>` : ''}
+              <div style="font-weight:800; font-size:16px; ${isEmpty ? 'padding-right:22px;' : ''}"><i class="fa-solid ${icon}" style="opacity:.4; margin-right:6px; font-size:13px;"></i>${escapeHtml(counterOrderLabel(o))}</div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${o.items?.length || 0} item(s)</div>
               <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
                 <div style="font-size:11px; font-weight:700; color:${statusColor};"><i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '11px' : '6px'}; margin-right:5px;"></i>${statusLabel}</div>
@@ -967,6 +968,19 @@ async function renderCounterOrderPicker() {
       await enterCounterOrder(order);
       updateBackButtonLabel();
       await renderOrderingView();
+    });
+  });
+  // Remove an empty (0-item) order slot — someone tapped "New Order" by
+  // mistake, or a Demo simulation was never actually opened, and it would
+  // otherwise just sit there in the "Empty" state forever. No confirmation
+  // prompt: it has nothing in it to lose. Same idea across every counter-
+  // order type this screen handles (Takeaway/Delivery/Swiggy/Zomato) —
+  // one card template, one handler, not a per-type special case.
+  document.querySelectorAll('.rpos-remove-empty-order').forEach(el => {
+    el.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await deleteCounterOrder(el.dataset.id);
+      await renderCounterOrderPicker();
     });
   });
   startCounterOrdersTimerLoop();
