@@ -1810,16 +1810,55 @@ function renderKotHtml(kot, settings) {
       </div>
       ${kot.waiterName ? `<div style="text-align:center; font-size:11px; opacity:.75;">Waiter: ${escapeHtml(kot.waiterName)}</div>` : ''}
       <div class="receipt-divider"></div>
-      ${kot.items.map(i => `
-        <div style="margin:8px 0;">
-          <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:700;">
+      ${kot.items.map(i => {
+        // Voided items (single-item Cancel/Modify, after this exact ticket
+        // was already printed) get the same strike-through treatment
+        // Kitchen.js's own board already gives them — a printed ticket
+        // that later gets manually re-shown/re-printed shouldn't silently
+        // look identical to a still-active one.
+        const voided = i.itemStatus === 'voided';
+        return `
+        <div style="margin:8px 0; ${voided ? 'opacity:.6;' : ''}">
+          <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:700; ${voided ? 'text-decoration:line-through;' : ''}">
             <span>${escapeHtml(i.name)}</span><span>x${i.qty}</span>
           </div>
-          ${(i.modifiers?.length || i.notes) ? `<div style="font-size:11px; opacity:.75; padding-left:8px;">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(', ')}</div>` : ''}
+          ${voided ? `<div style="font-size:10.5px; font-weight:800;">✕ CANCELLED</div>` : ''}
+          ${(i.modifiers?.length || i.notes) ? `<div style="font-size:11px; opacity:.75; padding-left:8px; ${voided ? 'text-decoration:line-through;' : ''}">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(', ')}</div>` : ''}
+        </div>
+      `;
+      }).join('')}
+      <div class="receipt-divider"></div>
+      <div style="text-align:center; font-size:10px; opacity:.6;">KOT #${kot.id}</div>
+    </div>
+  `;
+}
+
+// A dedicated "this order is cancelled" ticket, printed to the kitchen
+// printer the moment Cancel Order voids anything already sent — kitchen
+// staff have a physical KOT already sitting on their counter with no other
+// way to know it's been called off. Every item shown struck through, same
+// visual language renderKotHtml() above (and Kitchen.js's board) already
+// use for a voided item.
+function renderCancelledKotHtml(items, ticketLabel, reason) {
+  return `
+    <div class="receipt">
+      <div class="receipt-header">
+        <div class="receipt-store-name">KITCHEN ORDER TICKET</div>
+        <div class="receipt-row" style="font-size:11px; opacity:.7;">${new Date().toLocaleString()}</div>
+      </div>
+      <div style="text-align:center; font-size:13px; font-weight:800; border:2px solid #000; padding:5px; margin:6px 0;">✕ ORDER CANCELLED</div>
+      <div class="receipt-divider"></div>
+      <div style="font-size:14px; font-weight:800; text-align:center; margin:6px 0;">${escapeHtml(ticketLabel || '')}</div>
+      <div class="receipt-divider"></div>
+      ${items.map(i => `
+        <div style="margin:8px 0;">
+          <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:700; text-decoration:line-through;">
+            <span>${escapeHtml(i.name)}</span><span>x${i.qty}</span>
+          </div>
         </div>
       `).join('')}
       <div class="receipt-divider"></div>
-      <div style="text-align:center; font-size:10px; opacity:.6;">KOT #${kot.id}</div>
+      ${reason ? `<div style="font-size:11px; text-align:center;">Reason: ${escapeHtml(reason)}</div>` : ''}
     </div>
   `;
 }
@@ -2019,6 +2058,10 @@ async function cancelWholeOrder(reason) {
   const wasDineIn = orderType === 'dine-in';
   const cancelledTable = selectedTable;
   const cancelledPartyId = selectedCounterOrder?.id;
+  // Captured now, before any state below gets reset — this order's label
+  // (e.g. "TABLE-4 · Box 1") for the cancellation ticket's header.
+  const allTablesForCancelTicket = orderType === 'dine-in' ? await getTables() : [];
+  const cancelTicketLabel = currentOrderLabel(allTablesForCancelTicket);
 
   // Leave 'ordering' state FIRST, before any of the awaits below — a real
   // bug found live: voidCartItemInKots()'s saveKot() calls dispatch
@@ -2037,11 +2080,20 @@ async function cancelWholeOrder(reason) {
   // Void every already-sent line's KOT entries — same voidCartItemInKots()
   // single-item Cancel already uses, just looped over the whole cart
   // instead of one line, with one shared changeLog reason for all of them.
+  const cancelledSentItems = [];
   for (const item of store.cart) {
     if ((item.sentQty || 0) > 0) {
       logChange(item, reason || 'Order cancelled', 'cancel');
       await voidCartItemInKots(item.cartId);
+      cancelledSentItems.push({ name: item.name, qty: item.sentQty });
     }
+  }
+
+  // Something had already reached the kitchen — print a "CANCELLED" ticket
+  // to the kitchen printer so staff physically know to stop, instead of
+  // only finding out if someone happens to walk over and say so.
+  if (cancelledSentItems.length > 0) {
+    await printReceiptHtml(renderCancelledKotHtml(cancelledSentItems, cancelTicketLabel, reason), 'Order Cancelled', { purpose: 'kot' });
   }
 
   if (wasDineIn && cancelledTable) {
