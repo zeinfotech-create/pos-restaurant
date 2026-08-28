@@ -292,22 +292,26 @@ function updateBackButtonLabel() {
   // See render()'s hideBackBtn comment — same rule, kept in sync here since
   // this is the OTHER place the button's state can change (a sub-view
   // switching 'view' without a full shell re-render).
-  if (isMobile && view === 'picker') { btn.style.display = 'none'; return; }
+  if (view === 'picker' && (isMobile || !orderType)) { btn.style.display = 'none'; return; }
   btn.style.display = '';
   btn.innerHTML = `<i class="fa-solid fa-arrow-left"></i> ${backButtonLabel()}`;
 }
 
 async function render(container) {
-  // On mobile (LAN/phone entry — #mo/#mobile-order), the topbar's own
-  // Back button only ever makes sense at the 'ordering' level (stepping
-  // back to the table/order picker) — at the top-level picker its label is
-  // always "Dashboard" (backButtonLabel()), and 'dashboard' sits OUTSIDE
-  // router.js's mobile lockdown whitelist, so tapping it would black-screen
-  // this same device. Hidden there entirely; the bottom tab bar is this
-  // route's only navigation. The topbar's Kitchen button is hidden on
-  // mobile too — the bottom tab bar's own Kitchen tab replaces it (and
-  // correctly points at 'kd', not the desktop-only 'kitchen' route).
-  const hideBackBtn = isMobile && view === 'picker';
+  // On mobile (LAN/phone entry — #mo/#mobile-order), the topbar's own Back
+  // button only ever makes sense at the 'ordering' level (stepping back to
+  // the table/order picker) — at ANY picker-level screen its label is
+  // always "Dashboard" (backButtonLabel() never differentiates the
+  // type-picker from the table grid/counter-order list), and 'dashboard'
+  // sits OUTSIDE router.js's mobile lockdown whitelist, so tapping it
+  // would black-screen this same device. Hidden for the whole picker level
+  // on mobile; the bottom tab bar is this route's only navigation there.
+  // On desktop, only the very TOP of the picker (no order type chosen yet
+  // — this module's own natural "home") hides it: there's genuinely
+  // nowhere useful to step back to from there, so the button was pure
+  // clutter. Once an order type IS picked (table grid, counter-order
+  // list), the button reappears and correctly works exactly as before.
+  const hideBackBtn = view === 'picker' && (isMobile || !orderType);
   container.innerHTML = `
     <div class="rpos-shell${isMobile ? ' rpos-mobile' : ''}">
       <div class="rpos-topbar">
