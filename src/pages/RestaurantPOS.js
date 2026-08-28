@@ -132,8 +132,18 @@ let tablesTimerInterval = null;
 let counterOrdersTimerInterval = null;
 
 function backButtonLabel() {
-  if (view === 'picker') return 'Dashboard';
-  return orderType === 'dine-in' ? 'Change Table' : 'Change Order';
+  if (view === 'ordering') return orderType === 'dine-in' ? 'Change Table' : 'Change Order';
+  // view === 'picker': once an order type is picked (table grid, a drilled
+  // table's box picker, or a counter-order list), the button steps back
+  // within Restaurant POS to the order-type picker — labeled 'Restaurant
+  // POS', not 'Dashboard' (that would leave the module entirely, which is
+  // not what this button should do at this level — the dine-in box
+  // picker already has its own 'All Tables' button for the smaller step
+  // back to just the table grid). Only the very top level (no orderType
+  // picked at all) falls back to 'Dashboard' — unreachable in the UI
+  // today since that state hides the button entirely (see render()'s
+  // hideBackBtn), kept as a safety-net default.
+  return orderType ? 'Restaurant POS' : 'Dashboard';
 }
 
 // A counter order's display name — the contact name once given, otherwise
@@ -596,6 +606,21 @@ function handleBack() {
     // Every order type persists its own record now — stepping back never
     // loses anything, it's one click away again from the picker.
     view = 'picker';
+    orderType = null;
+    selectedTable = null;
+    drillTable = null;
+    selectedCounterOrder = null;
+    guestCount = null;
+    changeLog = [];
+    orderSessionId = null;
+    setStaff(null);
+    return render(container);
+  }
+  if (view === 'picker' && orderType) {
+    // Table grid, a drilled table's box picker, or a counter-order list —
+    // step back to Restaurant POS's own order-type picker, not out to
+    // Dashboard. (The dine-in box picker also has its own dedicated 'All
+    // Tables' button for the smaller step back to just the table grid.)
     orderType = null;
     selectedTable = null;
     drillTable = null;
