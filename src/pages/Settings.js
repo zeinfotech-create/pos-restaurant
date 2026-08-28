@@ -749,7 +749,7 @@ export async function renderSettings(container) {
                 <label class="form-label">Copies to Print</label>
                 <input class="form-input" type="number" id="sPrintCopies" min="1" max="5" value="${s.printCopies || 1}" />
               </div>
-              <div class="form-group" style="border-top:1px dashed var(--border); padding-top:14px; margin-top:4px">
+              <div class="form-group" style="grid-column:1 / -1; border-top:1px dashed var(--border); padding-top:14px; margin-top:4px">
                 <label class="form-label" style="font-weight:700">KOT (Kitchen) Printer</label>
                 <p class="form-help-text" style="margin-top:-4px; margin-bottom:10px">By default kitchen tickets print on the same printer as bills, above. Turn this on to send KOTs to a second, dedicated printer instead — e.g. one at the billing counter, one in the kitchen.</p>
                 <div style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin-bottom:${s.kotUseSeparatePrinter ? '14px' : '0'}">
