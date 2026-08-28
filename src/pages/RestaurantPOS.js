@@ -133,16 +133,17 @@ let counterOrdersTimerInterval = null;
 
 function backButtonLabel() {
   if (view === 'ordering') return orderType === 'dine-in' ? 'Change Table' : 'Change Order';
-  // view === 'picker': once an order type is picked (table grid, a drilled
-  // table's box picker, or a counter-order list), the button steps back
-  // within Restaurant POS to the order-type picker — labeled 'Restaurant
-  // POS', not 'Dashboard' (that would leave the module entirely, which is
-  // not what this button should do at this level — the dine-in box
-  // picker already has its own 'All Tables' button for the smaller step
-  // back to just the table grid). Only the very top level (no orderType
-  // picked at all) falls back to 'Dashboard' — unreachable in the UI
-  // today since that state hides the button entirely (see render()'s
-  // hideBackBtn), kept as a safety-net default.
+  // view === 'picker': step back ONE level, not straight to the module's
+  // own home, so this doubles as the same breadcrumb the dine-in box
+  // picker's separate 'All Tables' button already offers — a drilled
+  // table's box picker steps back to the table grid; the table grid (or
+  // any counter-order list) steps back to the order-type picker, labeled
+  // 'Restaurant POS' (not 'Dashboard' — that would leave the module
+  // entirely, which isn't what this level should do). Only the very top
+  // level (no orderType picked at all) falls back to 'Dashboard' —
+  // unreachable in the UI today since that state hides the button
+  // entirely (see render()'s hideBackBtn), kept as a safety-net default.
+  if (orderType === 'dine-in' && drillTable) return 'All Tables';
   return orderType ? 'Restaurant POS' : 'Dashboard';
 }
 
@@ -628,11 +629,17 @@ function handleBack() {
     setStaff(null);
     return render(container);
   }
+  if (view === 'picker' && orderType === 'dine-in' && drillTable) {
+    // Drilled into a specific table's own box picker — step back to the
+    // table grid, same one level at a time as the box picker's own
+    // dedicated 'All Tables' button (which does the exact same thing).
+    drillTable = null;
+    return render(container);
+  }
   if (view === 'picker' && orderType) {
-    // Table grid, a drilled table's box picker, or a counter-order list —
+    // Table grid, or a counter-order list (no drill level of its own) —
     // step back to Restaurant POS's own order-type picker, not out to
-    // Dashboard. (The dine-in box picker also has its own dedicated 'All
-    // Tables' button for the smaller step back to just the table grid.)
+    // Dashboard.
     orderType = null;
     selectedTable = null;
     drillTable = null;
@@ -880,7 +887,16 @@ async function renderTablePartyPicker(table) {
     </div>
   `;
 
-  document.getElementById('rposBackToTablesBtn')?.addEventListener('click', async () => { drillTable = null; await renderPickerView(); });
+  document.getElementById('rposBackToTablesBtn')?.addEventListener('click', async () => {
+    drillTable = null;
+    // The topbar back button's own label just became stale here too — it
+    // read 'All Tables' while drilled in, and needs to switch back to
+    // 'Restaurant POS' now that we're at the table grid (see
+    // backButtonLabel()'s drillTable branch). Same v9zv-class gotcha:
+    // any state change the topbar's label depends on needs this call.
+    updateBackButtonLabel();
+    await renderPickerView();
+  });
   document.querySelectorAll('.rpos-table-card[data-id]').forEach(el => {
     el.addEventListener('click', async () => {
       const party = parties.find(p => p.id === el.dataset.id);
