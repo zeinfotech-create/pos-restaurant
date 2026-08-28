@@ -700,7 +700,12 @@ async function renderTablePartyPicker(table) {
   const allTables = await getTables();
   const capacity = tableDisplayCapacity(table, allTables);
   const parties = (await getCounterOrders()).filter(o => o.tableId === table.id).sort((a, b) => (a.partyNumber || 0) - (b.partyNumber || 0));
-  const usedSeats = parties.reduce((s, p) => s + (p.guestCount || 0), 0);
+  // Same "empty box shouldn't hold seats hostage" rule as tableOccupancy()
+  // (utils/tableDisplay.js) — a party with zero items never actually ordered
+  // anything, so its guest count doesn't count against remaining capacity
+  // here either. The box itself still shows below either way (still
+  // resumable) — this only affects the seat math.
+  const usedSeats = parties.filter(p => (p.items?.length || 0) > 0).reduce((s, p) => s + (p.guestCount || 0), 0);
   const remaining = Math.max(0, capacity - usedSeats);
   // Checked per-box (not just "has this box been opened and looked at") so
   // a box that finished cooking while the cashier was elsewhere in the app
@@ -716,13 +721,24 @@ async function renderTablePartyPicker(table) {
       ${partiesWithStatus.map(({ p, serve }) => {
         const elapsed = Date.now() - new Date(p.createdAt).getTime();
         const ready = serve.fullyServed;
+        // A box with zero items — guest count entered, nothing ever
+        // ordered — isn't really "in progress" (nothing's actually
+        // happening, no timer worth watching). Shown with the same free/
+        // neutral styling tableOccupancy() now treats it as, with its own
+        // "Empty" label rather than the orange "In progress" one, and no
+        // ticking elapsed timer implying urgency that isn't there.
+        const isEmpty = (p.items?.length || 0) === 0;
+        const cardBg = isEmpty ? STATUS_META.free.bg : (ready ? 'rgba(34,197,94,0.1)' : STATUS_META.occupied.bg);
+        const cardBorder = isEmpty ? 'var(--border)' : (ready ? 'var(--success)' : 'var(--border)');
+        const statusColor = isEmpty ? STATUS_META.free.color : (ready ? 'var(--success)' : STATUS_META.occupied.color);
+        const statusLabel = isEmpty ? 'Empty — no order yet' : (ready ? 'Ready to Bill' : 'In progress');
         return `
-          <div class="rpos-table-card rpos-box-enter ${ready ? 'rpos-box-ready' : ''}" data-id="${p.id}" style="background:${ready ? 'rgba(34,197,94,0.1)' : STATUS_META.occupied.bg}; border:1px solid ${ready ? 'var(--success)' : 'var(--border)'};">
+          <div class="rpos-table-card rpos-box-enter ${ready ? 'rpos-box-ready' : ''}" data-id="${p.id}" style="background:${cardBg}; border:1px solid ${cardBorder};">
             <div style="font-weight:800; font-size:16px;">Box ${p.partyNumber || '?'}</div>
             <div style="font-size:11px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-users" style="margin-right:4px; opacity:.5;"></i>${p.guestCount || '—'} guests · ${p.items?.length || 0} item(s)</div>
             <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
-              <div class="rpos-box-status" style="font-size:11px; font-weight:700; color:${ready ? 'var(--success)' : STATUS_META.occupied.color};"><i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '11px' : '6px'}; margin-right:5px;"></i>${ready ? 'Ready to Bill' : 'In progress'}</div>
-              <div class="rpos-table-timer" data-created-at="${p.createdAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color}; white-space:nowrap;">${formatElapsed(elapsed)}</div>
+              <div class="rpos-box-status" style="font-size:11px; font-weight:700; color:${statusColor};"><i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '11px' : '6px'}; margin-right:5px;"></i>${statusLabel}</div>
+              ${!isEmpty ? `<div class="rpos-table-timer" data-created-at="${p.createdAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color}; white-space:nowrap;">${formatElapsed(elapsed)}</div>` : ''}
             </div>
           </div>
         `;
@@ -1192,7 +1208,10 @@ async function renderOrderingView() {
     const capacity = tableDisplayCapacity(selectedTable, allTables);
     (async () => {
       const otherParties = (await getCounterOrders()).filter(o => o.tableId === selectedTable.id && o.id !== selectedCounterOrder?.id);
-      const usedByOthers = otherParties.reduce((s, p) => s + (p.guestCount || 0), 0);
+      // Same "empty box doesn't hold seats hostage" rule as tableOccupancy() —
+      // another box with zero items shouldn't shrink how many seats this
+      // box can claim for itself.
+      const usedByOthers = otherParties.filter(p => (p.items?.length || 0) > 0).reduce((s, p) => s + (p.guestCount || 0), 0);
       const remaining = Math.max(0, capacity - usedByOthers);
       promptGuestCount(async (count) => {
         guestCount = count;

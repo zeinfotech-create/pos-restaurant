@@ -83,13 +83,20 @@ export function occupiedElapsedMs(table) {
 // render rather than re-fetching per table.
 export function tableOccupancy(table, allParties) {
   const parties = allParties.filter(p => p.tableId === table.id);
-  const usedSeats = parties.reduce((sum, p) => sum + (p.guestCount || 0), 0);
-  const totalItems = parties.reduce((sum, p) => sum + (p.items?.length || 0), 0);
-  const oldest = parties.reduce((oldest, p) => (!oldest || new Date(p.createdAt) < new Date(oldest.createdAt)) ? p : oldest, null);
+  // A party with a guest count entered but ZERO items ever added — someone
+  // opened the table (by mistake, or just to look), never actually ordered
+  // anything — shouldn't hold seats/occupied-status hostage indefinitely.
+  // Excluded from every stat below; the RAW `parties` list (unfiltered)
+  // is still returned as-is so the box picker can still show/resume it —
+  // this only affects whether it counts as "occupying" the table.
+  const activeParties = parties.filter(p => (p.items?.length || 0) > 0);
+  const usedSeats = activeParties.reduce((sum, p) => sum + (p.guestCount || 0), 0);
+  const totalItems = activeParties.reduce((sum, p) => sum + (p.items?.length || 0), 0);
+  const oldest = activeParties.reduce((oldest, p) => (!oldest || new Date(p.createdAt) < new Date(oldest.createdAt)) ? p : oldest, null);
   return {
     parties,
-    isOccupied: parties.length > 0,
-    partyCount: parties.length,
+    isOccupied: activeParties.length > 0,
+    partyCount: activeParties.length,
     usedSeats,
     totalItems,
     oldestCreatedAt: oldest?.createdAt || null,
