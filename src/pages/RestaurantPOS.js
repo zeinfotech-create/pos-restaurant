@@ -2350,9 +2350,24 @@ function openPaymentPanel() {
     `;
   };
 
+  // Tip is deliberately kept OUT of the payment rows/balance math above —
+  // it doesn't add to the bill total, doesn't get taxed, and a customer
+  // commonly hands it over separately (cash in the waiter's hand, or a
+  // "+tip" line on a card terminal this app never sees) — this is purely a
+  // record for staff-earnings reporting, not a charge. Only meaningful with
+  // a waiter assigned to credit it to; hidden otherwise rather than
+  // collecting a number with nowhere to attribute it.
+  const tipRecipient = store.selectedStaff;
+  const tipFieldHtml = tipRecipient ? `
+    <div style="margin-top:14px; padding-top:14px; border-top:1px dashed var(--border);">
+      <label class="form-label" style="margin:0 0 6px;">Tip for ${escapeHtml(tipRecipient.name)} (optional)</label>
+      <input type="number" class="form-input" id="rposTipInput" min="0" placeholder="0" style="max-width:140px;" />
+    </div>
+  ` : '';
+
   openModal({
     title: `<i class="fa-solid fa-receipt mr-8"></i> Bill — ${cur}${totals.total.toFixed(2)}`,
-    body: `<div id="rposPayBody">${renderRows()}</div>`,
+    body: `<div id="rposPayBody">${renderRows()}</div>${tipFieldHtml}`,
     footer: `
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" id="rposConfirmBillBtn" style="min-width:140px;"><i class="fa-solid fa-check mr-4"></i> Complete Bill</button>
@@ -2382,8 +2397,9 @@ function openPaymentPanel() {
       return showToast('Payment amount must match the total.', 'error');
     }
     const payments = rows.filter(r => r.amount > 0).map(r => ({ method: r.method, amount: Number(r.amount) }));
+    const tipAmount = Math.max(0, parseFloat(document.getElementById('rposTipInput')?.value) || 0);
     closeModal();
-    await completeBill(payments);
+    await completeBill(payments, tipAmount);
   });
 }
 
@@ -2549,7 +2565,7 @@ async function cancelWholeOrder(reason) {
   }
 }
 
-async function completeBill(payments) {
+async function completeBill(payments, tipAmount = 0) {
   const settings = store.settings || await getSettings();
   const cur = settings.currency || '₹';
   const allTables = orderType === 'dine-in' ? await getTables() : [];
@@ -2565,6 +2581,7 @@ async function completeBill(payments) {
     pickupTime: orderType === 'takeaway' ? (takeawayContact.pickupTime || undefined) : undefined,
     platformOrderId: AGGREGATOR_TYPES.includes(orderType) ? (takeawayContact.platformOrderId || undefined) : undefined,
     changeLog: changeLog.length ? changeLog : undefined,
+    tip: tipAmount || 0,
   };
 
   const succeeded = await confirmOrder(payments, getCartTotals(), settings, cur, { isCredit: false, creditInfo: '' }, restaurantMeta);

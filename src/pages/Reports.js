@@ -2618,16 +2618,23 @@ async function renderStaffIncentiveReport(container, cur) {
 
   const processed = staff.map(s => {
     const sIncs = incentives.filter(i => i.staffId === s.id);
+    // Existing commission records have no `type` field at all (predates
+    // tips existing) — only an explicit 'tip' counts as a tip, everything
+    // else (including untyped legacy records) is commission, so old data
+    // needs no migration to keep reporting correctly.
+    const tipIncs = sIncs.filter(i => i.type === 'tip');
+    const commissionIncs = sIncs.filter(i => i.type !== 'tip');
     return {
       ...s,
-      totalEarned: sIncs.reduce((sum, i) => sum + i.amount, 0),
-      orderCount: sIncs.length
+      totalEarned: commissionIncs.reduce((sum, i) => sum + i.amount, 0),
+      totalTips: tipIncs.reduce((sum, i) => sum + i.amount, 0),
+      orderCount: commissionIncs.length
     };
-  }).sort((a, b) => b.totalEarned - a.totalEarned);
+  }).sort((a, b) => (b.totalEarned + b.totalTips) - (a.totalEarned + a.totalTips));
   const canExportStaff = await hasPermission('reports:export');
 
   container.innerHTML = `
-    <div class="grid-2 mb-24">
+    <div class="grid-3 mb-24">
       <div class="stat-card">
         <div class="stat-icon" style="background:rgba(79,70,229,0.15)"><i class="fa-solid fa-users-gear" style="color:var(--accent)"></i></div>
         <div class="stat-info">
@@ -2639,7 +2646,14 @@ async function renderStaffIncentiveReport(container, cur) {
         <div class="stat-icon" style="background:rgba(16,185,129,0.15)"><i class="fa-solid fa-hand-holding-dollar" style="color:var(--success)"></i></div>
         <div class="stat-info">
           <div class="stat-value">${cur}${processed.reduce((s, st) => s + st.totalEarned, 0).toLocaleString()}</div>
-          <div class="stat-label">Total Staff Payouts Due</div>
+          <div class="stat-label">Total Commission Due</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(249,115,22,0.15)"><i class="fa-solid fa-coins" style="color:#f97316"></i></div>
+        <div class="stat-info">
+          <div class="stat-value">${cur}${processed.reduce((s, st) => s + st.totalTips, 0).toLocaleString()}</div>
+          <div class="stat-label">Total Tips</div>
         </div>
       </div>
     </div>
@@ -2651,7 +2665,7 @@ async function renderStaffIncentiveReport(container, cur) {
       </div>
       <div class="table-wrap">
         <table class="responsive-table">
-          <thead><tr><th>Staff Member</th><th>Role</th><th>Orders</th><th>Comm %</th><th>Total Earnings</th></tr></thead>
+          <thead><tr><th>Staff Member</th><th>Role</th><th>Orders</th><th>Comm %</th><th>Commission</th><th>Tips</th></tr></thead>
           <tbody id="staffSummaryBody">
             ${processed.map(staffSummaryRowHtml).join('')}
           </tbody>
@@ -2666,7 +2680,7 @@ async function renderStaffIncentiveReport(container, cur) {
       </div>
       <div class="table-wrap">
         <table class="responsive-table table-sm">
-          <thead><tr><th>Date</th><th>Staff</th><th>Order ID</th><th>Total</th><th>Incentive</th></tr></thead>
+          <thead><tr><th>Date</th><th>Staff</th><th>Order ID</th><th>Type</th><th>Total</th><th>Amount</th></tr></thead>
           <tbody id="staffIncentiveLogBody"></tbody>
         </table>
       </div>
@@ -2689,19 +2703,22 @@ async function renderStaffIncentiveReport(container, cur) {
                 <td data-label="Role"><span class="badge badge-primary">${escapeHtml(s.specialization || 'Artist')}</span></td>
                 <td data-label="Orders">${s.orderCount}</td>
                 <td data-label="Comm %" class="text-accent font-bold">${s.commissionRate || 0}%</td>
-                <td data-label="Total Earnings" class="text-success font-bold" style="font-size:16px">${cur}${s.totalEarned.toFixed(2)}</td>
+                <td data-label="Commission" class="text-success font-bold" style="font-size:16px">${cur}${s.totalEarned.toFixed(2)}</td>
+                <td data-label="Tips" class="font-bold" style="font-size:16px; color:#f97316">${s.totalTips > 0 ? `${cur}${s.totalTips.toFixed(2)}` : '—'}</td>
               </tr>
             `;
   }
 
   function incentiveLogRowHtml(i) {
+    const isTip = i.type === 'tip';
     return `
               <tr>
                 <td data-label="Date" style="font-size:11px">${new Date(i.date).toLocaleDateString()}</td>
                 <td data-label="Staff">${escapeHtml(i.staffName)}</td>
                 <td data-label="Order ID" style="font-size:11px;opacity:0.7">${i.orderId}</td>
+                <td data-label="Type">${isTip ? `<span style="color:#f97316; font-weight:700;">Tip</span>` : 'Commission'}</td>
                 <td data-label="Total">${cur}${i.orderTotal.toFixed(2)}</td>
-                <td data-label="Incentive" class="font-bold ${i.amount < 0 ? 'text-danger' : 'text-success'}">${i.amount < 0 ? '-' : '+'}${cur}${Math.abs(i.amount).toFixed(2)}</td>
+                <td data-label="Amount" class="font-bold ${i.amount < 0 ? 'text-danger' : 'text-success'}">${i.amount < 0 ? '-' : '+'}${cur}${Math.abs(i.amount).toFixed(2)}</td>
               </tr>
             `;
   }

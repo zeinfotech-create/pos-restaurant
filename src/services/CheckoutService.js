@@ -850,6 +850,12 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
         deliveryAddress: restaurantMeta.deliveryAddress || undefined,
         pickupTime: restaurantMeta.pickupTime || undefined,
         changeLog: restaurantMeta.changeLog || undefined,
+        // Deliberately NOT part of subtotal/tax/total — a tip commonly
+        // changes hands separately from the bill itself (cash to the
+        // waiter, or a card-terminal "+tip" this app never sees). Recorded
+        // purely so Reports > Staff Earnings can show who was tipped how
+        // much; see the saveStaffIncentive(type:'tip') call below.
+        tip: restaurantMeta.tip || 0,
       } : {})
     });
 
@@ -898,7 +904,25 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
       }
     }
 
-    // No need to manually deduct stock here. 
+    // Tip — same staff_incentives store as commission above, just tagged
+    // `type: 'tip'` so Reports > Staff Earnings can total them separately
+    // (existing commission records have no `type` at all — treated as
+    // commission by default, no migration needed for old data). Independent
+    // of enableStaffEarnings/commissionRate — a shop with commission turned
+    // off entirely can still track tips.
+    if (order.tip > 0 && order.staff) {
+      await saveStaffIncentive({
+        staffId: order.staff.id,
+        staffName: order.staff.name,
+        orderId: order.id,
+        orderTotal: order.total,
+        amount: parseFloat(order.tip.toFixed(2)),
+        type: 'tip',
+        branchId: order.branchId
+      });
+    }
+
+    // No need to manually deduct stock here.
     // saveOrder() inside confirmOrder() already handles inventory deduction and logging.
 
     clearCart();
