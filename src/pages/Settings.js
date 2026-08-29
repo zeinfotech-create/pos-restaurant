@@ -898,6 +898,13 @@ export async function renderSettings(container) {
                 <p style="font-size:12px; opacity:0.6; margin-top:2px;">By default, sending more items for an order already in progress (an "add-on") groups under the same card on the Kitchen board, and the printed slip notes it's part of an existing order. Turn this on to show and print every wave as its own fully independent ticket instead — nothing grouped, nothing cross-referenced.</p>
               </div>
             </div>
+            <div class="form-group" style="display:flex; flex-direction:row; align-items:flex-start; gap:12px; margin-top:16px; padding-top:16px; border-top:1px dashed var(--border);">
+              <input type="checkbox" id="sKotAutoPrint" ${s.kotAutoPrint ? 'checked' : ''} style="width:20px; height:20px; margin-top:2px; flex-shrink:0;" />
+              <div>
+                <div class="font-bold">Auto-print KOT tickets (no preview)</div>
+                <p style="font-size:12px; opacity:0.6; margin-top:2px;">By default, "Send to Kitchen" pops up a Print Preview with a Copies field and a Print button to tap. Turn this on to skip that popup entirely — the ticket goes straight to the printer the instant it's sent, no tap needed. Independent of the main "Show print preview before printing" setting in Printing — this only affects KOT tickets.</p>
+              </div>
+            </div>
             <div class="form-group" style="border-top:1px dashed var(--border); padding-top:14px; margin-top:16px">
               <label class="form-label" style="font-weight:700">KOT (Kitchen) Printer</label>
               <p class="form-help-text" style="margin-top:-4px; margin-bottom:10px">By default kitchen tickets print on the same printer as bills (Settings &gt; Printing). Turn this on to send KOTs to a second, dedicated printer instead — e.g. one at the billing counter, one in the kitchen.</p>
@@ -1748,6 +1755,7 @@ export async function renderSettings(container) {
     await handleSave('KOT', {
       kotLockCancelAfterPreparing: container.querySelector('#sKotLockCancelAfterPreparing')?.checked || false,
       kotSplitTickets: container.querySelector('#sKotSplitTickets')?.checked || false,
+      kotAutoPrint: container.querySelector('#sKotAutoPrint')?.checked || false,
       kotUseSeparatePrinter: container.querySelector('#sKotUseSeparatePrinter')?.checked || false,
       kotPaperSize: container.querySelector('#sKotPaperSize')?.value || 'thermal-80',
       kotPrintCopies: Math.min(5, Math.max(1, parseInt(container.querySelector('#sKotPrintCopies')?.value, 10) || 1)),

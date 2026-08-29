@@ -1008,7 +1008,13 @@ export async function printReceiptHtml(contentHtml, title = 'Receipt', opts = {}
       if (!res?.success) showToast('Print failed: ' + (res?.error || 'unknown error'), 'error');
     };
 
-    if (settings.showPrintPreview === false) {
+    // KOT tickets get their OWN independent skip-the-preview toggle
+    // (Settings > KOT > "Auto-print KOT tickets") — a shop might want
+    // bills reviewed before printing but kitchen tickets to fire off
+    // instantly, or vice versa, so this doesn't just fall back to the
+    // main receipt's showPrintPreview setting.
+    const skipPreview = opts.purpose === 'kot' ? (settings.kotAutoPrint === true) : settings.showPrintPreview === false;
+    if (skipPreview) {
       await doSilentPrint(defaultCopies);
       return;
     }
