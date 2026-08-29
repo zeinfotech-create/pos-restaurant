@@ -1215,7 +1215,13 @@ function startCounterOrdersTimerLoop() {
 // `capacityLabel` overrides the default "seats up to N" wording — used when
 // `capacity` actually means "seats left on this table", not its total.
 function promptGuestCount(onConfirm, capacity = null, capacityLabel = null, hardCap = false) {
-  const defaultCount = capacity ? Math.min(2, capacity) : 2;
+  // Default to the FULL available seat count (the whole table for a fresh
+  // seating, or whatever's left when adding a party to an already-shared
+  // one) rather than always capping at 2 — matches how a host stand
+  // actually seats a table (a party of 4 shouldn't need to bump this up
+  // from a hardcoded "2" every single time). Still just a starting
+  // suggestion the cashier can type over either way.
+  const defaultCount = capacity || 2;
   openModal({
     title: '<i class="fa-solid fa-users mr-8"></i> Party Size',
     body: `
