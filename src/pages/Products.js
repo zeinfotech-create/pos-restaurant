@@ -6,6 +6,7 @@ import { MediaService } from '../services/MediaService.js';
 import { initDateRangePicker, getDefaultRange } from '../utils/dateRangeHelper.js';
 import { applySessionFilter } from '../utils/sessionFilter.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
+import { computeRecipeCost } from '../utils/recipeCost.js';
 
 // Overall status for a product, honoring its own (or its variants') minStock
 // rather than a flat threshold — worst-of-all-variants for variant products,
@@ -719,6 +720,16 @@ async function openProductForm(product, container, cur) {
   let hasVariants = !!(product?.variants && product.variants.length > 0);
   let variants = product?.variants ? [...product.variants] : [];
 
+  // Recipe (BOM) — this product IS a dish made from other products (raw
+  // materials) rather than something bought/stocked as-is. allProductsForRecipe
+  // excludes the product being edited itself (can't be its own ingredient)
+  // and any variant-only stub rows; fetched once here rather than per
+  // keystroke since the ingredient list doesn't need to be perfectly live
+  // while this one form is open.
+  const allProductsForRecipe = (await getProducts()).filter(p => p.id !== product?.id);
+  let hasRecipe = !!(product?.recipe?.ingredients && product.recipe.ingredients.length > 0);
+  let recipeIngredients = product?.recipe?.ingredients ? product.recipe.ingredients.map(i => ({ ...i })) : [];
+
   function renderVariantList() {
     const vList = document.getElementById('variantList');
     if (!vList) return;
@@ -768,6 +779,80 @@ async function openProductForm(product, container, cur) {
     document.getElementById('addVariantBtn').onclick = () => {
       variants.push({ name: '', price: 0, stock: 0, itemDiscount: 0 });
       renderVariantList();
+    };
+  }
+
+  // Recipe (BOM) ingredient list — same add/remove/re-render shape as
+  // renderVariantList() above, but each row picks an EXISTING product as an
+  // ingredient rather than free-typing a name. A row's qty is always in
+  // that ingredient's own configured unit (kg/g/pcs/...), shown read-only
+  // next to the qty input — NOT a per-row unit picker — so "0.2" against a
+  // kg-costed rice always means 200g, never ambiguous between rows.
+  function renderRecipeList() {
+    const rList = document.getElementById('recipeList');
+    if (!rList) return;
+    if (!hasRecipe) {
+      rList.innerHTML = '';
+      return;
+    }
+    const estimatedCost = computeRecipeCost({ ingredients: recipeIngredients }, allProductsForRecipe);
+    rList.innerHTML = `
+      <div class="variant-list">
+        <div class="variant-row">
+          <span style="flex:2; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Ingredient</span>
+          <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Qty used</span>
+          <span style="width:36px"></span>
+        </div>
+        ${recipeIngredients.map((ing, i) => {
+          const ingProduct = allProductsForRecipe.find(p => p.id === ing.productId);
+          return `
+          <div class="variant-row">
+            <select class="form-select recipe-ingredient-select" style="flex:2" data-idx="${i}">
+              <option value="">Select a product...</option>
+              ${allProductsForRecipe.map(p => `<option value="${p.id}" ${ing.productId === p.id ? 'selected' : ''}>${escapeHtml(p.name)} (${escapeHtml(p.unit || 'pcs')}, ${cur}${(p.costPrice || 0).toFixed(2)}/${escapeHtml(p.unit || 'pcs')})</option>`).join('')}
+            </select>
+            <div style="flex:1; display:flex; align-items:center; gap:4px">
+              <input class="form-input recipe-qty-input" type="number" min="0" step="any" placeholder="Qty" value="${ing.qty ?? ''}" data-idx="${i}" style="width:100%" />
+              <span style="font-size:11px; color:var(--text-muted); white-space:nowrap">${escapeHtml(ingProduct?.unit || '')}</span>
+            </div>
+            <button class="btn btn-icon remove-recipe-ingredient-btn" data-idx="${i}" style="color:var(--danger)"><i class="fa-solid fa-minus"></i></button>
+          </div>
+        `;
+        }).join('')}
+        <button class="btn btn-ghost btn-sm w-full mt-8" id="addRecipeIngredientBtn"><i class="fa-solid fa-plus"></i> Add Ingredient</button>
+        <div style="margin-top:10px; padding:10px; background:var(--bg-app); border-radius:8px; border:1px dashed var(--border); font-size:12.5px; display:flex; justify-content:space-between; align-items:center">
+          <span style="font-weight:600">Estimated cost per unit (from current ingredient prices)</span>
+          <span style="font-weight:800; color:var(--primary)">${cur}${estimatedCost.toFixed(2)}</span>
+        </div>
+        <p class="form-help-text" style="margin-top:6px">This overrides Cost Price above the moment this item actually sells — the recipe becomes the real source of truth for its cost, updating automatically as ingredient prices change. Selling this ALSO deducts its own Stock count (set below) same as any product, on top of deducting these ingredients — track both if this shop cooks in batches.</p>
+      </div>
+    `;
+
+    rList.querySelectorAll('.recipe-ingredient-select').forEach(sel => {
+      sel.onchange = () => {
+        recipeIngredients[sel.dataset.idx].productId = sel.value;
+        renderRecipeList();
+      };
+    });
+    rList.querySelectorAll('.recipe-qty-input').forEach(input => {
+      input.oninput = () => {
+        recipeIngredients[input.dataset.idx].qty = parseFloat(input.value) || 0;
+        // Live-update just the cost readout without a full re-render —
+        // rebuilding the whole list on every keystroke would steal focus
+        // from the input the owner is actively typing into.
+        const costEl = rList.querySelector('span[style*="color:var(--primary)"]');
+        if (costEl) costEl.textContent = `${cur}${computeRecipeCost({ ingredients: recipeIngredients }, allProductsForRecipe).toFixed(2)}`;
+      };
+    });
+    rList.querySelectorAll('.remove-recipe-ingredient-btn').forEach(btn => {
+      btn.onclick = () => {
+        recipeIngredients.splice(btn.dataset.idx, 1);
+        renderRecipeList();
+      };
+    });
+    document.getElementById('addRecipeIngredientBtn').onclick = () => {
+      recipeIngredients.push({ productId: '', qty: 0 });
+      renderRecipeList();
     };
   }
 
@@ -1009,8 +1094,13 @@ async function openProductForm(product, container, cur) {
               <input type="checkbox" id="allowNegativeStockToggle" ${product?.allowNegativeStock ? 'checked' : ''} style="width:18px;height:18px" />
               <span style="font-size:12px; font-weight:600"><i class="fa-solid fa-triangle-exclamation mr-4"></i> Sell When Out of Stock</span>
            </label>
+           <label style="display:flex; align-items:center; gap:8px; padding:10px; background:var(--bg-app); border-radius:8px; border:1px solid var(--border); cursor:pointer">
+              <input type="checkbox" id="hasRecipeToggle" ${hasRecipe ? 'checked' : ''} style="width:18px;height:18px" />
+              <span style="font-size:12px; font-weight:600"><i class="fa-solid fa-blender mr-4"></i> Made from a Recipe (BOM)</span>
+           </label>
         </div>
         <div id="variantList"></div>
+        <div id="recipeList"></div>
       `)}
 
       ${section('fa-warehouse', 'Storage Location', `
@@ -1055,12 +1145,19 @@ async function openProductForm(product, container, cur) {
   await updateSubOptions(product?.category, product?.subCategory);
 
   renderVariantList();
+  renderRecipeList();
 
   document.getElementById('hasVariantsToggle').onchange = (e) => {
     hasVariants = e.target.checked;
     document.getElementById('singleProductPriceArea').style.display = hasVariants ? 'none' : 'block';
     if (hasVariants && variants.length === 0) variants.push({ name: '', price: 0, stock: 0, itemDiscount: 0 });
     renderVariantList();
+  };
+
+  document.getElementById('hasRecipeToggle').onchange = (e) => {
+    hasRecipe = e.target.checked;
+    if (hasRecipe && recipeIngredients.length === 0) recipeIngredients.push({ productId: '', qty: 0 });
+    renderRecipeList();
   };
 
   // Swap the discount input's prefix between currency symbol and % as the type changes
@@ -1388,10 +1485,23 @@ async function openProductForm(product, container, cur) {
           return;
         }
 
+        let finalRecipe = null;
+        if (hasRecipe) {
+          const invalidIng = recipeIngredients.find(ing => !ing.productId || !ing.qty || ing.qty <= 0);
+          if (invalidIng) {
+            showToast('Fill every recipe row: pick an ingredient and a qty greater than 0', 'error');
+            isProcessing = false;
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = `<i class="fa-solid fa-floppy-disk mr-8"></i> ${isEdit ? 'Update Product' : 'Create Product'}`;
+            return;
+          }
+          finalRecipe = { ingredients: recipeIngredients.map(ing => ({ productId: ing.productId, qty: parseFloat(ing.qty) || 0 })) };
+        }
+
         const payload = {
           ...product, name: name_val, sku, barcode, price: finalPrice, costPrice: finalCost, stock: finalStock, minStock: finalMinStock, category, subCategory, emoji,
           image, variants: finalVariants, hsnCode, taxType, taxRate, itemDiscount, itemDiscountType, isReturnable, allowNegativeStock, mrp, expiryDate, manufacturingDate, unit,
-          location: { floor, row, rack }
+          location: { floor, row, rack }, recipe: finalRecipe
         };
 
         const currentUser = await getCurrentUser();

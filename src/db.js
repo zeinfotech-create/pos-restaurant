@@ -1074,6 +1074,29 @@ export async function saveOrder(order) {
   const existingOrder = await getDataById('orders', order.id);
   const isNew = !existingOrder;
 
+  // Recipe-based items (a dish built from raw-material ingredients — see
+  // utils/recipeCost.js) get their REAL cost computed here, from each
+  // ingredient's current costPrice, overriding whatever static costPrice
+  // rode in on the cart item (CheckoutService.js snapshots the product's
+  // OWN costPrice onto the cart item at add-to-cart time, which for a
+  // recipe product is informational at best — the recipe is the source of
+  // truth for what it actually costs to make). Must happen BEFORE the order
+  // save just below, not in the stock-deduction loop further down, so the
+  // saved order — and every profit report reading item.costPrice off it —
+  // reflects the real figure from the very first write, not a stale one
+  // corrected only on some later re-save.
+  let products = null;
+  if (isNew && order.status !== 'cancelled') {
+    const { hasRecipe, computeRecipeCost } = await import('./utils/recipeCost.js');
+    products = await getProducts();
+    for (const item of order.items) {
+      const p = products.find(x => x.id === item.id);
+      if (p && hasRecipe(p)) {
+        item.costPrice = computeRecipeCost(p.recipe, products);
+      }
+    }
+  }
+
   // Save the order record FIRST — by the time this function runs, payment has
   // already been collected in the real world, so this row IS the sale's
   // receipt/audit trail. Losing it because a later loyalty/stock write fails
@@ -1156,7 +1179,14 @@ export async function saveOrder(order) {
       console.error(`[saveOrder] Loyalty/credit processing failed for order ${order.id}:`, err);
     }
 
-    const products = await getProducts();
+    // `products` was already fetched above (for the recipe-cost pre-pass) —
+    // reuse that same array/objects rather than re-fetching, so a recipe
+    // dish sold twice in one order (or two different recipe dishes sharing
+    // an ingredient) both mutate the SAME in-memory product record and the
+    // second deduction correctly starts from the first's already-reduced
+    // stock, not a stale re-fetched copy.
+    products = products || await getProducts();
+    const { hasRecipe } = await import('./utils/recipeCost.js');
     for (const item of order.items) {
       // Each item's stock write is independent — a transient failure on one
       // line must not abort the rest of the loop, and the order itself is
@@ -1179,6 +1209,28 @@ export async function saveOrder(order) {
           }
           await updateProduct(p);
           await logInventoryChange(p.id, item.variantName || null, 'OUT', item.qty, 'Sale (POS)', order.branchId, order.id, oldStock, oldStock - item.qty);
+
+          // Recipe dish: on top of its OWN stock/count above (the "N plates
+          // ready" batch number this shop tracks), also deduct the real raw
+          // ingredients that plate was made from — the two are tracked
+          // side by side, not one instead of the other (this shop cooks in
+          // batches AND wants ingredient stock to stay accurate as each
+          // plate sells, not just at batch-cook time).
+          if (hasRecipe(p)) {
+            for (const ing of p.recipe.ingredients) {
+              try {
+                const ip = products.find(x => x.id === ing.productId);
+                if (!ip) continue;
+                const consumed = (Number(ing.qty) || 0) * item.qty;
+                const ingOldStock = ip.stock || 0;
+                ip.stock = ingOldStock - consumed;
+                await updateProduct(ip);
+                await logInventoryChange(ip.id, null, 'OUT', consumed, `Recipe: ${item.qty}× ${item.name}`, order.branchId, order.id, ingOldStock, ip.stock);
+              } catch (ingErr) {
+                console.error(`[saveOrder] Recipe ingredient deduction failed for order ${order.id}, dish ${item.id}, ingredient ${ing.productId}:`, ingErr);
+              }
+            }
+          }
         }
       } catch (err) {
         console.error(`[saveOrder] Stock deduction failed for order ${order.id}, product ${item.id}:`, err);
