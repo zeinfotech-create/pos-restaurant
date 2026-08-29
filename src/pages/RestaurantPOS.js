@@ -261,6 +261,12 @@ async function enterCounterOrder(order, table = null) {
   };
   changeLog = order.changeLog || [];
   loadTableOrderIntoCart(order.items?.length ? { currentOrder: { items: order.items } } : null);
+  // loadTableOrderIntoCart() just reset this to 0 — re-apply the shop's
+  // configured Service Charge % now, Dine-in only (Settings > General).
+  // Re-read here rather than trusting a possibly-stale `store.settings`
+  // snapshot, same reasoning store.js's own allowNegativeStock re-check
+  // already uses elsewhere.
+  store.serviceChargePercent = (orderType === 'dine-in' && store.settings?.serviceChargeEnabled) ? (store.settings.serviceChargePercent || 0) : 0;
   migrateLegacySentFlags();
   if (order.waiterId) {
     const waiter = (await getStaff()).find(s => s.id === order.waiterId);
@@ -1558,6 +1564,7 @@ async function renderOrderingView() {
           <div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>Subtotal</span><span>${cur}${totals.subtotal.toFixed(2)}</span></div>
           ${totals.discount > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--success);"><span>Discount</span><span>-${cur}${totals.discount.toFixed(2)}</span></div>` : ''}
           <div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>Tax</span><span>${cur}${(totals.itemTax + totals.orderTax).toFixed(2)}</span></div>
+          ${totals.serviceCharge > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>Service Charge (${totals.serviceChargePercent}%)</span><span>${cur}${totals.serviceCharge.toFixed(2)}</span></div>` : ''}
           ${totals.roundOff ? `<div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>Round Off</span><span>${totals.roundOff > 0 ? '+' : ''}${cur}${totals.roundOff.toFixed(2)}</span></div>` : ''}
           <div style="display:flex; justify-content:space-between; font-size:15px; font-weight:800; margin-top:4px; padding-top:6px; border-top:1px solid var(--border);"><span>Total</span><span>${cur}${totals.total.toFixed(2)}</span></div>
         </div>
@@ -2260,6 +2267,8 @@ async function previewBill() {
     subtotal: totals.subtotal,
     discount: totals.discount,
     tax: totals.itemTax + totals.orderTax,
+    serviceCharge: totals.serviceCharge,
+    serviceChargePercent: totals.serviceChargePercent,
     total: totals.total,
     date: new Date().toISOString(),
     // Raw lowercase — same shape completeBill()'s restaurantMeta.orderType

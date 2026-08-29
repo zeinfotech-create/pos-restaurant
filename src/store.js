@@ -25,6 +25,12 @@ export const store = {
     discountType: 'flat',
     extraTaxRaw: 0,
     extraTaxType: 'flat',
+    // Restaurant-only "auto Service Charge %" — unlike discountRaw/extraTaxRaw
+    // (both manually entered per-sale via POS.js's Add Discount/Add Tax
+    // buttons), this is driven entirely by Settings > General's Service
+    // Charge toggle and set by RestaurantPOS.js's enterCounterOrder() based
+    // on order type (Dine-in only) — never touched by a manual UI control.
+    serviceChargePercent: 0,
     page: 'dashboard',
     settings: null, // Loaded in initStore
     branch: null,
@@ -215,6 +221,7 @@ export async function clearCart() {
     store.discountType = 'flat';
     store.extraTaxRaw = 0;
     store.extraTaxType = 'flat';
+    store.serviceChargePercent = 0;
     store.selectedStaff = null;
     store.selectedAppointmentId = null;
     renderCartEvent();
@@ -304,7 +311,12 @@ export function getCartTotals() {
         orderTax = store.extraTaxRaw;
     }
 
-    let finalAmount = Math.max(0, grossTotal - store.discount + orderTax);
+    // Service Charge — always a % of grossTotal (pre-discount, tax-inclusive
+    // total), same base orderTax above already uses, so the two stack
+    // predictably rather than one being computed on the other's result.
+    const serviceCharge = parseFloat((grossTotal * ((store.serviceChargePercent || 0) / 100)).toFixed(2));
+
+    let finalAmount = Math.max(0, grossTotal - store.discount + orderTax + serviceCharge);
     let roundOff = 0;
     if (settings.roundOffEnabled) {
         const rounded = Math.round(finalAmount);
@@ -353,6 +365,8 @@ export function getCartTotals() {
         itemTax: parseFloat(reconciledItemTax.toFixed(2)),
         orderDiscount: parseFloat(orderDiscount.toFixed(2)),
         orderTax: parseFloat(orderTax.toFixed(2)),
+        serviceCharge,
+        serviceChargePercent: store.serviceChargePercent || 0,
         discount: store.discount + totalItemDiscounts, // total overall discount
         tax: parseFloat(reconciledItemTax.toFixed(2)), // scaled post-discount tax (compat)
         grossTax: parseFloat(reconciledTax.toFixed(2)), // PRE-discount full tax (for display breakdown)
@@ -430,6 +444,7 @@ export function loadAppointmentIntoCart(data) {
     store.discount = 0;
     store.extraTaxRaw = 0;
     store.extraTaxType = 'flat';
+    store.serviceChargePercent = 0;
 
     // Set metadata
     store.selectedCustomer = customer || null;
@@ -470,6 +485,7 @@ export function loadTableOrderIntoCart(table = null) {
     store.discount = 0;
     store.extraTaxRaw = 0;
     store.extraTaxType = 'flat';
+    store.serviceChargePercent = 0;
     store.selectedCustomer = null;
     store.selectedStaff = null;
     store.selectedAppointmentId = null;

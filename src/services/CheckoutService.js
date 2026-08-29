@@ -814,6 +814,8 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
       subtotal: totals.subtotal,
       discount: totals.discount,
       tax: totals.grossTax || totals.tax,
+      serviceCharge: totals.serviceCharge || 0,
+      serviceChargePercent: totals.serviceChargePercent || 0,
       roundOff: totals.roundOff || 0,
       groupedTaxes: totals.grossGroupedTaxes || totals.groupedTaxes || [],
       taxRate: totals.taxRate,
@@ -1348,6 +1350,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
         <div style="flex:0 0 220px">
           <div style="display:flex; justify-content:space-between"><span>Sub Total</span><span>${cur}${subtotal.toFixed(2)}</span></div>
           ${settings.showDiscountOnReceipt !== false && order.discount > 0 ? `<div style="display:flex; justify-content:space-between"><span>Discount</span><span>-${cur}${order.discount.toFixed(2)}</span></div>` : ''}
+          ${order.serviceCharge > 0 ? `<div style="display:flex; justify-content:space-between"><span>Service Charge (${order.serviceChargePercent}%)</span><span>${cur}${order.serviceCharge.toFixed(2)}</span></div>` : ''}
           ${settings.showTaxOnReceipt !== false ? (taxBreakdown.length > 0 ? taxBreakdown.map(t => order.isInterState ? `
             <div style="display:flex; justify-content:space-between; font-size:12px"><span>IGST @${(+t.rate).toFixed(2)}%</span><span>${cur}${t.amount.toFixed(2)}</span></div>
           ` : `
@@ -1598,6 +1601,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
       })()}</span></div>
       <div class="receipt-row" style="font-weight:800; font-size:14px"><span>Total:</span><span>${cur}${subtotal.toFixed(2)}</span></div>
       ${settings.showDiscountOnReceipt !== false && order.discount > 0 ? `<div class="receipt-row"><span>Discount ${order.globalDiscountType === 'pct' ? `(${order.globalDiscountRaw}%)` : ''}</span><span>-${cur}${order.discount.toFixed(2)}</span></div>` : ''}
+      ${order.serviceCharge > 0 ? `<div class="receipt-row"><span>Service Charge (${order.serviceChargePercent}%)</span><span>${cur}${order.serviceCharge.toFixed(2)}</span></div>` : ''}
 
       ${(() => {
         const hasGroupedTax = (order.groupedTaxes?.length > 0 || order.grossGroupedTaxes?.length > 0);

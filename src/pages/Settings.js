@@ -558,6 +558,18 @@ export async function renderSettings(container) {
                 </select>
               </div>
 
+              <div class="form-group" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--border)">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-bottom:8px">
+                  <input type="checkbox" id="sServiceChargeEnabled" ${s.serviceChargeEnabled ? 'checked' : ''} style="width:18px; height:18px" />
+                  <span class="form-label" style="margin:0">Enable Service Charge</span>
+                </label>
+                <div id="serviceChargePercentWrap" style="${s.serviceChargeEnabled ? '' : 'display:none'}">
+                  <label class="form-label">Service Charge %</label>
+                  <input class="form-input" id="sServiceChargePercent" type="number" step="0.1" min="0" max="100" value="${s.serviceChargePercent ?? 5}" style="max-width:160px" />
+                  <p class="form-help-text">Automatically added to every Dine-in bill (Restaurant POS) as its own line, on top of tax — not applied to Takeaway, Delivery, Swiggy, or Zomato orders.</p>
+                </div>
+              </div>
+
               <!-- Integration of Payment Methods into General -->
               <div class="form-group" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--border)">
                 <label class="form-label">Configured Payment Methods</label>
@@ -1654,6 +1666,8 @@ export async function renderSettings(container) {
       currency: container.querySelector('#sCurrency').value,
       availableTaxes: JSON.parse(container.querySelector('#sAvailableTaxes').value || '[]'),
       taxRate: parseFloat(container.querySelector('#sTaxRate').value) || 0,
+      serviceChargeEnabled: container.querySelector('#sServiceChargeEnabled')?.checked || false,
+      serviceChargePercent: Math.min(100, Math.max(0, parseFloat(container.querySelector('#sServiceChargePercent')?.value) || 0)),
       paymentMethods: JSON.parse(container.querySelector('#sPaymentMethods')?.value || '[]'),
       expenseCategories: JSON.parse(container.querySelector('#sExpenseCategories')?.value || '[]'),
       // The whole block (and this hidden input) doesn't exist in the DOM
@@ -1782,6 +1796,11 @@ export async function renderSettings(container) {
     const ipGroup = container.querySelector('#sPrinterIpGroup');
     if (nameGroup) nameGroup.style.display = isNetwork ? 'none' : '';
     if (ipGroup) ipGroup.style.display = isNetwork ? '' : 'none';
+  });
+
+  container.querySelector('#sServiceChargeEnabled')?.addEventListener('change', (e) => {
+    const wrap = container.querySelector('#serviceChargePercentWrap');
+    if (wrap) wrap.style.display = e.target.checked ? '' : 'none';
   });
 
   // KOT Printer — same "System" vs "Network (IP)" toggle as the main
