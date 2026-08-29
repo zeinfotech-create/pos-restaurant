@@ -1902,11 +1902,20 @@ async function openModifyModal(cartId) {
 // ── Cancel with mandatory reason (only enforced once an item has actually
 // been fired to the kitchen — cancelling something that never left the cart
 // has no kitchen/food-cost impact, so no audit friction there). ──────────
-function promptVoidReason(item, onConfirm) {
+// `context` lets a caller other than "cancel this whole line" (currently
+// just requestQtyMinus()'s partial reduction) override the generic
+// title/body/confirm-label — a reduce-by-N action showing a "Cancel Item"
+// modal read as if it were cancelling everything, not just part of it, and
+// genuinely confused a real user (they clicked qty-minus expecting a
+// smaller/clearer action and got what looked like the full-cancel flow).
+function promptVoidReason(item, onConfirm, context = null) {
+  const title = context?.title || 'Cancel Item';
+  const bodyText = context?.bodyText || `<b>${escapeHtml(item.name)}</b> was already sent to the kitchen. Please note why it's being cancelled — this is kept on the order record.`;
+  const confirmLabel = context?.confirmLabel || 'Cancel Item';
   openModal({
-    title: `<i class="fa-solid fa-triangle-exclamation mr-8" style="color:var(--danger);"></i> Cancel Item`,
+    title: `<i class="fa-solid fa-triangle-exclamation mr-8" style="color:var(--danger);"></i> ${title}`,
     body: `
-      <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;"><b>${escapeHtml(item.name)}</b> was already sent to the kitchen. Please note why it's being cancelled — this is kept on the order record.</div>
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">${bodyText}</div>
       <div class="form-group">
         <label class="form-label required">Reason</label>
         <textarea class="form-input" id="rposVoidReason" rows="2" placeholder="e.g. Customer changed mind, wrong item sent..." autofocus></textarea>
@@ -1914,7 +1923,7 @@ function promptVoidReason(item, onConfirm) {
     `,
     footer: `
       <button class="btn btn-ghost" onclick="closeModal()">Keep Item</button>
-      <button class="btn btn-danger" id="rposVoidConfirmBtn"><i class="fa-solid fa-trash mr-4"></i> Cancel Item</button>
+      <button class="btn btn-danger" id="rposVoidConfirmBtn"><i class="fa-solid fa-trash mr-4"></i> ${confirmLabel}</button>
     `
   });
   setTimeout(() => {
@@ -2000,6 +2009,10 @@ function requestQtyMinus(cartId) {
       item.sentQty = 0;
       await updateQty(cartId, -1);
       await persistOrderState();
+    }, {
+      title: 'Reduce Quantity',
+      bodyText: `Reducing <b>${escapeHtml(item.name)}</b> from ${item.qty} to ${nextQty} — since ${item.sentQty} ${item.sentQty === 1 ? 'is' : 'are'} already sent to the kitchen, that batch will be cancelled and ${nextQty} will go out fresh on the next Send to Kitchen. Please note why.`,
+      confirmLabel: `Reduce to ${nextQty}`,
     });
   } else {
     updateQty(cartId, -1);
