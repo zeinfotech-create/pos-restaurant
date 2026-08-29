@@ -31,7 +31,7 @@ import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, summarizeCartIdStatus, buildKitchenStatusMapFor, partyServeStatus, tableReadyToBill, kitchenFacingOrderLabel } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayNameWithSection, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, summarizeCartIdStatus, buildKitchenStatusMapFor, partyServeStatus, tableReadyToBill, kitchenFacingOrderLabel } from '../utils/tableDisplay.js';
 
 // A fixed, common set of toggle-able modifiers — every menu item shares the
 // same list rather than per-product-configured modifier groups. Simpler to
@@ -180,7 +180,12 @@ function counterOrderLabel(order) {
 // table, or two simultaneous takeaway orders, apart.
 function currentOrderLabel(allTables) {
   if (selectedTable) {
-    const base = tableDisplayName(selectedTable, allTables);
+    // WithSection, not the plain tableDisplayName() the table grid card
+    // itself uses — this label has to stand completely alone (no nearby
+    // section header for context) wherever it ends up, and sections
+    // commonly reuse the same plain numbers (Table "3" in both "AC Hall"
+    // and "Ground Floor" — real, live example this disambiguates).
+    const base = tableDisplayNameWithSection(selectedTable, allTables);
     return selectedCounterOrder?.partyNumber ? `${base} · Box ${selectedCounterOrder.partyNumber}` : base;
   }
   return selectedCounterOrder ? counterOrderLabel(selectedCounterOrder) : null;

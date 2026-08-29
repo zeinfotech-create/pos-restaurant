@@ -46,6 +46,23 @@ export function tableDisplayName(table, allTables) {
   return [table.name, ...names].join(' + ');
 }
 
+// Sections commonly reuse plain numbers ("1", "2", "3" ...) across
+// different physical areas (e.g. both "AC Hall" and "Ground Floor" having
+// their own table "3") — the table GRID card is unambiguous because it
+// already sits under a section header, but once a table's own identity has
+// to stand alone (the ordering-view header, a KOT ticket, a receipt) that
+// context is gone and two genuinely different tables can read identically.
+// Prepends the section name only when it's actually set to something other
+// than the unset/"Main" default, so plain-numbered tables in an
+// unsectioned shop (or the default "Main" section) are completely
+// unaffected — this only kicks in for a shop that's actually using
+// multiple named sections, exactly the case that's ambiguous otherwise.
+export function tableDisplayNameWithSection(table, allTables) {
+  const base = tableDisplayName(table, allTables);
+  const section = table.section?.trim();
+  return section && section !== 'Main' ? `${section} · ${base}` : base;
+}
+
 export function tableDisplayCapacity(table, allTables) {
   if (!table.mergedTableIds?.length) return table.capacity || 4;
   const extra = table.mergedTableIds.reduce((sum, id) => sum + (allTables.find(t => t.id === id)?.capacity || 4), 0);
