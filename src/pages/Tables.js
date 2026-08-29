@@ -234,9 +234,20 @@ async function renderReservationsContent() {
 
   area.querySelectorAll('.seat-reservation-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
+      const reservation = all.find(r => r.id === btn.dataset.id);
       await updateReservationStatus(btn.dataset.id, 'seated');
-      showToast('Marked seated — pick a free table to actually start their order.', 'success');
-      await renderReservationsContent();
+      if (reservation?.tableIds?.length) {
+        // Jump straight into the ordering screen for the reserved table —
+        // already merged into one unit if this booking combined more than
+        // one — using the exact same hand-off Tables.js's own table-card
+        // click already uses (see setupTablesListeners() below), instead of
+        // just flipping a status flag and leaving staff to go find and
+        // click the right table themselves right after being told to seat it.
+        navigate(`restaurant-pos/${reservation.tableIds[0]}`);
+      } else {
+        showToast('Marked seated — pick a free table to start their order (no specific table was booked for this one).', 'success');
+        await renderReservationsContent();
+      }
     });
   });
   area.querySelectorAll('.noshow-reservation-btn').forEach(btn => {
