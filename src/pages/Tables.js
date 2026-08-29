@@ -172,10 +172,11 @@ async function renderReservationsContent() {
           </div>
           <div style="font-size:10.5px; font-weight:800; color:${meta.color}; white-space:nowrap;">${meta.label}</div>
         </div>
-        <div style="display:flex; align-items:center; gap:14px; margin-top:10px; font-size:12px; color:var(--text-secondary);">
+        <div style="display:flex; align-items:center; gap:14px; margin-top:10px; font-size:12px; color:var(--text-secondary); flex-wrap:wrap;">
           <span><i class="fa-solid fa-clock" style="opacity:.6; margin-right:4px;"></i>${formatTimeLabel(r.reservationTime)}</span>
           <span><i class="fa-solid fa-user-group" style="opacity:.6; margin-right:4px;"></i>${r.guestCount || 1} guest${(r.guestCount || 1) === 1 ? '' : 's'}</span>
         </div>
+        ${r.tableName ? `<div style="font-size:11.5px; font-weight:700; color:var(--primary); margin-top:6px;"><i class="fa-solid fa-chair" style="opacity:.7; margin-right:4px;"></i>${escapeAttr(r.tableSection && r.tableSection !== 'Main' ? `${r.tableSection} · ${r.tableName}` : r.tableName)}</div>` : ''}
         ${r.notes ? `<div style="font-size:11px; color:var(--text-muted); margin-top:6px; font-style:italic;">${escapeAttr(r.notes)}</div>` : ''}
         <div style="display:flex; gap:6px; margin-top:12px; flex-wrap:wrap;">
           ${r.status === 'confirmed' ? `
@@ -257,9 +258,21 @@ async function renderReservationsContent() {
   });
 }
 
-function openReservationForm(reservation) {
+async function openReservationForm(reservation) {
   const isEdit = !!reservation;
   const todayStr = new Date().toISOString().slice(0, 10);
+
+  // Real, live tables/sections/capacities — the exact same source Tables.js's
+  // own grid reads, grouped the same way (groupBySection() defaults an
+  // unset section to "Main", sorts Main first then alphabetically) so this
+  // dropdown can never show a section/capacity this shop hasn't actually
+  // configured. "No specific table" stays the default — this app supports
+  // table SHARING (see db.js's KEYS.RESERVATIONS comment), so pinning one
+  // is a convenience when the guest's known preference matters, not a
+  // requirement.
+  const allTables = await getTables();
+  const groupedTables = groupBySection(visibleTables(allTables));
+
   openModal({
     title: `<i class="fa-solid fa-calendar-plus mr-8"></i> ${isEdit ? 'Edit' : 'New'} Reservation`,
     body: `
@@ -270,6 +283,17 @@ function openReservationForm(reservation) {
       <div class="form-group">
         <label class="form-label">Phone</label>
         <input class="form-input" id="resPhone" type="tel" value="${escapeAttr(reservation?.customerPhone || '')}" placeholder="e.g. 9876543210" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Table (optional)</label>
+        <select class="form-select" id="resTableId">
+          <option value="">No specific table — assign when they arrive</option>
+          ${groupedTables.map(({ section, tables }) => `
+            <optgroup label="${escapeAttr(section)}">
+              ${tables.map(t => `<option value="${t.id}" ${reservation?.tableId === t.id ? 'selected' : ''}>${escapeAttr(tableDisplayName(t, allTables))} — Seats ${tableDisplayCapacity(t, allTables)}</option>`).join('')}
+            </optgroup>
+          `).join('')}
+        </select>
       </div>
       <div class="form-grid">
         <div class="form-group mb-0">
@@ -305,6 +329,11 @@ function openReservationForm(reservation) {
       showToast('Guest name, date, and time are required', 'error');
       return;
     }
+    const tableId = document.getElementById('resTableId').value || null;
+    // Snapshot the table's display name (section + name) at booking time —
+    // so the reservation list can show it without a live table lookup, and
+    // it stays meaningful even if that table's later renamed or deleted.
+    const pickedTable = tableId ? allTables.find(t => t.id === tableId) : null;
     await saveReservation({
       ...(reservation || {}),
       customerName,
@@ -313,6 +342,9 @@ function openReservationForm(reservation) {
       reservationTime,
       guestCount,
       notes: document.getElementById('resNotes').value.trim(),
+      tableId,
+      tableName: pickedTable ? tableDisplayName(pickedTable, allTables) : null,
+      tableSection: pickedTable ? (pickedTable.section?.trim() || 'Main') : null,
     });
     closeModal();
     showToast(isEdit ? 'Reservation updated' : 'Reservation booked', 'success');
