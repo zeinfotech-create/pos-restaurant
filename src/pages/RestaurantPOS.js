@@ -1963,9 +1963,17 @@ async function openModifyModal(cartId) {
         else { selected.add(m); chip.classList.add('active'); chip.style.background = 'var(--primary)'; chip.style.color = 'white'; chip.style.borderColor = 'var(--primary)'; }
       });
     });
-    document.getElementById('rposModifyConfirmBtn')?.addEventListener('click', async () => {
+    document.getElementById('rposModifyConfirmBtn')?.addEventListener('click', async (e) => {
+      // A fast double-click (very plausible on a touchscreen counter) could
+      // otherwise fire this whole async handler twice before the first run
+      // even gets to closeModal() — doubling the changeLog entry and, worse,
+      // firing two near-simultaneous native print calls (see queuePrint()'s
+      // comment in CheckoutService.js for why that's not just cosmetic).
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
+      btn.disabled = true;
       const reason = document.getElementById('rposModifyReason')?.value.trim();
-      if (!reason) return showToast('Please enter a reason for the change', 'error');
+      if (!reason) { btn.disabled = false; return showToast('Please enter a reason for the change', 'error'); }
       const qty = Math.max(0.001, parseFloat(document.getElementById('rposModifyQty')?.value) || item.qty);
       const notes = document.getElementById('rposModifyNotes')?.value.trim() || '';
       logChange(item, reason, 'modify');

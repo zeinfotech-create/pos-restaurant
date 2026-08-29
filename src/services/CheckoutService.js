@@ -995,6 +995,41 @@ async function buildStandaloneReceiptHtml(contentHtml, title) {
   return `<html><head><title>${title}</title>${cachedStandaloneStyles}</head><body style="background:white; color:black; font-family:sans-serif">${contentHtml}</body></html>`;
 }
 
+// Serializes every real native print call this app makes (bill, KOT,
+// cancel ticket, invoice — printReceiptHtml() is the one choke point for
+// all of them). Two native print calls reaching Electron's
+// webContents.print()/print-receipt-network at the same instant — a fast
+// double-click on a Send/Modify/Bill button being the realistic trigger —
+// has been confirmed (Windows Event Viewer: electron.exe faulted in
+// ntdll.dll, exception 0xc000041d, STATUS_FATAL_USER_CALLBACK_EXCEPTION)
+// to hard-crash the ENTIRE Electron process, not just fail the print job —
+// taking the bundled local Mongo down with it mid-service. A plain
+// try/catch around the IPC call can't catch this; it's a native-level
+// fault outside JS's reach. Routing every actual print through this queue
+// means the OS/printer subsystem only ever sees one call at a time — nothing
+// in the UI needs a matching guard for this specific failure mode.
+let printQueue = Promise.resolve();
+function queuePrint(run) {
+  // A native print call that never calls back (a stuck/offline printer, or
+  // a "printer" like Microsoft Print to PDF that actually needs a Save-As
+  // dialog no silent call can answer) must never hang forever — without a
+  // timeout, a hung `run()` would (a) leave the button that triggered it
+  // disabled forever, since the caller's own `await` never returns, and
+  // (b) since every print goes through this ONE queue, wedge every OTHER
+  // print in the whole app behind it too, not just this one.
+  const withTimeout = () => Promise.race([
+    run(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Print timed out — check the printer is on and connected.')), 20000)),
+  ]);
+  const next = printQueue.then(withTimeout, withTimeout);
+  // Swallow so one failed/slow print in the chain can't wedge every print
+  // after it — each call still gets its own real result via `next`, and a
+  // timed-out run() moves the queue on even though the native call itself
+  // may still complete/hang later in the background, unobserved.
+  printQueue = next.catch(() => {});
+  return next.catch(e => ({ success: false, error: e.message }));
+}
+
 /**
  * Print receipt-style HTML. On Electron, send it straight to the system's
  * default printer, silently — no OS print dialog — unless Settings > Print >
@@ -1021,16 +1056,15 @@ export async function printReceiptHtml(contentHtml, title = 'Receipt', opts = {}
 
     const doSilentPrint = async (copies) => {
       const fullHtml = await buildStandaloneReceiptHtml(contentHtml, title);
-      let res;
-      if (connectionType === 'network') {
-        if (!printerIp) {
-          showToast(`No ${useKotPrinter ? 'KOT ' : ''}printer IP address configured — set one in Settings > Printing.`, 'error');
-          return;
-        }
-        res = await window.electronAPI.printReceiptNetwork(fullHtml, { ip: printerIp, port: printerPort || 9100, paperSize, copies });
-      } else {
-        res = await window.electronAPI.printReceiptSilent(fullHtml, { paperSize, copies, printerName: printerName || '' });
+      if (connectionType === 'network' && !printerIp) {
+        showToast(`No ${useKotPrinter ? 'KOT ' : ''}printer IP address configured — set one in Settings > Printing.`, 'error');
+        return;
       }
+      // The actual native call — queued (see queuePrint above) so it can
+      // never overlap another print in flight.
+      const res = await queuePrint(() => connectionType === 'network'
+        ? window.electronAPI.printReceiptNetwork(fullHtml, { ip: printerIp, port: printerPort || 9100, paperSize, copies })
+        : window.electronAPI.printReceiptSilent(fullHtml, { paperSize, copies, printerName: printerName || '' }));
       if (!res?.success) showToast('Print failed: ' + (res?.error || 'unknown error'), 'error');
     };
 
