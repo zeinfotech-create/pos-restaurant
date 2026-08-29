@@ -26,7 +26,7 @@
 
 import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, updateSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder, getOrders } from '../db.js';
 import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff, clearCart } from '../store.js';
-import { confirmOrder, printReceiptHtml } from '../services/CheckoutService.js';
+import { confirmOrder, printReceiptHtml, renderReceiptBody } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
@@ -2234,6 +2234,14 @@ function renderCancelledKotHtml(items, ticketLabel, reason) {
 // ── Bill Preview — a proforma print with no payment collection and no order
 // saved, so the customer can review the bill before it's finalized. Not
 // gated on serve-status — a preview is purely informational. ────────────
+// Reuses the SAME shared template (renderReceiptBody()) the real post-payment
+// receipt and Settings > Printing's own live preview both go through — so a
+// proforma actually looks like what the customer's real bill will (store
+// branding, receipt theme, GST-by-rate breakdown, discount/tax lines per
+// this shop's own toggles) instead of a hand-rolled bare-bones layout that
+// drifts from those settings the moment any of them change.
+const ORDER_TYPE_LABELS = { 'dine-in': 'Dine-in', takeaway: 'Takeaway', delivery: 'Delivery', swiggy: 'Swiggy', zomato: 'Zomato' };
+
 async function previewBill() {
   if (store.cart.length === 0) return;
   const settings = store.settings || await getSettings();
@@ -2245,35 +2253,25 @@ async function previewBill() {
   // tell them apart, but internal jargon a customer reading their own bill
   // shouldn't see. Stripped here only, right before it reaches print.
   const orderLabel = (currentOrderLabel(allTables) || '').replace(/ · Box \d+$/, '');
-  await printReceiptHtml(renderProformaHtml(totals, settings, cur, orderLabel), 'Bill Preview');
-}
 
-function renderProformaHtml(totals, settings, cur, orderLabel) {
-  return `
-    <div class="receipt">
-      <div class="receipt-header">
-        <div class="receipt-store-name">${escapeHtml(settings.storeName || 'Bill Preview')}</div>
-        <div class="receipt-row" style="font-size:11px; opacity:.7;">${new Date().toLocaleString()}</div>
-      </div>
-      <div style="text-align:center; font-size:11px; font-weight:800; letter-spacing:.5px; margin:6px 0;">PROFORMA — NOT A TAX INVOICE</div>
-      <div class="receipt-divider"></div>
-      <div style="font-size:12px; font-weight:700; text-align:center;">
-        ${escapeHtml(orderLabel || (orderType || '').toUpperCase())}${guestCount ? ` · ${guestCount} guests` : ''}
-      </div>
-      <div class="receipt-divider"></div>
-      ${store.cart.map(i => `
-        <div style="display:flex; justify-content:space-between; font-size:12px; margin:4px 0;">
-          <span>${escapeHtml(i.name)} x${i.qty}</span><span>${cur}${(i.price * i.qty).toFixed(2)}</span>
-        </div>
-      `).join('')}
-      <div class="receipt-divider"></div>
-      <div style="display:flex; justify-content:space-between; font-size:12px;"><span>Subtotal</span><span>${cur}${totals.subtotal.toFixed(2)}</span></div>
-      ${totals.discount > 0 ? `<div style="display:flex; justify-content:space-between; font-size:12px;"><span>Discount</span><span>-${cur}${totals.discount.toFixed(2)}</span></div>` : ''}
-      <div style="display:flex; justify-content:space-between; font-size:12px;"><span>Tax</span><span>${cur}${(totals.itemTax + totals.orderTax).toFixed(2)}</span></div>
-      <div class="receipt-divider"></div>
-      <div style="display:flex; justify-content:space-between; font-size:14px; font-weight:800;"><span>Total</span><span>${cur}${totals.total.toFixed(2)}</span></div>
-    </div>
-  `;
+  const previewOrder = {
+    id: 'PREVIEW',
+    items: store.cart,
+    subtotal: totals.subtotal,
+    discount: totals.discount,
+    tax: totals.itemTax + totals.orderTax,
+    total: totals.total,
+    date: new Date().toISOString(),
+    orderType: ORDER_TYPE_LABELS[orderType] || orderType,
+    orderSource: AGGREGATOR_TYPES.includes(orderType) ? ORDER_TYPE_LABELS[orderType] : undefined,
+    tableName: orderType === 'dine-in' ? orderLabel : undefined,
+    customer: (orderType !== 'dine-in' && takeawayContact.name) ? { name: takeawayContact.name, phone: takeawayContact.phone } : undefined,
+  };
+  // Same settings this shop already configured for its real receipts —
+  // just the title swapped so it can't be mistaken for a paid tax invoice.
+  const previewSettings = { ...settings, receiptTitle: 'PROFORMA — NOT A TAX INVOICE' };
+  const body = await renderReceiptBody(previewOrder, previewSettings, cur, false);
+  await printReceiptHtml(body, 'Bill Preview');
 }
 
 // ── Bill Now — a small self-contained payment panel (no shared payment-modal
