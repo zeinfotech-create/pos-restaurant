@@ -941,8 +941,9 @@ async function renderTablePartyPicker(table) {
         const statusColor = isEmpty ? STATUS_META.free.color : (ready ? 'var(--success)' : STATUS_META.occupied.color);
         const statusLabel = isEmpty ? 'Empty — no order yet' : (ready ? 'Ready to Bill' : 'In progress');
         return `
-          <div class="rpos-table-card rpos-box-enter ${ready ? 'rpos-box-ready' : ''}" data-id="${p.id}" style="background:${cardBg}; border:1px solid ${cardBorder};">
-            <div style="font-weight:800; font-size:16px;">Box ${p.partyNumber || '?'}</div>
+          <div class="rpos-table-card rpos-box-enter ${ready ? 'rpos-box-ready' : ''}" data-id="${p.id}" style="background:${cardBg}; border:1px solid ${cardBorder}; position:relative;">
+            ${isEmpty ? `<button class="btn-icon rpos-remove-empty-party" data-id="${p.id}" title="Remove this empty box" style="position:absolute; top:8px; right:8px;" onclick="event.stopPropagation()"><i class="fa-solid fa-xmark" style="font-size:11px; color:var(--danger);"></i></button>` : ''}
+            <div style="font-weight:800; font-size:16px; ${isEmpty ? 'padding-right:22px;' : ''}">Box ${p.partyNumber || '?'}</div>
             <div style="font-size:11px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-users" style="margin-right:4px; opacity:.5;"></i>${p.guestCount || '—'} guests · ${p.items?.length || 0} item(s)</div>
             <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
               <div class="rpos-box-status" style="font-size:11px; font-weight:700; color:${statusColor};"><i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '11px' : '6px'}; margin-right:5px;"></i>${statusLabel}</div>
@@ -984,6 +985,17 @@ async function renderTablePartyPicker(table) {
       updateBackButtonLabel();
       await renderOrderingView();
     }, remaining, `${remaining} seat${remaining === 1 ? '' : 's'} left on this table`, true);
+  });
+  // Remove an empty (0-item) box — same "New Order tapped by mistake, sits
+  // there empty forever otherwise" case renderCounterOrderPicker() already
+  // handles for takeaway/delivery/swiggy/zomato, now also here for dine-in
+  // boxes. No confirmation prompt — nothing in it to lose.
+  document.querySelectorAll('.rpos-remove-empty-party').forEach(el => {
+    el.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await deleteCounterOrder(el.dataset.id);
+      await renderTablePartyPicker(table);
+    });
   });
   startTablesTimerLoop();
   registerPartyPickerLiveRefresh();
