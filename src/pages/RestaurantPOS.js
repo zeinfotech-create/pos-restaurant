@@ -31,7 +31,7 @@ import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, summarizeCartIdStatus, buildKitchenStatusMapFor, partyServeStatus, tableReadyToBill } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, summarizeCartIdStatus, buildKitchenStatusMapFor, partyServeStatus, tableReadyToBill, kitchenFacingOrderLabel } from '../utils/tableDisplay.js';
 
 // A fixed, common set of toggle-able modifiers — every menu item shares the
 // same list rather than per-product-configured modifier groups. Simpler to
@@ -1980,7 +1980,10 @@ async function voidCartItemInKots(cartId) {
 // exact ticket were ever displayed again.
 async function printItemCancelTicket(item, qty, reason) {
   const allTables = orderType === 'dine-in' ? await getTables() : [];
-  const ticketLabel = currentOrderLabel(allTables);
+  // Same "Box" -> "Party" relabel renderKotHtml() itself already applies —
+  // this ticket prints to the SAME kitchen printer, so it should read the
+  // same way.
+  const ticketLabel = kitchenFacingOrderLabel(currentOrderLabel(allTables));
   await printReceiptHtml(renderCancelledKotHtml([{ name: item.name, qty }], ticketLabel, reason), 'Item Cancelled', { purpose: 'kot' });
 }
 
@@ -2166,7 +2169,7 @@ export function renderKotHtml(kot, settings) {
       ${kot.waveNumber > 1 && !settings.kotSplitTickets ? `<div style="text-align:center; font-size:12px; font-weight:800; border:1px solid #000; padding:3px; margin:4px 0;">⚠ ADD-ON #${kot.waveNumber} — MORE FOR AN ORDER ALREADY IN PROGRESS</div>` : ''}
       <div class="receipt-divider"></div>
       <div style="font-size:14px; font-weight:800; text-align:center; margin:6px 0;">
-        ${kot.orderType === 'dine-in' ? `TABLE: ${escapeHtml(kot.tableName || '')}` : escapeHtml(kot.tableName || (kot.orderType || '').toUpperCase())}
+        ${kot.orderType === 'dine-in' ? `TABLE: ${escapeHtml(kitchenFacingOrderLabel(kot.tableName) || '')}` : escapeHtml(kitchenFacingOrderLabel(kot.tableName) || (kot.orderType || '').toUpperCase())}
       </div>
       ${kot.waiterName ? `<div style="text-align:center; font-size:11px; opacity:.75;">Waiter: ${escapeHtml(kot.waiterName)}</div>` : ''}
       <div class="receipt-divider"></div>
@@ -2426,9 +2429,10 @@ async function cancelWholeOrder(reason) {
   const cancelledTable = selectedTable;
   const cancelledPartyId = selectedCounterOrder?.id;
   // Captured now, before any state below gets reset — this order's label
-  // (e.g. "TABLE-4 · Box 1") for the cancellation ticket's header.
+  // (e.g. "TABLE-4 · Party 1") for the cancellation ticket's header, printed
+  // to the kitchen so "Box" -> "Party" applies the same as renderKotHtml().
   const allTablesForCancelTicket = orderType === 'dine-in' ? await getTables() : [];
-  const cancelTicketLabel = currentOrderLabel(allTablesForCancelTicket);
+  const cancelTicketLabel = kitchenFacingOrderLabel(currentOrderLabel(allTablesForCancelTicket));
 
   // Leave 'ordering' state FIRST, before any of the awaits below — a real
   // bug found live: voidCartItemInKots()'s saveKot() calls dispatch

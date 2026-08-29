@@ -12,7 +12,7 @@
 import { getKots, updateKotStatus, setKotItemStatus, saveKot, getSettings } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
-import { formatElapsed } from '../utils/tableDisplay.js';
+import { formatElapsed, kitchenFacingOrderLabel } from '../utils/tableDisplay.js';
 import { syncEngine } from '../services/syncEngine.js';
 import { navigate } from '../router.js';
 
@@ -379,7 +379,7 @@ function ticketHeader(k) {
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
       <div style="font-weight:800; font-size:13px; display:flex; align-items:center; gap:6px;">
-        ${k.tableName ? escapeHtml(k.tableName) : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}
+        ${k.tableName ? escapeHtml(kitchenFacingOrderLabel(k.tableName)) : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}
         ${isAddOn ? `<span style="font-size:9.5px; font-weight:800; color:var(--warning); white-space:nowrap;"><i class="fa-solid fa-circle-plus" style="margin-right:3px;"></i>ADD-ON #${k.waveNumber}</span>` : ''}
       </div>
       <div class="rpos-kot-timer" data-created-at="${k.createdAt}" style="font-size:11px; font-weight:800; color:${tier.color}; white-space:nowrap;">${formatElapsed(elapsed)}${tier.overdue ? ' ⚠' : ''}</div>
@@ -431,7 +431,7 @@ function renderNewTicketGroup(group) {
       </div>
     `;
   }
-  const orderLabel = group[0].tableName ? escapeHtml(group[0].tableName) : (group[0].orderType || '').toUpperCase();
+  const orderLabel = group[0].tableName ? escapeHtml(kitchenFacingOrderLabel(group[0].tableName)) : (group[0].orderType || '').toUpperCase();
   return `
     <div class="card rpos-kot-card" style="padding:14px;">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
@@ -504,7 +504,7 @@ function renderActiveTicketGroup(group) {
       </div>
     `;
   }
-  const orderLabel = group[0].tableName ? escapeHtml(group[0].tableName) : (group[0].orderType || '').toUpperCase();
+  const orderLabel = group[0].tableName ? escapeHtml(kitchenFacingOrderLabel(group[0].tableName)) : (group[0].orderType || '').toUpperCase();
   return `
     <div class="card rpos-kot-card" style="padding:14px;">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">

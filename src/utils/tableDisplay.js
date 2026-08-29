@@ -221,3 +221,20 @@ export function tableReadyToBill(occ, allKots) {
   if (activeParties.length === 0) return false;
   return activeParties.every(p => partyServeStatus(p, allKots).fullyServed);
 }
+
+// "Box N" is a cashier/front-of-house term (RestaurantPOS.js's own table
+// party picker — "Add Party", Box 1/2/3 cards) — a KOT's own tableName
+// field is stamped with that exact same string at sendToKitchen() time
+// (currentOrderLabel()), so it shows up verbatim on the Kitchen board and
+// printed ticket too, where "Box" means nothing to kitchen staff. This is
+// a DISPLAY-ONLY relabel for those two kitchen-facing spots specifically —
+// the underlying stored tableName (and every cashier-facing screen) is
+// untouched, so "Box 1"/"Add Party"/etc. still read exactly as before
+// everywhere a cashier actually looks. "Party" chosen to match the
+// concept's own existing name elsewhere in this app (the "Add Party"
+// button, the partyNumber field itself) rather than inventing a new,
+// unrelated word just for this one spot.
+export function kitchenFacingOrderLabel(tableName) {
+  if (!tableName) return tableName;
+  return tableName.replace(/ · Box (\d+)$/, ' · Party $1');
+}
