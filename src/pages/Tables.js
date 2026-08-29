@@ -63,6 +63,19 @@ async function renderTablesContent() {
   // For renderTableCard()'s "Ready to Bill" check below (tableReadyToBill())
   // — fetched once for the whole grid, not once per card.
   const allKots = await getKots();
+  // Today's still-upcoming confirmed reservations, keyed by table — lets a
+  // FREE table's card flag "someone's booked this for later today" instead
+  // of looking indistinguishable from a table nobody's coming for, without
+  // touching anything about how an already-OCCUPIED table displays (that
+  // status stays the more urgent thing to show).
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todaysReservations = (await getReservations()).filter(r => r.status === 'confirmed' && r.reservationDate === todayStr && r.tableId);
+  const reservationsByTable = new Map();
+  todaysReservations.forEach(r => {
+    if (!reservationsByTable.has(r.tableId)) reservationsByTable.set(r.tableId, []);
+    reservationsByTable.get(r.tableId).push(r);
+  });
+  reservationsByTable.forEach(list => list.sort((a, b) => a.reservationTime.localeCompare(b.reservationTime)));
 
   area.innerHTML = `
     ${tables.length === 0 ? `
@@ -75,7 +88,7 @@ async function renderTablesContent() {
       <div style="margin-bottom:22px;">
         ${grouped.length > 1 ? `<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid var(--border);"><span style="font-size:12px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeAttr(section)}</span><span style="font-size:10.5px; color:var(--text-muted); background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; padding:1px 8px;">${sectionTables.length}</span></div>` : ''}
         <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:14px;">
-          ${sectionTables.map(t => renderTableCard(t, allTables, allParties, allKots)).join('')}
+          ${sectionTables.map(t => renderTableCard(t, allTables, allParties, allKots, reservationsByTable.get(t.id))).join('')}
         </div>
       </div>
     `).join('')}
@@ -151,14 +164,6 @@ async function renderReservationsContent() {
     const isTomorrow = dateStr === new Date(Date.now() + 86400000).toISOString().slice(0, 10);
     const base = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
     return isToday ? `Today · ${base}` : isTomorrow ? `Tomorrow · ${base}` : base;
-  };
-
-  const formatTimeLabel = (timeStr) => {
-    if (!timeStr) return '';
-    const [h, m] = timeStr.split(':').map(Number);
-    const period = h >= 12 ? 'PM' : 'AM';
-    const h12 = h % 12 === 0 ? 12 : h % 12;
-    return `${h12}:${String(m).padStart(2, '0')} ${period}`;
   };
 
   const reservationCard = (r) => {
@@ -309,6 +314,7 @@ async function openReservationForm(reservation) {
           <input class="form-input" id="resGuests" type="number" min="1" value="${reservation?.guestCount || 2}" />
         </div>
       </div>
+      <div id="resCapacityWarning"></div>
       <div class="form-group">
         <label class="form-label">Notes (optional)</label>
         <textarea class="form-input" id="resNotes" rows="2" placeholder="e.g. Window seat, birthday cake at 7pm">${escapeAttr(reservation?.notes || '')}</textarea>
@@ -319,6 +325,66 @@ async function openReservationForm(reservation) {
       <button class="btn btn-primary" id="saveReservationBtn"><i class="fa-solid fa-check mr-6"></i> ${isEdit ? 'Save Changes' : 'Book Reservation'}</button>
     `
   });
+
+  // Live capacity check + "combine tables" recommendation — recomputed on
+  // every Table/Guests change so it can never go stale. Only ever looks
+  // within the SELECTED table's own section (merging across, say, AC Hall
+  // and the Ground Floor isn't physically practical) and only ever
+  // SUGGESTS — actually merging tables is Tables.js's own existing
+  // edit/merge action, done at seating time, not something a reservation
+  // should perform on its own ahead of anyone arriving.
+  const updateCapacityWarning = () => {
+    const warnEl = document.getElementById('resCapacityWarning');
+    if (!warnEl) return;
+    const tableId = document.getElementById('resTableId')?.value;
+    const guestCount = parseInt(document.getElementById('resGuests')?.value, 10) || 0;
+    const selectedTable = tableId ? allTables.find(t => t.id === tableId) : null;
+    if (!selectedTable || !guestCount) { warnEl.innerHTML = ''; return; }
+
+    const cap = tableDisplayCapacity(selectedTable, allTables);
+    if (guestCount <= cap) { warnEl.innerHTML = ''; return; }
+
+    // Every OTHER table in the same section, not already part of a merge —
+    // combined with the selected table (2-table first; if this shop's own
+    // table sizes mean even every pair falls short — small tables, a big
+    // party — fall back to 3-table combos) to find which reaches the
+    // needed seats, closest-fit (least wasted extra capacity) first.
+    const sectionKey = selectedTable.section?.trim() || 'Main';
+    const partners = allTables.filter(t => t.id !== selectedTable.id && !t.mergedTableIds?.length && (t.section?.trim() || 'Main') === sectionKey);
+
+    let combos = partners
+      .map(t => ({ tables: [t], total: cap + tableDisplayCapacity(t, allTables) }))
+      .filter(c => c.total >= guestCount)
+      .sort((a, b) => a.total - b.total)
+      .slice(0, 3);
+
+    if (combos.length === 0) {
+      const triples = [];
+      for (let i = 0; i < partners.length; i++) {
+        for (let j = i + 1; j < partners.length; j++) {
+          const total = cap + tableDisplayCapacity(partners[i], allTables) + tableDisplayCapacity(partners[j], allTables);
+          if (total >= guestCount) triples.push({ tables: [partners[i], partners[j]], total });
+        }
+      }
+      combos = triples.sort((a, b) => a.total - b.total).slice(0, 3);
+    }
+
+    warnEl.innerHTML = `
+      <div style="margin:-6px 0 14px; padding:10px 12px; background:rgba(245,158,11,0.08); border:1px solid var(--warning); border-radius:8px; font-size:12px;">
+        <div style="color:var(--warning); font-weight:700;"><i class="fa-solid fa-triangle-exclamation" style="margin-right:5px;"></i>${escapeAttr(tableDisplayName(selectedTable, allTables))} seats only ${cap} — you've entered ${guestCount} guests.</div>
+        ${combos.length > 0 ? `
+          <div style="margin-top:6px; color:var(--text-secondary);">
+            💡 Combine with, when they arrive: ${combos.map(c => `<strong>${c.tables.map(t => escapeAttr(tableDisplayName(t, allTables))).join(' + ')}</strong> (${c.total} seats total)`).join(' &nbsp;|&nbsp; ')}
+          </div>
+        ` : `
+          <div style="margin-top:6px; color:var(--text-secondary);">No combination of tables in "${escapeAttr(sectionKey)}" reaches ${guestCount} seats — consider a different section, or seating as multiple parties.</div>
+        `}
+      </div>
+    `;
+  };
+  document.getElementById('resTableId')?.addEventListener('change', updateCapacityWarning);
+  document.getElementById('resGuests')?.addEventListener('input', updateCapacityWarning);
+  updateCapacityWarning();
 
   document.getElementById('saveReservationBtn')?.addEventListener('click', async () => {
     const customerName = document.getElementById('resName').value.trim();
@@ -352,7 +418,7 @@ async function openReservationForm(reservation) {
   });
 }
 
-function renderTableCard(t, allTables, allParties, allKots) {
+function renderTableCard(t, allTables, allParties, allKots, todaysReservations) {
   const occ = tableOccupancy(t, allParties);
   const displayCap = tableDisplayCapacity(t, allTables);
   const status = STATUS_META[tableStatusKey(occ, displayCap)];
@@ -364,10 +430,18 @@ function renderTableCard(t, allTables, allParties, allKots) {
   // already give this exact state, now visible here too instead of only
   // after drilling into the ordering screen.
   const ready = occ.isOccupied && tableReadyToBill(occ, allKots);
-  const cardBg = ready ? 'rgba(34,197,94,0.1)' : status.bg;
-  const cardBorder = ready ? 'var(--success)' : 'var(--border)';
-  const statusColor = ready ? 'var(--success)' : status.color;
-  const statusLabel = ready ? 'Ready to Bill' : (occ.isOccupied ? `${occ.usedSeats}/${displayCap} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : status.label);
+  // A FREE table booked for later today gets its own distinct color — a
+  // violet none of the other statuses use — so staff don't seat a walk-in
+  // somewhere already promised to someone arriving in an hour. Only
+  // overrides the plain "Free" look; an already-occupied/ready table's own
+  // (more urgent) status still wins, the booking just shows as a small line
+  // underneath either way.
+  const nextReservation = todaysReservations?.[0];
+  const isReservedAndFree = !occ.isOccupied && nextReservation;
+  const cardBg = ready ? 'rgba(34,197,94,0.1)' : isReservedAndFree ? 'rgba(139,92,246,0.1)' : status.bg;
+  const cardBorder = ready ? 'var(--success)' : isReservedAndFree ? '#8b5cf6' : 'var(--border)';
+  const statusColor = ready ? 'var(--success)' : isReservedAndFree ? '#8b5cf6' : status.color;
+  const statusLabel = ready ? 'Ready to Bill' : (occ.isOccupied ? `${occ.usedSeats}/${displayCap} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : (isReservedAndFree ? 'Reserved' : status.label));
   // Name gets its own full-width row rather than sharing one with the
   // action buttons — three 36px .btn-icon buttons (the app's fixed
   // icon-button size everywhere else) already eat well over 100px on
@@ -395,6 +469,7 @@ function renderTableCard(t, allTables, allParties, allKots) {
         ${elapsed !== null ? `<div class="table-timer" data-occupied-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
       </div>
       ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;">${occ.totalItems} item(s)</div>` : ''}
+      ${nextReservation ? `<div style="font-size:10.5px; color:#8b5cf6; font-weight:700; margin-top:6px;"><i class="fa-solid fa-calendar-check" style="margin-right:4px;"></i>${escapeAttr(nextReservation.customerName)} — ${formatTimeLabel(nextReservation.reservationTime)} · ${nextReservation.guestCount} guest${nextReservation.guestCount === 1 ? '' : 's'}${todaysReservations.length > 1 ? ` (+${todaysReservations.length - 1} more today)` : ''}</div>` : ''}
       ${capacityBarHtml(occ.usedSeats, displayCap, statusColor)}
     </div>
   `;
@@ -402,6 +477,16 @@ function renderTableCard(t, allTables, allParties, allKots) {
 
 function escapeAttr(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// 24h "HH:MM" -> "H:MM AM/PM" — shared by the reservation cards and, now,
+// a booked-free table's own card (see renderTableCard()'s isReservedAndFree).
+function formatTimeLabel(timeStr) {
+  if (!timeStr) return '';
+  const [h, m] = timeStr.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
 }
 
 // Only the timer badges re-render on this tick (not the whole grid) so an
