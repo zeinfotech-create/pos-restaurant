@@ -125,6 +125,7 @@ let menuSearch = '';
 // keeping a second, separate order to maintain.
 let currentSort = 'name-asc';
 let dragSrcProductId = null; // set during a custom-order drag, mirrors POS.js's own mechanism
+let partyNumberRepairInProgress = false; // guards renderTablePartyPicker()'s self-heal loop against re-entrant stray renders — see its own comment
 let guestCount = null; // dine-in only
 let changeLog = []; // {type:'cancel'|'modify', name, qty, reason, at, by} — audit trail for anything edited after being fired to the kitchen
 let orderSessionId = null; // ties every KOT sent during this one order together — always the current order's own persisted id, deterministic
@@ -863,6 +864,47 @@ async function renderTablePartyPicker(table) {
   const allTables = await getTables();
   const capacity = tableDisplayCapacity(table, allTables);
   const parties = (await getCounterOrders()).filter(o => o.tableId === table.id).sort((a, b) => (a.partyNumber || 0) - (b.partyNumber || 0));
+  // Self-heal a real bug (now fixed at the source in startNewParty() —
+  // see its own comment) that could leave two DIFFERENT boxes at the same
+  // table sharing the same partyNumber — most likely data created before
+  // that fix, or a write that reached this device out-of-band (e.g. a
+  // raw database edit) rather than through the app's own sync path, which
+  // this screen would otherwise never notice. Detected here, the one
+  // place this data actually gets looked at, rather than only ever
+  // trusted correct at creation time — an already-affected table repairs
+  // itself the next time its box picker is opened, no manual data
+  // surgery needed.
+  const seenPartyNumbers = new Set();
+  const hasDuplicatePartyNumbers = parties.some(p => {
+    if (seenPartyNumbers.has(p.partyNumber)) return true;
+    seenPartyNumbers.add(p.partyNumber);
+    return false;
+  });
+  if (hasDuplicatePartyNumbers) {
+    // Guard against a real race found live: each saveCounterOrder() below
+    // dispatches 'storage-change' SYNCHRONOUSLY, which
+    // registerPartyPickerLiveRefresh()'s listener picks up and fires a
+    // fire-and-forget renderTablePartyPicker() call — for EVERY write in
+    // this loop. Each of those stray calls would see a PARTIALLY-repaired
+    // snapshot (only some writes landed yet), detect duplicates again, and
+    // start its OWN overlapping repair loop — multiple loops racing to
+    // write different "correct" numbers over each other, converging on
+    // garbage instead of the clean sequence intended. Same class of bug as
+    // cancelWholeOrder()'s own race fix earlier — flip the guard-checked
+    // flag to its "busy" value as the first synchronous step, before any
+    // awaits, so every stray trigger during the whole repair is a no-op.
+    partyNumberRepairInProgress = true;
+    const byCreatedAt = [...parties].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    for (let i = 0; i < byCreatedAt.length; i++) {
+      const correctNumber = i + 1;
+      if (byCreatedAt[i].partyNumber !== correctNumber) {
+        byCreatedAt[i].partyNumber = correctNumber;
+        await saveCounterOrder(byCreatedAt[i]);
+      }
+    }
+    parties.sort((a, b) => (a.partyNumber || 0) - (b.partyNumber || 0));
+    partyNumberRepairInProgress = false;
+  }
   // Same "empty box shouldn't hold seats hostage" rule as tableOccupancy()
   // (utils/tableDisplay.js) — a party with zero items never actually ordered
   // anything, so its guest count doesn't count against remaining capacity
@@ -965,6 +1007,11 @@ function registerPartyPickerLiveRefresh() {
     if (e.detail?.store !== 'kots' && e.detail?.store !== 'counter_orders') return;
     if (!(view === 'picker' && drillTable)) return;
     if (!document.getElementById('rposContent')) return;
+    // A partyNumber self-heal in progress is itself the source of these
+    // very 'storage-change' events (see renderTablePartyPicker()'s own
+    // comment) — a stray re-render mid-repair would see a partially-fixed
+    // snapshot and race its own writes against the repair loop's.
+    if (partyNumberRepairInProgress) return;
     renderTablePartyPicker(drillTable);
   };
   window.addEventListener('storage-change', onRelevantChange);
