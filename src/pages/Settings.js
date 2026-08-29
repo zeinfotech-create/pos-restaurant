@@ -346,6 +346,10 @@ export async function renderSettings(container) {
           <span class="settings-nav-icon" style="background:rgba(59,130,246,0.12);color:#3b82f6"><i class="fa-solid fa-print"></i></span>
           <span>Printing</span>
         </button>
+        <button class="settings-nav-item ${activeSettingsTab === 'kot' ? 'active' : ''}" data-tab="kot">
+          <span class="settings-nav-icon" style="background:rgba(249,115,22,0.12);color:#f97316"><i class="fa-solid fa-kitchen-set"></i></span>
+          <span>KOT</span>
+        </button>
         ${s.enableUnitOfMeasure !== false ? `
         <button class="settings-nav-item ${activeSettingsTab === 'weightscale' ? 'active' : ''}" data-tab="weightscale">
           <span class="settings-nav-icon" style="background:rgba(16,185,129,0.12);color:#10b981"><i class="fa-solid fa-weight-scale"></i></span>
@@ -920,6 +924,47 @@ export async function renderSettings(container) {
         </div>
         </div>
 
+        <!-- KOT Tab Content -->
+        <div class="settings-tab-content ${activeSettingsTab === 'kot' ? 'active' : ''}" id="tab-kot">
+          <div class="card">
+            <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-kitchen-set" style="color:#f97316"></i> KOT Controls</div>
+            <p class="form-help-text" style="margin-top:-8px; margin-bottom:16px">How kitchen tickets behave — from the moment they're sent, through the kitchen board, to what gets printed.</p>
+            <div class="form-group" style="display:flex; flex-direction:row; align-items:flex-start; gap:12px;">
+              <input type="checkbox" id="sKotLockCancelAfterPreparing" ${s.kotLockCancelAfterPreparing ? 'checked' : ''} style="width:20px; height:20px; margin-top:2px; flex-shrink:0;" />
+              <div>
+                <div class="font-bold">Lock cancellation once kitchen starts preparing</div>
+                <p style="font-size:12px; opacity:0.6; margin-top:2px;">Once the kitchen taps "Start Preparing" on any ticket for an order, that order's "Cancel Order" button and every already-sent item's individual cancel/reduce controls are disabled — the food's already being made, so it can't be called off from the till anymore.</p>
+              </div>
+            </div>
+            <div class="form-group" style="display:flex; flex-direction:row; align-items:flex-start; gap:12px; margin-top:16px; padding-top:16px; border-top:1px dashed var(--border);">
+              <input type="checkbox" id="sKotSplitTickets" ${s.kotSplitTickets ? 'checked' : ''} style="width:20px; height:20px; margin-top:2px; flex-shrink:0;" />
+              <div>
+                <div class="font-bold">Show add-on waves as separate tickets</div>
+                <p style="font-size:12px; opacity:0.6; margin-top:2px;">By default, sending more items for an order already in progress (an "add-on") groups under the same card on the Kitchen board, and the printed slip notes it's part of an existing order. Turn this on to show and print every wave as its own fully independent ticket instead — nothing grouped, nothing cross-referenced.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="padding:0; overflow:hidden; margin-top:16px;">
+            <button type="button" id="toggleAggregatorSettingsBtn" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px; background:none; border:none; cursor:pointer; font-weight:700; font-size:13px; color:var(--text-main);">
+              <span><i class="fa-solid fa-motorcycle" style="color:var(--text-muted); margin-right:8px"></i> Swiggy &amp; Zomato Orders</span>
+              <i class="fa-solid ${aggregatorSettingsExpanded ? 'fa-chevron-up' : 'fa-chevron-down'}" style="color:var(--text-muted); font-size:11px"></i>
+            </button>
+            ${aggregatorSettingsExpanded ? `
+              <div style="padding:0 16px 16px;">
+                <p style="font-size:11.5px; color:var(--text-muted); margin:0 0 14px; line-height:1.5;">
+                  Turn on a platform to see it as an order type in Restaurant POS. Real-time order sync needs Swiggy/Zomato's official Partner API access — a business partnership, not a self-serve signup — so it isn't available yet; use <b>Demo Mode</b> to try the full order flow with fake orders now, or switch to <b>Live API</b> once you have real credentials (saved here, ready for when sync is wired in).
+                </p>
+                ${renderAggregatorPlatformBlock(AGGREGATOR_PLATFORMS[0], s)}
+                <div style="height:1px; background:var(--border); margin:16px 0;"></div>
+                ${renderAggregatorPlatformBlock(AGGREGATOR_PLATFORMS[1], s)}
+              </div>
+            ` : ''}
+          </div>
+
+          ${renderTabSaveContainer('saveKotBtn', 'KOT')}
+        </div>
+
         <!-- Weight Scale Tab Content -->
         <div class="settings-tab-content ${activeSettingsTab === 'weightscale' && s.enableUnitOfMeasure !== false ? 'active' : ''}" id="tab-weightscale">
           <div class="card" style="max-width:620px">
@@ -1093,23 +1138,6 @@ export async function renderSettings(container) {
                 </div>
               </div>
             </div>
-            ` : ''}
-          </div>
-
-          <div class="card" style="padding:0; overflow:hidden; margin-top:16px;">
-            <button type="button" id="toggleAggregatorSettingsBtn" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px; background:none; border:none; cursor:pointer; font-weight:700; font-size:13px; color:var(--text-main);">
-              <span><i class="fa-solid fa-motorcycle" style="color:var(--text-muted); margin-right:8px"></i> Swiggy &amp; Zomato Orders</span>
-              <i class="fa-solid ${aggregatorSettingsExpanded ? 'fa-chevron-up' : 'fa-chevron-down'}" style="color:var(--text-muted); font-size:11px"></i>
-            </button>
-            ${aggregatorSettingsExpanded ? `
-              <div style="padding:0 16px 16px;">
-                <p style="font-size:11.5px; color:var(--text-muted); margin:0 0 14px; line-height:1.5;">
-                  Turn on a platform to see it as an order type in Restaurant POS. Real-time order sync needs Swiggy/Zomato's official Partner API access — a business partnership, not a self-serve signup — so it isn't available yet; use <b>Demo Mode</b> to try the full order flow with fake orders now, or switch to <b>Live API</b> once you have real credentials (saved here, ready for when sync is wired in).
-                </p>
-                ${renderAggregatorPlatformBlock(AGGREGATOR_PLATFORMS[0], s)}
-                <div style="height:1px; background:var(--border); margin:16px 0;"></div>
-                ${renderAggregatorPlatformBlock(AGGREGATOR_PLATFORMS[1], s)}
-              </div>
             ` : ''}
           </div>
 
@@ -1707,7 +1735,15 @@ export async function renderSettings(container) {
     });
   });
 
-  // 1c. Weight Scale Settings
+  // 1c. KOT Settings
+  container.querySelector('#saveKotBtn')?.addEventListener('click', async () => {
+    await handleSave('KOT', {
+      kotLockCancelAfterPreparing: container.querySelector('#sKotLockCancelAfterPreparing')?.checked || false,
+      kotSplitTickets: container.querySelector('#sKotSplitTickets')?.checked || false,
+    });
+  });
+
+  // 1d. Weight Scale Settings
   container.querySelector('#saveWeightScaleBtn')?.addEventListener('click', async () => {
     await handleSave('Weight Scale', {
       weightScaleEnabled: container.querySelector('#sWeightScaleEnabled')?.checked || false,

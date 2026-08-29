@@ -9,7 +9,7 @@
 // cancelled/modified from the ordering side).
 // ============================================================
 
-import { getKots, updateKotStatus, setKotItemStatus, saveKot } from '../db.js';
+import { getKots, updateKotStatus, setKotItemStatus, saveKot, getSettings } from '../db.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { formatElapsed } from '../utils/tableDisplay.js';
@@ -204,13 +204,18 @@ async function renderKitchenContent() {
   const kots = (await getKots()).filter(k => k.status !== 'served');
   const pending = kots.filter(k => (k.status || 'pending') === 'pending').sort(byAge);
   const active = kots.filter(k => (k.status || 'pending') !== 'pending').sort(byAge);
+  // Settings > KOT > "Show add-on waves as separate tickets" — off by
+  // default (grouped, the original v9g behavior). On, every wave stands
+  // on its own card instead of nesting under one order.
+  const settings = await getSettings();
+  const splitTickets = settings.kotSplitTickets === true;
   // Grouped WITHIN each column only — a wave already started (in Kitchen)
   // while a later wave for the same order hasn't been touched yet (New
   // Tickets) genuinely are two separate physical tickets at two different
   // stages, so they correctly stay apart across columns; only tickets that
   // are actually at the same stage get visually combined under one order.
-  const pendingGroups = groupByOrder(pending);
-  const activeGroups = groupByOrder(active);
+  const pendingGroups = groupByOrder(pending, splitTickets);
+  const activeGroups = groupByOrder(active, splitTickets);
   // A screen meant to be glanced at (or not looked at all, on a second
   // monitor/PC) needs more than a silently-updated list — flag whether a
   // ticket genuinely wasn't here last render, so a fresh order gets an
@@ -344,7 +349,12 @@ function emptyCol() {
 // order) is its own singleton group — the common case, rendered exactly as
 // before. Input is expected already age-sorted; groups come back sorted by
 // their own oldest member.
-function groupByOrder(kots) {
+function groupByOrder(kots, splitTickets = false) {
+  // Settings > KOT > "Show add-on waves as separate tickets" — every
+  // ticket is its own standalone singleton group, exactly the pre-v9g
+  // behavior, when the shop would rather see (and print) each wave
+  // independently instead of nested under one order card.
+  if (splitTickets) return kots.map(k => [k]);
   const groups = new Map();
   const firstSeen = [];
   kots.forEach(k => {

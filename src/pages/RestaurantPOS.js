@@ -1315,6 +1315,21 @@ async function getOrderServeStatus() {
   return { kitchenStatusMap, outstanding, fullyServed: store.cart.length > 0 && outstanding === 0 };
 }
 
+// Settings > KOT > "Lock cancellation once kitchen starts preparing" — once
+// ANY ticket for this order has actually been picked up by the kitchen
+// (KOT.status moves 'pending' -> 'preparing' when Kitchen.js's "Start
+// Preparing" is tapped), both the whole-order Cancel Order button and every
+// already-sent item's individual cancel/reduce controls lock — food's
+// already being made, so the till shouldn't be able to call it off anymore.
+// Off by default (settings.kotLockCancelAfterPreparing), so this is a no-op
+// for any shop that hasn't turned it on.
+async function isCancelLocked(settings) {
+  if (!settings.kotLockCancelAfterPreparing) return false;
+  if (!orderSessionId) return false;
+  const kots = (await getKots()).filter(k => k.orderSessionId === orderSessionId);
+  return kots.some(k => (k.status || 'pending') !== 'pending');
+}
+
 // ── Ordering view: menu + cart ────────────────────────────────────────────
 async function renderOrderingView() {
   const area = document.getElementById('rposContent');
@@ -1409,6 +1424,7 @@ async function renderOrderingView() {
   const pendingItems = store.cart.filter(i => i.qty > (i.sentQty || 0));
   const coursesPresent = [...new Set(pendingItems.map(i => i.course).filter(Boolean))];
   const serveStatus = await getOrderServeStatus();
+  const cancelLocked = await isCancelLocked(settings);
 
   area.innerHTML = `
     <div class="rpos-layout">
@@ -1547,7 +1563,7 @@ async function renderOrderingView() {
             <button class="btn btn-primary" id="rposBillBtn" ${store.cart.length === 0 || !serveStatus.fullyServed ? 'disabled' : ''}><i class="fa-solid fa-receipt"></i> Bill Now — ${cur}${totals.total.toFixed(2)}</button>
             ${store.cart.length > 0 && !serveStatus.fullyServed ? `<div style="font-size:11px; color:var(--warning); text-align:center; display:flex; align-items:center; justify-content:center; gap:6px;"><i class="fa-solid fa-hourglass-half"></i> ${serveStatus.outstanding} dish${serveStatus.outstanding === 1 ? '' : 'es'} still not served — check Kitchen</div>` : ''}
           ` : ''}
-          ${store.cart.length > 0 ? `<button class="btn btn-ghost btn-sm" id="rposCancelOrderBtn" style="color:var(--danger); border:1px solid rgba(239,68,68,0.25); margin-top:2px;"><i class="fa-solid fa-ban"></i> Cancel Order</button>` : ''}
+          ${store.cart.length > 0 ? `<button class="btn btn-ghost btn-sm" id="rposCancelOrderBtn" ${cancelLocked ? 'disabled' : ''} title="${cancelLocked ? 'Kitchen has already started preparing this order — cancellation is locked (Settings > KOT).' : ''}" style="color:var(--danger); border:1px solid rgba(239,68,68,0.25); margin-top:2px; ${cancelLocked ? 'opacity:.45; cursor:not-allowed;' : ''}"><i class="fa-solid ${cancelLocked ? 'fa-lock' : 'fa-ban'}"></i> Cancel Order</button>` : ''}
         </div>
       </div>
     </div>
@@ -1968,10 +1984,17 @@ async function printItemCancelTicket(item, qty, reason) {
   await printReceiptHtml(renderCancelledKotHtml([{ name: item.name, qty }], ticketLabel, reason), 'Item Cancelled', { purpose: 'kot' });
 }
 
-function requestRemoveItem(cartId) {
+async function requestRemoveItem(cartId) {
   const item = store.cart.find(i => i.cartId === cartId);
   if (!item) return;
   if ((item.sentQty || 0) > 0) {
+    // Defense-in-depth — the Cancel Order button already hides this same
+    // way when locked, but this is the one path that ALSO controls a
+    // single item, which has no button of its own to disable.
+    if (await isCancelLocked(store.settings || await getSettings())) {
+      showToast('Kitchen has already started preparing this order — cancelling is locked (Settings > KOT).', 'error');
+      return;
+    }
     promptVoidReason(item, async (reason) => {
       logChange(item, reason, 'cancel');
       const cancelledQty = item.sentQty;
@@ -1985,11 +2008,19 @@ function requestRemoveItem(cartId) {
   }
 }
 
-function requestQtyMinus(cartId) {
+async function requestQtyMinus(cartId) {
   const item = store.cart.find(i => i.cartId === cartId);
   if (!item) return;
   const nextQty = parseFloat((item.qty - 1).toFixed(3));
   if ((item.sentQty || 0) > 0 && nextQty < item.sentQty) {
+    // Only reducing INTO the already-sent quantity is locked — decrementing
+    // just the still-unsent portion of a partly-sent line (the `else`
+    // branch below) has zero kitchen impact and stays fully editable
+    // regardless of this setting.
+    if (await isCancelLocked(store.settings || await getSettings())) {
+      showToast('Kitchen has already started preparing this order — reducing sent quantity is locked (Settings > KOT).', 'error');
+      return;
+    }
     // This reduction eats into what's already been sent — the old kitchen
     // ticket (sized for the higher quantity) is now wrong, so void it
     // entirely; whatever quantity remains goes out fresh on the next Send
@@ -2127,7 +2158,7 @@ function renderKotHtml(kot, settings) {
         <div class="receipt-store-name">KITCHEN ORDER TICKET${kot.course ? ` — ${escapeHtml(kot.course.toUpperCase())}` : ''}</div>
         <div class="receipt-row" style="font-size:11px; opacity:.7;">${new Date(kot.createdAt).toLocaleString()}</div>
       </div>
-      ${kot.waveNumber > 1 ? `<div style="text-align:center; font-size:12px; font-weight:800; border:1px solid #000; padding:3px; margin:4px 0;">⚠ ADD-ON #${kot.waveNumber} — MORE FOR AN ORDER ALREADY IN PROGRESS</div>` : ''}
+      ${kot.waveNumber > 1 && !settings.kotSplitTickets ? `<div style="text-align:center; font-size:12px; font-weight:800; border:1px solid #000; padding:3px; margin:4px 0;">⚠ ADD-ON #${kot.waveNumber} — MORE FOR AN ORDER ALREADY IN PROGRESS</div>` : ''}
       <div class="receipt-divider"></div>
       <div style="font-size:14px; font-weight:800; text-align:center; margin:6px 0;">
         ${kot.orderType === 'dine-in' ? `TABLE: ${escapeHtml(kot.tableName || '')}` : escapeHtml(kot.tableName || (kot.orderType || '').toUpperCase())}
@@ -2337,8 +2368,15 @@ function animateBoxExit(partyId) {
 // business reason (customer walked out, wrong table, allergic reaction
 // found after cooking) can come up at any stage, and blocking the owner
 // from cancelling wouldn't actually undo any wasted food either way. ─────
-function promptCancelWholeOrder() {
+async function promptCancelWholeOrder() {
   if (store.cart.length === 0) return;
+  // Defense-in-depth — the button itself is already disabled when locked
+  // (see renderOrderingView()'s cancelLocked), this just covers any other
+  // way this function could ever get called.
+  if (await isCancelLocked(store.settings || await getSettings())) {
+    showToast('Kitchen has already started preparing this order — cancellation is locked (Settings > KOT).', 'error');
+    return;
+  }
   const hasSentItems = store.cart.some(i => (i.sentQty || 0) > 0);
   if (!hasSentItems) {
     // Nothing's reached the kitchen yet — zero kitchen impact, so a plain
