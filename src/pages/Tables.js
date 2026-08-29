@@ -337,9 +337,17 @@ async function openReservationForm(reservation) {
               // either (see undoAutoMergeForReservation()'s reservation.
               // autoMerged guard) — flagged here so that's not a surprise.
               const alreadyMerged = t.mergedTableIds?.length > 0;
+              // A table that's occupied RIGHT NOW can't seat this booking's
+              // party today — ticking it would just be picking a table
+              // that's already busy. Disabled, not hidden, so staff still
+              // see it exists and why it's unavailable. An already-checked
+              // occupied table (editing an older reservation whose table
+              // got occupied by something else since) stays checked but
+              // still locked — querySelectorAll(':checked') still finds a
+              // disabled-but-checked box fine, so its own pick isn't lost.
               return `
-              <label style="display:flex; align-items:center; gap:8px; padding:6px 4px; cursor:pointer; border-radius:6px;">
-                <input type="checkbox" class="res-table-checkbox" value="${t.id}" data-capacity="${tableDisplayCapacity(t, allTables)}" ${initialSelectedIds.has(t.id) ? 'checked' : ''} />
+              <label style="display:flex; align-items:center; gap:8px; padding:6px 4px; border-radius:6px; ${isOccupiedNow ? 'opacity:.5; cursor:not-allowed;' : 'cursor:pointer;'}">
+                <input type="checkbox" class="res-table-checkbox" value="${t.id}" data-capacity="${tableDisplayCapacity(t, allTables)}" ${initialSelectedIds.has(t.id) ? 'checked' : ''} ${isOccupiedNow ? 'disabled' : ''} />
                 <span style="flex:1; font-size:13px;">${escapeAttr(tableDisplayName(t, allTables))} — Seats ${tableDisplayCapacity(t, allTables)}${alreadyMerged ? ' <span style="opacity:.6; font-weight:400;">(already merged)</span>' : ''}</span>
                 <span style="font-size:10px; font-weight:700; color:${isOccupiedNow ? 'var(--warning)' : 'var(--success)'}; white-space:nowrap;">${isOccupiedNow ? '● Occupied now' : '● Free now'}</span>
               </label>
