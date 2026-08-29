@@ -32,6 +32,26 @@ import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { navigate } from '../router.js';
 import { STATUS_META, visibleTables, tableDisplayName, tableDisplayNameWithSection, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, summarizeCartIdStatus, buildKitchenStatusMapFor, partyServeStatus, tableReadyToBill, kitchenFacingOrderLabel } from '../utils/tableDisplay.js';
+import { hasRecipe } from '../utils/recipeCost.js';
+
+// A menu item is Sold Out when it (or, for a recipe dish, any ONE of its
+// ingredients) is out of stock and neither it nor that ingredient has
+// "Sell When Out of Stock" turned on. `allProducts` must be the FULL,
+// unfiltered product list — a recipe's ingredient (e.g. raw rice) commonly
+// won't match whatever search/category filter narrowed the menu grid's own
+// `products` array down to what's actually displayed.
+function isProductAvailable(p, allProducts) {
+  if (p.allowNegativeStock) return true;
+  if (hasRecipe(p)) {
+    return p.recipe.ingredients.every(ing => {
+      const ip = allProducts.find(x => x.id === ing.productId);
+      if (!ip) return true; // ingredient product missing/deleted — a data gap, not a stock gap; don't block the sale on it
+      if (ip.allowNegativeStock) return true;
+      return (ip.stock || 0) >= (Number(ing.qty) || 0);
+    });
+  }
+  return (p.stock || 0) > 0;
+}
 
 // A fixed, common set of toggle-able modifiers — every menu item shares the
 // same list rather than per-product-configured modifier groups. Simpler to
@@ -1384,7 +1404,8 @@ async function renderOrderingView() {
   const orderLabel = currentOrderLabel(allTables);
   const search = menuSearch.trim().toLowerCase();
   const normSearch = normalizeSearchQuery(search);
-  let products = (await getProducts()).filter(p => {
+  const allProductsForStock = await getProducts();
+  let products = allProductsForStock.filter(p => {
     if (activeCategory && p.category !== activeCategory) return false;
     if (!search) return true;
     const name = (p.name || '').toLowerCase();
@@ -1485,24 +1506,28 @@ async function renderOrderingView() {
           </div>
         ` : ''}
         <div id="rposProductGrid" style="${isMobile ? 'display:flex; flex-direction:column; gap:10px;' : 'display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:12px;'}">
-          ${products.length === 0 ? `<div style="${isMobile ? '' : 'grid-column:1/-1;'} text-align:center; padding:30px; color:var(--text-muted);">No items match</div>` : products.map(p => isMobile ? `
-            <div class="rpos-product-card rpos-product-row" data-id="${p.id}">
+          ${products.length === 0 ? `<div style="${isMobile ? '' : 'grid-column:1/-1;'} text-align:center; padding:30px; color:var(--text-muted);">No items match</div>` : products.map(p => {
+            const available = isProductAvailable(p, allProductsForStock);
+            const soldOutStyle = available ? '' : 'opacity:.45; pointer-events:none; filter:grayscale(.6);';
+            return isMobile ? `
+            <div class="rpos-product-card rpos-product-row" data-id="${p.id}" style="position:relative; ${soldOutStyle}">
               ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
               <div class="rpos-product-emoji">${p.emoji || '🍽️'}</div>
               <div class="rpos-product-info">
                 <div class="rpos-product-name">${escapeHtml(p.name)}</div>
                 <div class="rpos-product-price">${cur}${Number(p.price || 0).toFixed(2)}</div>
               </div>
-              <div class="rpos-product-add-btn"><i class="fa-solid fa-plus"></i></div>
+              ${available ? `<div class="rpos-product-add-btn"><i class="fa-solid fa-plus"></i></div>` : `<div style="font-size:10px; font-weight:800; color:var(--danger); letter-spacing:.5px; white-space:nowrap;">SOLD OUT</div>`}
             </div>
           ` : `
-            <div class="rpos-product-card" data-id="${p.id}" style="position:relative;">
+            <div class="rpos-product-card" data-id="${p.id}" style="position:relative; ${soldOutStyle}">
               ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder" style="position:absolute; top:2px; right:2px;"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
+              ${!available ? `<div style="position:absolute; top:6px; right:6px; background:var(--danger); color:#fff; font-size:9px; font-weight:800; letter-spacing:.3px; padding:2px 6px; border-radius:4px;">SOLD OUT</div>` : ''}
               <div style="width:44px; height:44px; margin:0 auto; border-radius:12px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:22px;">${p.emoji || '🍽️'}</div>
               <div style="font-size:12px; font-weight:700; margin-top:8px; text-align:center; line-height:1.3;">${escapeHtml(p.name)}</div>
               <div style="font-size:12px; color:var(--primary); font-weight:800; text-align:center; margin-top:3px;">${cur}${Number(p.price || 0).toFixed(2)}</div>
             </div>
-          `).join('')}
+          `; }).join('')}
         </div>
       </div>
 
