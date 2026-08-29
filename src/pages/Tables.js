@@ -271,6 +271,14 @@ async function renderReservationsContent() {
     btn.addEventListener('click', async () => {
       const ok = await showConfirm({ title: 'Remove Reservation', message: 'Permanently remove this reservation record?', okText: 'Remove' });
       if (!ok) return;
+      // Only shown for non-confirmed reservations (seated/cancelled/
+      // no-show) — a Cancel/No-show click already unmerges via its own
+      // handler above, so this is normally a no-op safety net by the time
+      // Remove is even clickable. The one real gap it closes: a SEATED
+      // reservation (merge deliberately left in place while the party's
+      // there) being cleaned up via Remove once they're done, with no
+      // Cancel/No-show step in between to have unmerged it already.
+      await undoAutoMergeForReservation(all.find(r => r.id === btn.dataset.id));
       await deleteReservation(btn.dataset.id);
       await renderReservationsContent();
     });
@@ -321,10 +329,18 @@ async function openReservationForm(reservation) {
             <div style="font-size:10.5px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin:8px 2px 4px;">${escapeAttr(section)}</div>
             ${tables.map(t => {
               const isOccupiedNow = tableOccupancy(t, allParties).isOccupied;
+              // Already merged into another combo BEFORE this form ever
+              // opened (a plain manual merge, or a different reservation's)
+              // — ticking it books/reserves that existing combined unit as
+              // one thing, it does NOT create a new merge of its own, and
+              // removing/cancelling THIS reservation won't unmerge it
+              // either (see undoAutoMergeForReservation()'s reservation.
+              // autoMerged guard) — flagged here so that's not a surprise.
+              const alreadyMerged = t.mergedTableIds?.length > 0;
               return `
               <label style="display:flex; align-items:center; gap:8px; padding:6px 4px; cursor:pointer; border-radius:6px;">
                 <input type="checkbox" class="res-table-checkbox" value="${t.id}" data-capacity="${tableDisplayCapacity(t, allTables)}" ${initialSelectedIds.has(t.id) ? 'checked' : ''} />
-                <span style="flex:1; font-size:13px;">${escapeAttr(tableDisplayName(t, allTables))} — Seats ${tableDisplayCapacity(t, allTables)}</span>
+                <span style="flex:1; font-size:13px;">${escapeAttr(tableDisplayName(t, allTables))} — Seats ${tableDisplayCapacity(t, allTables)}${alreadyMerged ? ' <span style="opacity:.6; font-weight:400;">(already merged)</span>' : ''}</span>
                 <span style="font-size:10px; font-weight:700; color:${isOccupiedNow ? 'var(--warning)' : 'var(--success)'}; white-space:nowrap;">${isOccupiedNow ? '● Occupied now' : '● Free now'}</span>
               </label>
             `;
