@@ -11,6 +11,7 @@ import { BackupService } from '../services/BackupService.js';
 import { MediaService } from '../services/MediaService.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { renderReceiptBody, renderReceiptBarcodes } from '../services/CheckoutService.js';
+import { renderKotHtml } from './RestaurantPOS.js';
 import { stateOptionsHtml } from '../utils/indianStates.js';
 
 let activeSettingsTab = 'general';
@@ -753,54 +754,6 @@ export async function renderSettings(container) {
                 <label class="form-label">Copies to Print</label>
                 <input class="form-input" type="number" id="sPrintCopies" min="1" max="5" value="${s.printCopies || 1}" />
               </div>
-              <div class="form-group" style="grid-column:1 / -1; border-top:1px dashed var(--border); padding-top:14px; margin-top:4px">
-                <label class="form-label" style="font-weight:700">KOT (Kitchen) Printer</label>
-                <p class="form-help-text" style="margin-top:-4px; margin-bottom:10px">By default kitchen tickets print on the same printer as bills, above. Turn this on to send KOTs to a second, dedicated printer instead — e.g. one at the billing counter, one in the kitchen.</p>
-                <div style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin-bottom:${s.kotUseSeparatePrinter ? '14px' : '0'}">
-                  <input type="checkbox" id="sKotUseSeparatePrinter" ${s.kotUseSeparatePrinter ? 'checked' : ''} />
-                  <label class="form-label" style="margin:0" for="sKotUseSeparatePrinter">Use a separate printer for KOT tickets</label>
-                </div>
-                <div id="sKotPrinterFields" style="${s.kotUseSeparatePrinter ? '' : 'display:none'}">
-                  <div class="form-grid">
-                    <div class="form-group">
-                      <label class="form-label">KOT Paper Size</label>
-                      <select class="form-input" id="sKotPaperSize">
-                        ${[
-                          { v: 'thermal-58', label: 'Thermal 2" (58mm)' },
-                          { v: 'thermal-80', label: 'Thermal 3" (80mm)' },
-                          { v: 'thermal-104', label: 'Thermal 4" (104mm)' },
-                          { v: 'a5', label: 'A5' },
-                          { v: 'a4', label: 'A4' }
-                        ].map(o => `<option value="${o.v}" ${(s.kotPaperSize || 'thermal-80') === o.v ? 'selected' : ''}>${o.label}</option>`).join('')}
-                      </select>
-                    </div>
-                    <div class="form-group">
-                      <label class="form-label">KOT Connection Type</label>
-                      <select class="form-input" id="sKotPrintConnectionType">
-                        <option value="system" ${(s.kotPrintConnectionType || 'system') === 'system' ? 'selected' : ''}>System Printer (Windows)</option>
-                        <option value="network" ${s.kotPrintConnectionType === 'network' ? 'selected' : ''}>Network Printer (IP address)</option>
-                      </select>
-                    </div>
-                    <div class="form-group" id="sKotPrinterNameGroup" style="${s.kotPrintConnectionType === 'network' ? 'display:none' : ''}">
-                      <label class="form-label">KOT Printer</label>
-                      <select class="form-input" id="sKotPrinterName">
-                        <option value="">System Default</option>
-                      </select>
-                    </div>
-                    <div class="form-group" id="sKotPrinterIpGroup" style="${s.kotPrintConnectionType === 'network' ? '' : 'display:none'}">
-                      <label class="form-label">KOT Printer IP Address</label>
-                      <div style="display:flex; gap:8px">
-                        <input class="form-input" id="sKotPrinterIp" value="${escapeHtml(s.kotPrinterIp || '')}" placeholder="e.g. 192.168.1.51" style="flex:2" />
-                        <input class="form-input" type="number" id="sKotPrinterPort" value="${s.kotPrinterPort || 9100}" placeholder="Port" style="flex:1" />
-                      </div>
-                    </div>
-                    <div class="form-group">
-                      <label class="form-label">KOT Copies to Print</label>
-                      <input class="form-input" type="number" id="sKotPrintCopies" min="1" max="5" value="${s.kotPrintCopies || 1}" />
-                    </div>
-                  </div>
-                </div>
-              </div>
               <div class="form-group">
                 <label class="form-label">Receipt Layout Theme</label>
                 <div style="display:flex; gap:12px">
@@ -926,6 +879,8 @@ export async function renderSettings(container) {
 
         <!-- KOT Tab Content -->
         <div class="settings-tab-content ${activeSettingsTab === 'kot' ? 'active' : ''}" id="tab-kot">
+        <div style="display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap">
+        <div style="flex:1; min-width:320px">
           <div class="card">
             <div class="font-bold mb-16" style="font-size:16px"><i class="fa-solid fa-kitchen-set" style="color:#f97316"></i> KOT Controls</div>
             <p class="form-help-text" style="margin-top:-8px; margin-bottom:16px">How kitchen tickets behave — from the moment they're sent, through the kitchen board, to what gets printed.</p>
@@ -941,6 +896,54 @@ export async function renderSettings(container) {
               <div>
                 <div class="font-bold">Show add-on waves as separate tickets</div>
                 <p style="font-size:12px; opacity:0.6; margin-top:2px;">By default, sending more items for an order already in progress (an "add-on") groups under the same card on the Kitchen board, and the printed slip notes it's part of an existing order. Turn this on to show and print every wave as its own fully independent ticket instead — nothing grouped, nothing cross-referenced.</p>
+              </div>
+            </div>
+            <div class="form-group" style="border-top:1px dashed var(--border); padding-top:14px; margin-top:16px">
+              <label class="form-label" style="font-weight:700">KOT (Kitchen) Printer</label>
+              <p class="form-help-text" style="margin-top:-4px; margin-bottom:10px">By default kitchen tickets print on the same printer as bills (Settings &gt; Printing). Turn this on to send KOTs to a second, dedicated printer instead — e.g. one at the billing counter, one in the kitchen.</p>
+              <div style="display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin-bottom:${s.kotUseSeparatePrinter ? '14px' : '0'}">
+                <input type="checkbox" id="sKotUseSeparatePrinter" ${s.kotUseSeparatePrinter ? 'checked' : ''} />
+                <label class="form-label" style="margin:0" for="sKotUseSeparatePrinter">Use a separate printer for KOT tickets</label>
+              </div>
+              <div id="sKotPrinterFields" style="${s.kotUseSeparatePrinter ? '' : 'display:none'}">
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label class="form-label">KOT Paper Size</label>
+                    <select class="form-input" id="sKotPaperSize">
+                      ${[
+                        { v: 'thermal-58', label: 'Thermal 2" (58mm)' },
+                        { v: 'thermal-80', label: 'Thermal 3" (80mm)' },
+                        { v: 'thermal-104', label: 'Thermal 4" (104mm)' },
+                        { v: 'a5', label: 'A5' },
+                        { v: 'a4', label: 'A4' }
+                      ].map(o => `<option value="${o.v}" ${(s.kotPaperSize || 'thermal-80') === o.v ? 'selected' : ''}>${o.label}</option>`).join('')}
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">KOT Connection Type</label>
+                    <select class="form-input" id="sKotPrintConnectionType">
+                      <option value="system" ${(s.kotPrintConnectionType || 'system') === 'system' ? 'selected' : ''}>System Printer (Windows)</option>
+                      <option value="network" ${s.kotPrintConnectionType === 'network' ? 'selected' : ''}>Network Printer (IP address)</option>
+                    </select>
+                  </div>
+                  <div class="form-group" id="sKotPrinterNameGroup" style="${s.kotPrintConnectionType === 'network' ? 'display:none' : ''}">
+                    <label class="form-label">KOT Printer</label>
+                    <select class="form-input" id="sKotPrinterName">
+                      <option value="">System Default</option>
+                    </select>
+                  </div>
+                  <div class="form-group" id="sKotPrinterIpGroup" style="${s.kotPrintConnectionType === 'network' ? '' : 'display:none'}">
+                    <label class="form-label">KOT Printer IP Address</label>
+                    <div style="display:flex; gap:8px">
+                      <input class="form-input" id="sKotPrinterIp" value="${escapeHtml(s.kotPrinterIp || '')}" placeholder="e.g. 192.168.1.51" style="flex:2" />
+                      <input class="form-input" type="number" id="sKotPrinterPort" value="${s.kotPrinterPort || 9100}" placeholder="Port" style="flex:1" />
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">KOT Copies to Print</label>
+                    <input class="form-input" type="number" id="sKotPrintCopies" min="1" max="5" value="${s.kotPrintCopies || 1}" />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -963,6 +966,18 @@ export async function renderSettings(container) {
           </div>
 
           ${renderTabSaveContainer('saveKotBtn', 'KOT')}
+        </div>
+
+        <div style="flex:0 0 340px; position:sticky; top:0">
+          <div class="card" style="padding:16px; background:var(--bg-elevated)">
+            <div class="font-bold mb-16" style="font-size:14px"><i class="fa-solid fa-eye" style="color:var(--secondary)"></i> KOT Live Preview</div>
+            <div id="kotPreviewWrap" style="background:#f1f1f1; border-radius:8px; padding:16px; display:flex; justify-content:center; max-height:70vh; overflow-y:auto; overflow-x:auto">
+              <div id="kotPreviewPane" style="background:white; color:black; box-shadow:0 1px 4px rgba(0,0,0,0.15)"></div>
+            </div>
+            <p class="form-help-text" style="margin-top:10px">Updates instantly as you change KOT settings above — a sample ticket, not a real order.</p>
+          </div>
+        </div>
+        </div>
         </div>
 
         <!-- Weight Scale Tab Content -->
@@ -1717,13 +1732,6 @@ export async function renderSettings(container) {
       printConnectionType: container.querySelector('#sPrintConnectionType')?.value || 'system',
       printerIp: container.querySelector('#sPrinterIp')?.value.trim() || '',
       printerPort: parseInt(container.querySelector('#sPrinterPort')?.value, 10) || 9100,
-      kotUseSeparatePrinter: container.querySelector('#sKotUseSeparatePrinter')?.checked || false,
-      kotPaperSize: container.querySelector('#sKotPaperSize')?.value || 'thermal-80',
-      kotPrintCopies: Math.min(5, Math.max(1, parseInt(container.querySelector('#sKotPrintCopies')?.value, 10) || 1)),
-      kotPrinterName: container.querySelector('#sKotPrinterName')?.value || '',
-      kotPrintConnectionType: container.querySelector('#sKotPrintConnectionType')?.value || 'system',
-      kotPrinterIp: container.querySelector('#sKotPrinterIp')?.value.trim() || '',
-      kotPrinterPort: parseInt(container.querySelector('#sKotPrinterPort')?.value, 10) || 9100,
       receiptTheme: container.querySelector('input[name="sReceiptTheme"]:checked')?.value || 'theme1',
       showReceiptTitle: container.querySelector('#sShowReceiptTitle')?.checked !== false,
       receiptTitle: container.querySelector('#sReceiptTitle')?.value.trim() || 'TAX INVOICE',
@@ -1740,6 +1748,13 @@ export async function renderSettings(container) {
     await handleSave('KOT', {
       kotLockCancelAfterPreparing: container.querySelector('#sKotLockCancelAfterPreparing')?.checked || false,
       kotSplitTickets: container.querySelector('#sKotSplitTickets')?.checked || false,
+      kotUseSeparatePrinter: container.querySelector('#sKotUseSeparatePrinter')?.checked || false,
+      kotPaperSize: container.querySelector('#sKotPaperSize')?.value || 'thermal-80',
+      kotPrintCopies: Math.min(5, Math.max(1, parseInt(container.querySelector('#sKotPrintCopies')?.value, 10) || 1)),
+      kotPrinterName: container.querySelector('#sKotPrinterName')?.value || '',
+      kotPrintConnectionType: container.querySelector('#sKotPrintConnectionType')?.value || 'system',
+      kotPrinterIp: container.querySelector('#sKotPrinterIp')?.value.trim() || '',
+      kotPrinterPort: parseInt(container.querySelector('#sKotPrinterPort')?.value, 10) || 9100,
     });
   });
 
@@ -1970,6 +1985,52 @@ export async function renderSettings(container) {
       el.addEventListener('change', updateLivePreview);
     });
     updateLivePreview();
+  }
+
+  // Live KOT Preview — same idea as the bill preview above, but through
+  // RestaurantPOS.js's own renderKotHtml() so this can never drift from
+  // what an actual kitchen ticket looks like. waveNumber:2 on the sample
+  // deliberately (not 1) — otherwise the "Show add-on waves as separate
+  // tickets" toggle's own effect (suppressing the ADD-ON banner) would
+  // never be visible here at all, since a wave-1 ticket never shows it
+  // either way.
+  const kotPreviewPane = container.querySelector('#kotPreviewPane');
+  if (kotPreviewPane) {
+    const KOT_PAPER_WIDTHS = { 'thermal-58': '58mm', 'thermal-80': '80mm', 'thermal-104': '104mm', 'a5': '380px', 'a4': '480px' };
+    const sampleKot = {
+      id: 'SAMPLE-KOT-001',
+      createdAt: new Date().toISOString(),
+      course: '',
+      waveNumber: 2,
+      orderType: 'dine-in',
+      tableName: 'TABLE-1',
+      waiterName: 'Sample Waiter',
+      items: [
+        { name: 'Paneer Butter Masala', qty: 2, modifiers: ['Extra Spicy'], notes: '', itemStatus: 'pending' },
+        { name: 'Butter Naan', qty: 4, modifiers: [], notes: 'No butter on top', itemStatus: 'pending' }
+      ]
+    };
+    const updateKotPreview = () => {
+      const useKotPrinter = container.querySelector('#sKotUseSeparatePrinter')?.checked || false;
+      // Mirrors printReceiptHtml()'s own routing — the KOT preview follows
+      // the KOT printer's own paper size once that's turned on, otherwise
+      // the same paper size the main bill printer uses (Settings > Printing).
+      const paperSize = (useKotPrinter ? container.querySelector('#sKotPaperSize')?.value : container.querySelector('#sPaperSize')?.value) || 'thermal-80';
+      const previewSettings = { ...s, kotSplitTickets: container.querySelector('#sKotSplitTickets')?.checked || false };
+      const isA4A5 = paperSize === 'a4' || paperSize === 'a5';
+      const targetWidth = KOT_PAPER_WIDTHS[paperSize] || '80mm';
+      kotPreviewPane.style.width = isA4A5 ? 'auto' : targetWidth;
+      kotPreviewPane.innerHTML = renderKotHtml(sampleKot, previewSettings);
+      if (!isA4A5) {
+        const receiptEl = kotPreviewPane.querySelector('.receipt');
+        if (receiptEl) { receiptEl.style.maxWidth = targetWidth; receiptEl.style.width = targetWidth; }
+      }
+    };
+    container.querySelectorAll('#sKotSplitTickets, #sKotUseSeparatePrinter, #sKotPaperSize, #sPaperSize').forEach(el => {
+      el.addEventListener('input', updateKotPreview);
+      el.addEventListener('change', updateKotPreview);
+    });
+    updateKotPreview();
   }
 
   // 2. Industry Settings

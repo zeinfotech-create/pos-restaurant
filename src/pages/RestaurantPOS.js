@@ -2151,7 +2151,12 @@ async function sendToKitchen(courseFilter = null) {
   await renderOrderingView();
 }
 
-function renderKotHtml(kot, settings) {
+// Exported so Settings.js's KOT Printer live preview can render a real
+// sample ticket through the EXACT same template an actual KOT prints
+// through — same reasoning as CheckoutService.js's renderReceiptBody()
+// being shared with the Printing tab's own preview, so this can never
+// silently drift out of sync with what actually comes out of the printer.
+export function renderKotHtml(kot, settings) {
   return `
     <div class="receipt">
       <div class="receipt-header">
