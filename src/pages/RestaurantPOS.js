@@ -904,7 +904,7 @@ async function renderPickerView() {
                 ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;">${occ.totalItems} item(s)</div>` : ''}
                 ${nextRes ? `
                   <div style="font-size:10.5px; color:#8b5cf6; font-weight:700; margin-top:6px;"><i class="fa-solid fa-calendar-check" style="margin-right:4px;"></i>${escapeHtml(nextRes.customerName)} — ${formatReservationTime(nextRes.reservationTime)} · ${nextRes.guestCount} guest${nextRes.guestCount === 1 ? '' : 's'}${tableReservations.length > 1 ? ` (+${tableReservations.length - 1} more today)` : ''}</div>
-                  ${nextRes.tableNames?.length > 1 ? `<div style="font-size:10px; color:#8b5cf6; opacity:.8; margin-top:2px;">Combined with: ${escapeHtml(nextRes.tableNames.filter(n => n !== thisDisplayName).join(' + '))} (${nextRes.tableCapacity} seats total — not just this table's own ${capacity})</div>` : ''}
+                  ${nextRes.tableNames?.length > 1 && !(t.mergedTableIds?.length > 0) ? `<div style="font-size:10px; color:#8b5cf6; opacity:.8; margin-top:2px;">Combined with: ${escapeHtml(nextRes.tableNames.filter(n => n !== thisDisplayName).join(' + '))} (${nextRes.tableCapacity} seats total — not just this table's own ${capacity})</div>` : ''}
                 ` : ''}
                 ${capacityBarHtml(occ.usedSeats, capacity, statusColor)}
               </div>

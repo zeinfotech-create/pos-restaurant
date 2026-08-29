@@ -241,12 +241,16 @@ async function renderReservationsContent() {
   });
   area.querySelectorAll('.noshow-reservation-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
+      // Guest isn't coming — free up any tables this booking auto-merged,
+      // same reasoning as cancelling below.
+      await undoAutoMergeForReservation(all.find(r => r.id === btn.dataset.id));
       await updateReservationStatus(btn.dataset.id, 'no-show');
       await renderReservationsContent();
     });
   });
   area.querySelectorAll('.cancel-reservation-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
+      await undoAutoMergeForReservation(all.find(r => r.id === btn.dataset.id));
       await updateReservationStatus(btn.dataset.id, 'cancelled');
       showToast('Reservation cancelled', 'info');
       await renderReservationsContent();
@@ -369,8 +373,13 @@ async function openReservationForm(reservation) {
       guestsInput.value = cap;
       if (guestsManuallyEdited) showToast(`Capped to ${cap} guests — the ticked table(s)' combined capacity. Tick another table to allow more.`, 'info');
     }
-    if (capText) capText.textContent = `${checked.length > 1 ? 'Combined seats' : 'Seats'}: ${cap}`;
+    const isToday = document.getElementById('resDate')?.value === todayStr;
+    const mergeNote = checked.length > 1
+      ? (isToday ? ' — tables will be merged on the floor plan automatically when booked.' : ' — this date isn\'t today, so tables won\'t auto-merge; merge them by hand on the day.')
+      : '';
+    if (capText) capText.textContent = `${checked.length > 1 ? 'Combined seats' : 'Seats'}: ${cap}${mergeNote}`;
   };
+  document.getElementById('resDate')?.addEventListener('change', updateGuestsCap);
   guestsInput?.addEventListener('input', () => {
     guestsManuallyEdited = true;
     const max = parseInt(guestsInput.getAttribute('max'), 10);
@@ -391,6 +400,16 @@ async function openReservationForm(reservation) {
     const pickedTables = Array.from(document.querySelectorAll('.res-table-checkbox:checked'))
       .map(el => allTables.find(t => t.id === el.value))
       .filter(Boolean);
+
+    // Editing a reservation that previously auto-merged its own tables —
+    // undo that merge FIRST, before evaluating a possibly-different new
+    // selection, so changing which tables are picked can't leave the old
+    // combo merged behind while also merging the new one.
+    if (isEdit && reservation?.autoMerged) {
+      await undoAutoMergeForReservation(reservation);
+    }
+    const didMerge = await autoMergeForReservation(pickedTables, reservationDate);
+
     // Snapshot ids/names/section/capacity at booking time — so the
     // reservation list can show them without a live table lookup, and it
     // stays meaningful even if a table's later renamed or deleted.
@@ -406,11 +425,60 @@ async function openReservationForm(reservation) {
       tableNames: pickedTables.map(t => tableDisplayName(t, allTables)),
       tableSection: pickedTables[0] ? (pickedTables[0].section?.trim() || 'Main') : null,
       tableCapacity: pickedTables.reduce((s, t) => s + tableDisplayCapacity(t, allTables), 0) || null,
+      autoMerged: didMerge,
     });
     closeModal();
-    showToast(isEdit ? 'Reservation updated' : 'Reservation booked', 'success');
+    showToast(isEdit ? 'Reservation updated' : (didMerge ? 'Reservation booked — tables merged on the floor plan' : 'Reservation booked'), 'success');
     await renderReservationsContent();
   });
+}
+
+// Actually MERGES the reservation's picked tables (using the exact same
+// mechanism the "Merge with…" button already uses — same mergedTableIds/
+// status:'merged'/mergedInto fields — so a combined SAME-DAY booking shows
+// on the grid exactly like a manual merge already does: one card, one
+// "Seats N", not several separate cards each saying "Combined with:
+// ...". Only for TODAY — merging tables for a booking that's days out
+// would incorrectly take them out of circulation for tonight's business
+// in the meantime; a future-dated multi-table reservation still gets the
+// text-based "Combined with" fallback and needs merging by hand on the day.
+// Skips (with a toast) if any picked table is already merge-involved or
+// currently occupied, rather than fighting/overwriting that state.
+async function autoMergeForReservation(pickedTables, reservationDate) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  if (reservationDate !== todayStr || pickedTables.length < 2) return false;
+  const occupiedTableIds = new Set((await getCounterOrders()).filter(o => o.orderType === 'dine-in').map(o => o.tableId));
+  const blocked = pickedTables.some(t => t.status === 'merged' || t.mergedTableIds?.length || occupiedTableIds.has(t.id));
+  if (blocked) {
+    showToast('Some selected tables are already merged or occupied elsewhere — booked without physically merging; merge them by hand once free.', 'info');
+    return false;
+  }
+  const [primary, ...rest] = pickedTables;
+  await saveTable({ ...primary, mergedTableIds: rest.map(t => t.id) });
+  for (const t of rest) {
+    await saveTable({ ...t, status: 'merged', mergedInto: primary.id });
+  }
+  return true;
+}
+
+// Reverses a merge THIS reservation created (reservation.autoMerged) — only
+// if the primary table's own mergedTableIds still exactly match what was
+// set up, so a staff member who's since changed the merge for their own
+// reason (added a 3rd table, merged the primary into something else
+// entirely) never gets silently undone by a reservation being cancelled.
+async function undoAutoMergeForReservation(reservation) {
+  if (!reservation?.autoMerged || !reservation.tableIds?.length) return;
+  const allTables = await getTables();
+  const primary = allTables.find(t => t.id === reservation.tableIds[0]);
+  const expectedChildIds = reservation.tableIds.slice(1);
+  const stillMatches = primary?.mergedTableIds?.length === expectedChildIds.length
+    && expectedChildIds.every(id => primary.mergedTableIds.includes(id));
+  if (!stillMatches) return;
+  for (const id of expectedChildIds) {
+    const t = allTables.find(x => x.id === id);
+    if (t) await saveTable({ ...t, status: 'free', mergedInto: null });
+  }
+  await saveTable({ ...primary, mergedTableIds: [] });
 }
 
 function renderTableCard(t, allTables, allParties, allKots, todaysReservations) {
@@ -466,7 +534,7 @@ function renderTableCard(t, allTables, allParties, allKots, todaysReservations) 
       ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;">${occ.totalItems} item(s)</div>` : ''}
       ${nextReservation ? `
         <div style="font-size:10.5px; color:#8b5cf6; font-weight:700; margin-top:6px;"><i class="fa-solid fa-calendar-check" style="margin-right:4px;"></i>${escapeAttr(nextReservation.customerName)} — ${formatReservationTime(nextReservation.reservationTime)} · ${nextReservation.guestCount} guest${nextReservation.guestCount === 1 ? '' : 's'}${todaysReservations.length > 1 ? ` (+${todaysReservations.length - 1} more today)` : ''}</div>
-        ${nextReservation.tableNames?.length > 1 ? `<div style="font-size:10px; color:#8b5cf6; opacity:.8; margin-top:2px;">Combined with: ${escapeAttr(nextReservation.tableNames.filter(n => n !== displayName).join(' + '))} (${nextReservation.tableCapacity} seats total — not just this table's own ${displayCap})</div>` : ''}
+        ${nextReservation.tableNames?.length > 1 && !hasMerge ? `<div style="font-size:10px; color:#8b5cf6; opacity:.8; margin-top:2px;">Combined with: ${escapeAttr(nextReservation.tableNames.filter(n => n !== displayName).join(' + '))} (${nextReservation.tableCapacity} seats total — not just this table's own ${displayCap}${nextReservation.reservationDate === new Date().toISOString().slice(0, 10) ? ' — will merge on the floor plan once free' : ' — merge by hand on the day'})</div>` : ''}
       ` : ''}
       ${capacityBarHtml(occ.usedSeats, displayCap, statusColor)}
     </div>
