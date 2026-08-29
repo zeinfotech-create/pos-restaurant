@@ -631,6 +631,28 @@ function registerKotBadgeLiveRefresh() {
   kotBadgeLiveListenerRegistered = true;
 }
 
+let orderTypePickerLiveListenerRegistered = false;
+// Same reasoning as registerPartyPickerLiveRefresh()/registerKotBadgeLiveRefresh()
+// above — the top-level "N open" badges are a one-time snapshot from
+// whenever this screen was rendered, and nothing else ever revisits that
+// render. Confirmed live: a genuinely fresh device (pos_fetch_all still
+// landing at the exact moment this first renders) or a change arriving
+// from another device would otherwise leave a stale count sitting here
+// indefinitely — exactly what a user could catch by comparing this badge
+// against the table grid's own always-live occupancy.
+function registerOrderTypePickerLiveRefresh() {
+  if (orderTypePickerLiveListenerRegistered) return;
+  const onRelevantChange = (e) => {
+    if (e.detail?.store !== 'counter_orders') return;
+    if (!(view === 'picker' && !orderType)) return;
+    if (!document.getElementById('rposContent')) return;
+    renderPickerView();
+  };
+  window.addEventListener('storage-change', onRelevantChange);
+  window.addEventListener('data-synced', onRelevantChange);
+  orderTypePickerLiveListenerRegistered = true;
+}
+
 function handleBack() {
   const container = document.getElementById('page-container');
   mobileCartOpen = false;
@@ -718,7 +740,14 @@ async function renderPickerView() {
     const visibleTypes = ['dine-in', 'takeaway', 'delivery', ...getEnabledAggregators(settings)];
     const orderTypeCard = (type) => {
       const meta = ORDER_TYPE_META[type];
-      const count = openOrders.filter(o => o.orderType === type).length;
+      // Excludes empty (0-item) orders — same "guest count entered but
+      // nothing actually ordered isn't really open yet" rule the table
+      // grid's own tableOccupancy() and the counter-order picker's "Empty —
+      // no order yet" treatment already use. Without this, an empty box
+      // left sitting around shows up here as "N open" even while the table
+      // grid correctly shows every table as Free — a real inconsistency a
+      // user could directly compare on screen and notice.
+      const count = openOrders.filter(o => o.orderType === type && (o.items?.length || 0) > 0).length;
       const isAgg = AGGREGATOR_TYPES.includes(type);
       return `
         <div class="rpos-order-type-btn" data-type="${type}" style="position:relative; ${isAgg ? `border-color:${meta.accent}40;` : ''}">
@@ -749,6 +778,7 @@ async function renderPickerView() {
         await renderPickerView();
       });
     });
+    registerOrderTypePickerLiveRefresh();
     return;
   }
 
