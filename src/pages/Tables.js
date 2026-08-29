@@ -464,7 +464,10 @@ function renderTableCard(t, allTables, allParties, allKots, todaysReservations) 
         ${elapsed !== null ? `<div class="table-timer" data-occupied-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
       </div>
       ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;">${occ.totalItems} item(s)</div>` : ''}
-      ${nextReservation ? `<div style="font-size:10.5px; color:#8b5cf6; font-weight:700; margin-top:6px;"><i class="fa-solid fa-calendar-check" style="margin-right:4px;"></i>${escapeAttr(nextReservation.customerName)} — ${formatReservationTime(nextReservation.reservationTime)} · ${nextReservation.guestCount} guest${nextReservation.guestCount === 1 ? '' : 's'}${todaysReservations.length > 1 ? ` (+${todaysReservations.length - 1} more today)` : ''}</div>` : ''}
+      ${nextReservation ? `
+        <div style="font-size:10.5px; color:#8b5cf6; font-weight:700; margin-top:6px;"><i class="fa-solid fa-calendar-check" style="margin-right:4px;"></i>${escapeAttr(nextReservation.customerName)} — ${formatReservationTime(nextReservation.reservationTime)} · ${nextReservation.guestCount} guest${nextReservation.guestCount === 1 ? '' : 's'}${todaysReservations.length > 1 ? ` (+${todaysReservations.length - 1} more today)` : ''}</div>
+        ${nextReservation.tableNames?.length > 1 ? `<div style="font-size:10px; color:#8b5cf6; opacity:.8; margin-top:2px;">Combined with: ${escapeAttr(nextReservation.tableNames.filter(n => n !== displayName).join(' + '))} (${nextReservation.tableCapacity} seats total — not just this table's own ${displayCap})</div>` : ''}
+      ` : ''}
       ${capacityBarHtml(occ.usedSeats, displayCap, statusColor)}
     </div>
   `;

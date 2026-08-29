@@ -892,16 +892,20 @@ async function renderPickerView() {
             const cardBorder = ready ? 'var(--success)' : isReservedAndFree ? '#8b5cf6' : 'var(--border)';
             const statusColor = ready ? 'var(--success)' : isReservedAndFree ? '#8b5cf6' : status.color;
             const statusLabel = ready ? 'Ready to Bill' : (occ.isOccupied ? `${occ.usedSeats}/${capacity} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : (isReservedAndFree ? 'Reserved' : status.label));
+            const thisDisplayName = tableDisplayName(t, allTables);
             return `
               <div class="rpos-table-card ${ready ? 'rpos-box-ready' : ''}" data-id="${t.id}" style="background:${cardBg}; border:1px solid ${cardBorder};">
-                <div style="font-weight:800; font-size:16px;">${escapeHtml(tableDisplayName(t, allTables))}</div>
+                <div style="font-weight:800; font-size:16px;">${escapeHtml(thisDisplayName)}</div>
                 <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${capacity}</div>
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
                   <div style="font-size:11px; font-weight:700; color:${statusColor};"><i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '11px' : '6px'}; margin-right:5px;"></i>${statusLabel}</div>
                   ${elapsed !== null ? `<div class="rpos-table-timer" data-created-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color}; white-space:nowrap;">${formatElapsed(elapsed)}</div>` : ''}
                 </div>
                 ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;">${occ.totalItems} item(s)</div>` : ''}
-                ${nextRes ? `<div style="font-size:10.5px; color:#8b5cf6; font-weight:700; margin-top:6px;"><i class="fa-solid fa-calendar-check" style="margin-right:4px;"></i>${escapeHtml(nextRes.customerName)} — ${formatReservationTime(nextRes.reservationTime)} · ${nextRes.guestCount} guest${nextRes.guestCount === 1 ? '' : 's'}${tableReservations.length > 1 ? ` (+${tableReservations.length - 1} more today)` : ''}</div>` : ''}
+                ${nextRes ? `
+                  <div style="font-size:10.5px; color:#8b5cf6; font-weight:700; margin-top:6px;"><i class="fa-solid fa-calendar-check" style="margin-right:4px;"></i>${escapeHtml(nextRes.customerName)} — ${formatReservationTime(nextRes.reservationTime)} · ${nextRes.guestCount} guest${nextRes.guestCount === 1 ? '' : 's'}${tableReservations.length > 1 ? ` (+${tableReservations.length - 1} more today)` : ''}</div>
+                  ${nextRes.tableNames?.length > 1 ? `<div style="font-size:10px; color:#8b5cf6; opacity:.8; margin-top:2px;">Combined with: ${escapeHtml(nextRes.tableNames.filter(n => n !== thisDisplayName).join(' + '))} (${nextRes.tableCapacity} seats total — not just this table's own ${capacity})</div>` : ''}
+                ` : ''}
                 ${capacityBarHtml(occ.usedSeats, capacity, statusColor)}
               </div>
             `;
