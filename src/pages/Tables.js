@@ -69,11 +69,16 @@ async function renderTablesContent() {
   // touching anything about how an already-OCCUPIED table displays (that
   // status stays the more urgent thing to show).
   const todayStr = new Date().toISOString().slice(0, 10);
-  const todaysReservations = (await getReservations()).filter(r => r.status === 'confirmed' && r.reservationDate === todayStr && r.tableId);
+  const todaysReservations = (await getReservations()).filter(r => r.status === 'confirmed' && r.reservationDate === todayStr && r.tableIds?.length);
   const reservationsByTable = new Map();
   todaysReservations.forEach(r => {
-    if (!reservationsByTable.has(r.tableId)) reservationsByTable.set(r.tableId, []);
-    reservationsByTable.get(r.tableId).push(r);
+    // A combined-table booking flags EVERY table it covers, not just the
+    // first — a guest is still coming for Table 4 even if Table 3 is the
+    // one whose id happens to sort first in the array.
+    r.tableIds.forEach(tid => {
+      if (!reservationsByTable.has(tid)) reservationsByTable.set(tid, []);
+      reservationsByTable.get(tid).push(r);
+    });
   });
   reservationsByTable.forEach(list => list.sort((a, b) => a.reservationTime.localeCompare(b.reservationTime)));
 
@@ -181,7 +186,7 @@ async function renderReservationsContent() {
           <span><i class="fa-solid fa-clock" style="opacity:.6; margin-right:4px;"></i>${formatTimeLabel(r.reservationTime)}</span>
           <span><i class="fa-solid fa-user-group" style="opacity:.6; margin-right:4px;"></i>${r.guestCount || 1} guest${(r.guestCount || 1) === 1 ? '' : 's'}</span>
         </div>
-        ${r.tableName ? `<div style="font-size:11.5px; font-weight:700; color:var(--primary); margin-top:6px;"><i class="fa-solid fa-chair" style="opacity:.7; margin-right:4px;"></i>${escapeAttr(r.tableSection && r.tableSection !== 'Main' ? `${r.tableSection} · ${r.tableName}` : r.tableName)}</div>` : ''}
+        ${r.tableNames?.length ? `<div style="font-size:11.5px; font-weight:700; color:var(--primary); margin-top:6px;"><i class="fa-solid fa-chair" style="opacity:.7; margin-right:4px;"></i>${escapeAttr(r.tableSection && r.tableSection !== 'Main' ? `${r.tableSection} · ${r.tableNames.join(' + ')}` : r.tableNames.join(' + '))}${r.tableNames.length > 1 ? ` (${r.tableCapacity} seats combined)` : ''}</div>` : ''}
         ${r.notes ? `<div style="font-size:11px; color:var(--text-muted); margin-top:6px; font-style:italic;">${escapeAttr(r.notes)}</div>` : ''}
         <div style="display:flex; gap:6px; margin-top:12px; flex-wrap:wrap;">
           ${r.status === 'confirmed' ? `
@@ -270,13 +275,18 @@ async function openReservationForm(reservation) {
   // Real, live tables/sections/capacities — the exact same source Tables.js's
   // own grid reads, grouped the same way (groupBySection() defaults an
   // unset section to "Main", sorts Main first then alphabetically) so this
-  // dropdown can never show a section/capacity this shop hasn't actually
-  // configured. "No specific table" stays the default — this app supports
-  // table SHARING (see db.js's KEYS.RESERVATIONS comment), so pinning one
-  // is a convenience when the guest's known preference matters, not a
-  // requirement.
+  // list can never show a section/capacity this shop hasn't actually
+  // configured. Multi-select (checkboxes, not a single dropdown) so a
+  // party bigger than one table can be booked as a COMBINATION directly —
+  // each row also shows that table's live right-now occupancy, so picking
+  // one that's mid-service isn't done blind. "No table selected" stays
+  // valid — table SHARING means pinning one is a convenience, not a
+  // requirement (see db.js's KEYS.RESERVATIONS comment) — Guests then has
+  // no capacity ceiling at all.
   const allTables = await getTables();
   const groupedTables = groupBySection(visibleTables(allTables));
+  const allParties = (await getCounterOrders()).filter(o => o.orderType === 'dine-in');
+  const initialSelectedIds = new Set(reservation?.tableIds || (reservation?.tableId ? [reservation.tableId] : []));
 
   openModal({
     title: `<i class="fa-solid fa-calendar-plus mr-8"></i> ${isEdit ? 'Edit' : 'New'} Reservation`,
@@ -290,15 +300,23 @@ async function openReservationForm(reservation) {
         <input class="form-input" id="resPhone" type="tel" value="${escapeAttr(reservation?.customerPhone || '')}" placeholder="e.g. 9876543210" />
       </div>
       <div class="form-group">
-        <label class="form-label">Table (optional)</label>
-        <select class="form-select" id="resTableId">
-          <option value="">No specific table — assign when they arrive</option>
+        <label class="form-label">Table(s) (optional — tick more than one to combine)</label>
+        <div id="resTableList" style="max-height:220px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; padding:6px 8px;">
           ${groupedTables.map(({ section, tables }) => `
-            <optgroup label="${escapeAttr(section)}">
-              ${tables.map(t => `<option value="${t.id}" ${reservation?.tableId === t.id ? 'selected' : ''}>${escapeAttr(tableDisplayName(t, allTables))} — Seats ${tableDisplayCapacity(t, allTables)}</option>`).join('')}
-            </optgroup>
+            <div style="font-size:10.5px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin:8px 2px 4px;">${escapeAttr(section)}</div>
+            ${tables.map(t => {
+              const isOccupiedNow = tableOccupancy(t, allParties).isOccupied;
+              return `
+              <label style="display:flex; align-items:center; gap:8px; padding:6px 4px; cursor:pointer; border-radius:6px;">
+                <input type="checkbox" class="res-table-checkbox" value="${t.id}" data-capacity="${tableDisplayCapacity(t, allTables)}" ${initialSelectedIds.has(t.id) ? 'checked' : ''} />
+                <span style="flex:1; font-size:13px;">${escapeAttr(tableDisplayName(t, allTables))} — Seats ${tableDisplayCapacity(t, allTables)}</span>
+                <span style="font-size:10px; font-weight:700; color:${isOccupiedNow ? 'var(--warning)' : 'var(--success)'}; white-space:nowrap;">${isOccupiedNow ? '● Occupied now' : '● Free now'}</span>
+              </label>
+            `;
+            }).join('')}
           `).join('')}
-        </select>
+        </div>
+        <p class="form-help-text" id="resCombinedCapacityText" style="margin-top:6px"></p>
       </div>
       <div class="form-grid">
         <div class="form-group mb-0">
@@ -314,7 +332,6 @@ async function openReservationForm(reservation) {
           <input class="form-input" id="resGuests" type="number" min="1" value="${reservation?.guestCount || 2}" />
         </div>
       </div>
-      <div id="resCapacityWarning"></div>
       <div class="form-group">
         <label class="form-label">Notes (optional)</label>
         <textarea class="form-input" id="resNotes" rows="2" placeholder="e.g. Window seat, birthday cake at 7pm">${escapeAttr(reservation?.notes || '')}</textarea>
@@ -326,65 +343,41 @@ async function openReservationForm(reservation) {
     `
   });
 
-  // Live capacity check + "combine tables" recommendation — recomputed on
-  // every Table/Guests change so it can never go stale. Only ever looks
-  // within the SELECTED table's own section (merging across, say, AC Hall
-  // and the Ground Floor isn't physically practical) and only ever
-  // SUGGESTS — actually merging tables is Tables.js's own existing
-  // edit/merge action, done at seating time, not something a reservation
-  // should perform on its own ahead of anyone arriving.
-  const updateCapacityWarning = () => {
-    const warnEl = document.getElementById('resCapacityWarning');
-    if (!warnEl) return;
-    const tableId = document.getElementById('resTableId')?.value;
-    const guestCount = parseInt(document.getElementById('resGuests')?.value, 10) || 0;
-    const selectedTable = tableId ? allTables.find(t => t.id === tableId) : null;
-    if (!selectedTable || !guestCount) { warnEl.innerHTML = ''; return; }
-
-    const cap = tableDisplayCapacity(selectedTable, allTables);
-    if (guestCount <= cap) { warnEl.innerHTML = ''; return; }
-
-    // Every OTHER table in the same section, not already part of a merge —
-    // combined with the selected table (2-table first; if this shop's own
-    // table sizes mean even every pair falls short — small tables, a big
-    // party — fall back to 3-table combos) to find which reaches the
-    // needed seats, closest-fit (least wasted extra capacity) first.
-    const sectionKey = selectedTable.section?.trim() || 'Main';
-    const partners = allTables.filter(t => t.id !== selectedTable.id && !t.mergedTableIds?.length && (t.section?.trim() || 'Main') === sectionKey);
-
-    let combos = partners
-      .map(t => ({ tables: [t], total: cap + tableDisplayCapacity(t, allTables) }))
-      .filter(c => c.total >= guestCount)
-      .sort((a, b) => a.total - b.total)
-      .slice(0, 3);
-
-    if (combos.length === 0) {
-      const triples = [];
-      for (let i = 0; i < partners.length; i++) {
-        for (let j = i + 1; j < partners.length; j++) {
-          const total = cap + tableDisplayCapacity(partners[i], allTables) + tableDisplayCapacity(partners[j], allTables);
-          if (total >= guestCount) triples.push({ tables: [partners[i], partners[j]], total });
-        }
-      }
-      combos = triples.sort((a, b) => a.total - b.total).slice(0, 3);
+  // Guests is hard-capped to the TICKED tables' combined capacity (no cap
+  // at all while none are ticked) — ticking more tables raises the ceiling
+  // immediately, exactly the "pick a combined table to allow more guests"
+  // flow asked for, without a separate merge step or a text-only suggestion.
+  let guestsManuallyEdited = false;
+  const guestsInput = document.getElementById('resGuests');
+  const capText = document.getElementById('resCombinedCapacityText');
+  const updateGuestsCap = () => {
+    const checked = Array.from(document.querySelectorAll('.res-table-checkbox:checked'));
+    if (checked.length === 0) {
+      guestsInput.removeAttribute('max');
+      if (capText) capText.textContent = '';
+      return;
     }
-
-    warnEl.innerHTML = `
-      <div style="margin:-6px 0 14px; padding:10px 12px; background:rgba(245,158,11,0.08); border:1px solid var(--warning); border-radius:8px; font-size:12px;">
-        <div style="color:var(--warning); font-weight:700;"><i class="fa-solid fa-triangle-exclamation" style="margin-right:5px;"></i>${escapeAttr(tableDisplayName(selectedTable, allTables))} seats only ${cap} — you've entered ${guestCount} guests.</div>
-        ${combos.length > 0 ? `
-          <div style="margin-top:6px; color:var(--text-secondary);">
-            💡 Combine with, when they arrive: ${combos.map(c => `<strong>${c.tables.map(t => escapeAttr(tableDisplayName(t, allTables))).join(' + ')}</strong> (${c.total} seats total)`).join(' &nbsp;|&nbsp; ')}
-          </div>
-        ` : `
-          <div style="margin-top:6px; color:var(--text-secondary);">No combination of tables in "${escapeAttr(sectionKey)}" reaches ${guestCount} seats — consider a different section, or seating as multiple parties.</div>
-        `}
-      </div>
-    `;
+    const cap = checked.reduce((s, el) => s + (parseInt(el.dataset.capacity, 10) || 0), 0);
+    guestsInput.setAttribute('max', cap);
+    const current = parseInt(guestsInput.value, 10) || 0;
+    // Only auto-FILL to the new ceiling if the guest count is still
+    // whatever it defaulted to (never touched) — once someone's actually
+    // typed a number (a 2-top choosing to sit at a bigger table on
+    // purpose, say), picking/unpicking tables only ever CAPS it, never
+    // silently overwrites a deliberate choice.
+    if (!guestsManuallyEdited || current > cap) {
+      guestsInput.value = cap;
+      if (guestsManuallyEdited) showToast(`Capped to ${cap} guests — the ticked table(s)' combined capacity. Tick another table to allow more.`, 'info');
+    }
+    if (capText) capText.textContent = `${checked.length > 1 ? 'Combined seats' : 'Seats'}: ${cap}`;
   };
-  document.getElementById('resTableId')?.addEventListener('change', updateCapacityWarning);
-  document.getElementById('resGuests')?.addEventListener('input', updateCapacityWarning);
-  updateCapacityWarning();
+  guestsInput?.addEventListener('input', () => {
+    guestsManuallyEdited = true;
+    const max = parseInt(guestsInput.getAttribute('max'), 10);
+    if (max && (parseInt(guestsInput.value, 10) || 0) > max) guestsInput.value = max;
+  });
+  document.querySelectorAll('.res-table-checkbox').forEach(cb => cb.addEventListener('change', updateGuestsCap));
+  updateGuestsCap();
 
   document.getElementById('saveReservationBtn')?.addEventListener('click', async () => {
     const customerName = document.getElementById('resName').value.trim();
@@ -395,11 +388,12 @@ async function openReservationForm(reservation) {
       showToast('Guest name, date, and time are required', 'error');
       return;
     }
-    const tableId = document.getElementById('resTableId').value || null;
-    // Snapshot the table's display name (section + name) at booking time —
-    // so the reservation list can show it without a live table lookup, and
-    // it stays meaningful even if that table's later renamed or deleted.
-    const pickedTable = tableId ? allTables.find(t => t.id === tableId) : null;
+    const pickedTables = Array.from(document.querySelectorAll('.res-table-checkbox:checked'))
+      .map(el => allTables.find(t => t.id === el.value))
+      .filter(Boolean);
+    // Snapshot ids/names/section/capacity at booking time — so the
+    // reservation list can show them without a live table lookup, and it
+    // stays meaningful even if a table's later renamed or deleted.
     await saveReservation({
       ...(reservation || {}),
       customerName,
@@ -408,9 +402,10 @@ async function openReservationForm(reservation) {
       reservationTime,
       guestCount,
       notes: document.getElementById('resNotes').value.trim(),
-      tableId,
-      tableName: pickedTable ? tableDisplayName(pickedTable, allTables) : null,
-      tableSection: pickedTable ? (pickedTable.section?.trim() || 'Main') : null,
+      tableIds: pickedTables.map(t => t.id),
+      tableNames: pickedTables.map(t => tableDisplayName(t, allTables)),
+      tableSection: pickedTables[0] ? (pickedTables[0].section?.trim() || 'Main') : null,
+      tableCapacity: pickedTables.reduce((s, t) => s + tableDisplayCapacity(t, allTables), 0) || null,
     });
     closeModal();
     showToast(isEdit ? 'Reservation updated' : 'Reservation booked', 'success');
