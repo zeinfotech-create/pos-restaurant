@@ -6,7 +6,7 @@ const DB_NAME = 'zepos_db';
 // at on a real device (IndexedDB versions only ever go up, never down —
 // opening with a lower version than what's already on disk throws immediately
 // and the whole app fails to initialize, before onboarding can even render).
-const DB_VERSION = 11; // 9: added pos_tables + pos_kots (restaurant module); 10: added pos_counter_orders (multiple concurrent takeaway/delivery orders); 11: re-bump — a dev session had already opened at v10 before pos_counter_orders existed in this file, permanently skipping its creation (IndexedDB upgrades are one-way); this re-triggers onupgradeneeded so any install stuck in that partial state (not just one machine) gets the missing store created — createObjectStore() is already guarded per-key, so this is a no-op for anyone who upgraded cleanly
+const DB_VERSION = 12; // 9: added pos_tables + pos_kots (restaurant module); 10: added pos_counter_orders (multiple concurrent takeaway/delivery orders); 11: re-bump — a dev session had already opened at v10 before pos_counter_orders existed in this file, permanently skipping its creation (IndexedDB upgrades are one-way); this re-triggers onupgradeneeded so any install stuck in that partial state (not just one machine) gets the missing store created — createObjectStore() is already guarded per-key, so this is a no-op for anyone who upgraded cleanly; 12: added pos_reservations (table booking/reservation feature)
 
 class DbService {
   constructor() {
@@ -393,6 +393,13 @@ export const KEYS = {
   // currentOrder, just without an actual table backing it, so more than one
   // takeaway/delivery order can be in progress at once (see RestaurantPOS.js).
   COUNTER_ORDERS: 'pos_counter_orders',
+  // Advance table bookings ("6pm, party of 4") — a reminder/pre-booking
+  // record, deliberately NOT tied to a specific table (this app already
+  // supports table sharing, so pre-pinning a reservation to one physical
+  // table would fight that flexibility) — staff seat the party into
+  // whichever table's actually free when they arrive, same as any walk-in,
+  // and mark the reservation Seated from here as a record-keeping step.
+  RESERVATIONS: 'pos_reservations',
   // Tombstones: track deleted record IDs so pos_full_state won't resurrect them
   DELETED_TOMBSTONES: 'pos_deleted_tombstones'
 };
@@ -4168,7 +4175,7 @@ export async function updateData(store, data, isSilent = false) {
     // never get an isSynced field set at all. Both are worth syncing: a
     // multi-branch owner reviewing "who imported what, when" or "was a
     // backup taken" shouldn't have to check that specific device.
-    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders'];
+    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations'];
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable
@@ -4191,7 +4198,7 @@ export async function updateData(store, data, isSilent = false) {
         // syncAllLocalData()'s own retry list, which did nothing since that
         // retry filters on isSynced !== true — a record already wrongly
         // marked true there is invisible to it too).
-        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders'];
+        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations'];
         if (syncStores.includes(store.toLowerCase())) {
           data.isSynced = false;
         } else {
@@ -4417,6 +4424,38 @@ export async function setKotItemStatus(id, itemIndex, status) {
 
 export async function deleteKot(id) {
   await deleteData('kots', id);
+}
+
+// Advance table bookings — see KEYS.RESERVATIONS above for why these are
+// deliberately not tied to a specific table.
+export async function getReservations(branchId = null) {
+  const all = (await db.getAll(KEYS.RESERVATIONS)) || [];
+  const filtered = branchId ? all.filter(r => r.branchId === branchId) : all;
+  return filtered.sort((a, b) => `${a.reservationDate} ${a.reservationTime}`.localeCompare(`${b.reservationDate} ${b.reservationTime}`));
+}
+
+export async function saveReservation(reservation) {
+  if (!reservation.id) reservation.id = 'res-' + Date.now();
+  if (!reservation.createdAt) reservation.createdAt = new Date().toISOString();
+  if (!reservation.status) reservation.status = 'confirmed'; // 'confirmed' | 'seated' | 'cancelled' | 'no-show'
+  if (!reservation.branchId) {
+    const cb = await getCurrentBranch();
+    reservation.branchId = cb?.id || 'b1';
+  }
+  await updateData('reservations', reservation);
+  return reservation;
+}
+
+export async function updateReservationStatus(id, status) {
+  const reservation = await getDataById('reservations', id);
+  if (!reservation) return null;
+  reservation.status = status;
+  await updateData('reservations', reservation);
+  return reservation;
+}
+
+export async function deleteReservation(id) {
+  await deleteData('reservations', id);
 }
 
 // A CounterOrder is the takeaway/delivery equivalent of a table's

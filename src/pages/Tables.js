@@ -7,13 +7,16 @@
 // does the actual selling.
 // ============================================================
 
-import { getTables, saveTable, deleteTable, getCounterOrders, getKots } from '../db.js';
+import { getTables, saveTable, deleteTable, getCounterOrders, getKots, getReservations, saveReservation, updateReservationStatus, deleteReservation } from '../db.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { navigate } from '../router.js';
 import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, tableReadyToBill } from '../utils/tableDisplay.js';
 
 let timerInterval = null;
+// 'tables' | 'reservations' — a plain in-page tab, not a route, so this
+// page's own back-button/nav-item behavior doesn't need to change at all.
+let activeTablesTab = 'tables';
 
 export async function renderTables(container) {
   container.innerHTML = `
@@ -22,13 +25,28 @@ export async function renderTables(container) {
         <div class="page-title">Tables</div>
         <div class="page-subtitle">Manage your dining tables — click a free table to start taking an order</div>
       </div>
-      <button class="btn btn-primary" id="addTableBtn">
+      <button class="btn btn-primary" id="addTableBtn" style="${activeTablesTab === 'reservations' ? 'display:none' : ''}">
         <i class="fa-solid fa-plus"></i> New Table
       </button>
+      <button class="btn btn-primary" id="addReservationBtn" style="${activeTablesTab === 'tables' ? 'display:none' : ''}">
+        <i class="fa-solid fa-calendar-plus"></i> New Reservation
+      </button>
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:18px; border-bottom:1px solid var(--border);">
+      <button class="btn btn-ghost tables-tab-btn ${activeTablesTab === 'tables' ? 'active-tab' : ''}" data-tab="tables" style="border-radius:8px 8px 0 0; ${activeTablesTab === 'tables' ? 'border-bottom:2px solid var(--primary); color:var(--primary);' : ''}"><i class="fa-solid fa-chair"></i> Tables</button>
+      <button class="btn btn-ghost tables-tab-btn ${activeTablesTab === 'reservations' ? 'active-tab' : ''}" data-tab="reservations" style="border-radius:8px 8px 0 0; ${activeTablesTab === 'reservations' ? 'border-bottom:2px solid var(--primary); color:var(--primary);' : ''}"><i class="fa-solid fa-calendar-check"></i> Reservations</button>
     </div>
     <div id="tablesContent"></div>
   `;
-  await renderTablesContent();
+  container.querySelectorAll('.tables-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => { activeTablesTab = btn.dataset.tab; renderTables(container); });
+  });
+  document.getElementById('addReservationBtn')?.addEventListener('click', () => openReservationForm(null));
+  if (activeTablesTab === 'reservations') {
+    await renderReservationsContent();
+  } else {
+    await renderTablesContent();
+  }
 }
 
 async function renderTablesContent() {
@@ -90,6 +108,216 @@ async function renderTablesContent() {
 
   await setupTablesListeners();
   startTimerLoop();
+}
+
+// ── Reservations — advance table bookings ("6pm, party of 4"). Deliberately
+// NOT pinned to a specific table (see db.js's KEYS.RESERVATIONS comment) —
+// this is a reminder/pre-booking list; staff seat the party into whichever
+// table's actually free when they arrive, same as any walk-in, and mark
+// the reservation Seated here purely as a record-keeping step. ──────────
+const RESERVATION_STATUS_META = {
+  confirmed: { label: 'Confirmed', color: 'var(--info, #3b82f6)', bg: 'rgba(59,130,246,0.08)' },
+  seated: { label: 'Seated', color: 'var(--success)', bg: 'rgba(34,197,94,0.08)' },
+  cancelled: { label: 'Cancelled', color: 'var(--text-muted)', bg: 'var(--bg-app)' },
+  'no-show': { label: 'No-show', color: 'var(--danger)', bg: 'rgba(239,68,68,0.08)' },
+};
+
+async function renderReservationsContent() {
+  const area = document.getElementById('tablesContent');
+  if (!area) return;
+
+  const all = await getReservations();
+  // Upcoming first (today/future, still confirmed), then everything else
+  // (past, seated, cancelled, no-show) below as history — a reservation
+  // list that's useful for "what's coming up" first, without deleting the
+  // record of what already happened.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const upcoming = all.filter(r => r.status === 'confirmed' && r.reservationDate >= todayStr);
+  const history = all.filter(r => !(r.status === 'confirmed' && r.reservationDate >= todayStr))
+    .sort((a, b) => `${b.reservationDate} ${b.reservationTime}`.localeCompare(`${a.reservationDate} ${a.reservationTime}`));
+
+  const groupByDate = (list) => {
+    const map = new Map();
+    list.forEach(r => {
+      if (!map.has(r.reservationDate)) map.set(r.reservationDate, []);
+      map.get(r.reservationDate).push(r);
+    });
+    return [...map.entries()];
+  };
+
+  const formatDateLabel = (dateStr) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    const isToday = dateStr === todayStr;
+    const isTomorrow = dateStr === new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const base = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+    return isToday ? `Today · ${base}` : isTomorrow ? `Tomorrow · ${base}` : base;
+  };
+
+  const formatTimeLabel = (timeStr) => {
+    if (!timeStr) return '';
+    const [h, m] = timeStr.split(':').map(Number);
+    const period = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+  };
+
+  const reservationCard = (r) => {
+    const meta = RESERVATION_STATUS_META[r.status] || RESERVATION_STATUS_META.confirmed;
+    return `
+      <div class="table-card" data-res-id="${r.id}" style="padding:14px 16px; border-radius:12px; border:1px solid var(--border); background:${meta.bg}; cursor:default;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
+          <div>
+            <div style="font-size:15px; font-weight:800;">${escapeAttr(r.customerName || 'Guest')}</div>
+            <div style="font-size:11.5px; color:var(--text-muted); margin-top:2px;">${escapeAttr(r.customerPhone || '')}</div>
+          </div>
+          <div style="font-size:10.5px; font-weight:800; color:${meta.color}; white-space:nowrap;">${meta.label}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:14px; margin-top:10px; font-size:12px; color:var(--text-secondary);">
+          <span><i class="fa-solid fa-clock" style="opacity:.6; margin-right:4px;"></i>${formatTimeLabel(r.reservationTime)}</span>
+          <span><i class="fa-solid fa-user-group" style="opacity:.6; margin-right:4px;"></i>${r.guestCount || 1} guest${(r.guestCount || 1) === 1 ? '' : 's'}</span>
+        </div>
+        ${r.notes ? `<div style="font-size:11px; color:var(--text-muted); margin-top:6px; font-style:italic;">${escapeAttr(r.notes)}</div>` : ''}
+        <div style="display:flex; gap:6px; margin-top:12px; flex-wrap:wrap;">
+          ${r.status === 'confirmed' ? `
+            <button class="btn btn-primary btn-sm seat-reservation-btn" data-id="${r.id}"><i class="fa-solid fa-chair"></i> Seat Now</button>
+            <button class="btn btn-ghost btn-sm edit-reservation-btn" data-id="${r.id}"><i class="fa-solid fa-pen"></i></button>
+            <button class="btn btn-ghost btn-sm noshow-reservation-btn" data-id="${r.id}" title="Mark No-show"><i class="fa-solid fa-user-slash"></i></button>
+            <button class="btn btn-ghost btn-sm cancel-reservation-btn" data-id="${r.id}" style="color:var(--danger)" title="Cancel"><i class="fa-solid fa-xmark"></i></button>
+          ` : `
+            <button class="btn btn-ghost btn-sm del-reservation-btn" data-id="${r.id}" style="color:var(--danger)"><i class="fa-solid fa-trash"></i> Remove</button>
+          `}
+        </div>
+      </div>
+    `;
+  };
+
+  const renderGroup = (list, emptyText) => {
+    if (list.length === 0) return `<div style="text-align:center; padding:24px; color:var(--text-muted); font-size:12.5px;">${emptyText}</div>`;
+    return groupByDate(list).map(([date, reservations]) => `
+      <div style="margin-bottom:18px;">
+        <div style="font-size:12px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid var(--border);">${formatDateLabel(date)}</div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap:12px;">
+          ${reservations.map(reservationCard).join('')}
+        </div>
+      </div>
+    `).join('');
+  };
+
+  area.innerHTML = `
+    ${renderGroup(upcoming, 'No upcoming reservations — tap "New Reservation" to book one.')}
+    ${history.length > 0 ? `
+      <div style="margin-top:8px;">
+        <button class="btn btn-ghost btn-sm" id="toggleReservationHistoryBtn"><i class="fa-solid fa-clock-rotate-left"></i> Show past &amp; cancelled (${history.length})</button>
+        <div id="reservationHistoryArea" style="display:none; margin-top:14px;">${renderGroup(history, '')}</div>
+      </div>
+    ` : ''}
+  `;
+
+  document.getElementById('toggleReservationHistoryBtn')?.addEventListener('click', (e) => {
+    const histArea = document.getElementById('reservationHistoryArea');
+    if (!histArea) return;
+    const show = histArea.style.display === 'none';
+    histArea.style.display = show ? '' : 'none';
+    e.currentTarget.innerHTML = `<i class="fa-solid fa-clock-rotate-left"></i> ${show ? 'Hide' : 'Show'} past & cancelled (${history.length})`;
+  });
+
+  area.querySelectorAll('.seat-reservation-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await updateReservationStatus(btn.dataset.id, 'seated');
+      showToast('Marked seated — pick a free table to actually start their order.', 'success');
+      await renderReservationsContent();
+    });
+  });
+  area.querySelectorAll('.noshow-reservation-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await updateReservationStatus(btn.dataset.id, 'no-show');
+      await renderReservationsContent();
+    });
+  });
+  area.querySelectorAll('.cancel-reservation-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await updateReservationStatus(btn.dataset.id, 'cancelled');
+      showToast('Reservation cancelled', 'info');
+      await renderReservationsContent();
+    });
+  });
+  area.querySelectorAll('.del-reservation-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ok = await showConfirm({ title: 'Remove Reservation', message: 'Permanently remove this reservation record?', okText: 'Remove' });
+      if (!ok) return;
+      await deleteReservation(btn.dataset.id);
+      await renderReservationsContent();
+    });
+  });
+  area.querySelectorAll('.edit-reservation-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const r = all.find(x => x.id === btn.dataset.id);
+      if (r) openReservationForm(r);
+    });
+  });
+}
+
+function openReservationForm(reservation) {
+  const isEdit = !!reservation;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  openModal({
+    title: `<i class="fa-solid fa-calendar-plus mr-8"></i> ${isEdit ? 'Edit' : 'New'} Reservation`,
+    body: `
+      <div class="form-group">
+        <label class="form-label required">Guest Name</label>
+        <input class="form-input" id="resName" value="${escapeAttr(reservation?.customerName || '')}" placeholder="e.g. Ramesh" autofocus />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone</label>
+        <input class="form-input" id="resPhone" type="tel" value="${escapeAttr(reservation?.customerPhone || '')}" placeholder="e.g. 9876543210" />
+      </div>
+      <div class="form-grid">
+        <div class="form-group mb-0">
+          <label class="form-label required">Date</label>
+          <input class="form-input" id="resDate" type="date" min="${todayStr}" value="${reservation?.reservationDate || todayStr}" />
+        </div>
+        <div class="form-group mb-0">
+          <label class="form-label required">Time</label>
+          <input class="form-input" id="resTime" type="time" value="${reservation?.reservationTime || ''}" />
+        </div>
+        <div class="form-group mb-0">
+          <label class="form-label required">Guests</label>
+          <input class="form-input" id="resGuests" type="number" min="1" value="${reservation?.guestCount || 2}" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes (optional)</label>
+        <textarea class="form-input" id="resNotes" rows="2" placeholder="e.g. Window seat, birthday cake at 7pm">${escapeAttr(reservation?.notes || '')}</textarea>
+      </div>
+    `,
+    footer: `
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveReservationBtn"><i class="fa-solid fa-check mr-6"></i> ${isEdit ? 'Save Changes' : 'Book Reservation'}</button>
+    `
+  });
+
+  document.getElementById('saveReservationBtn')?.addEventListener('click', async () => {
+    const customerName = document.getElementById('resName').value.trim();
+    const reservationDate = document.getElementById('resDate').value;
+    const reservationTime = document.getElementById('resTime').value;
+    const guestCount = parseInt(document.getElementById('resGuests').value, 10) || 1;
+    if (!customerName || !reservationDate || !reservationTime) {
+      showToast('Guest name, date, and time are required', 'error');
+      return;
+    }
+    await saveReservation({
+      ...(reservation || {}),
+      customerName,
+      customerPhone: document.getElementById('resPhone').value.trim(),
+      reservationDate,
+      reservationTime,
+      guestCount,
+      notes: document.getElementById('resNotes').value.trim(),
+    });
+    closeModal();
+    showToast(isEdit ? 'Reservation updated' : 'Reservation booked', 'success');
+    await renderReservationsContent();
+  });
 }
 
 function renderTableCard(t, allTables, allParties, allKots) {

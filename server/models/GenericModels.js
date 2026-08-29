@@ -47,4 +47,7 @@ module.exports = {
     // A takeaway/delivery order slot — single-branch, same treatment as
     // Table/Kot above.
     CounterOrder: createGenericModel('CounterOrder'),
+    // Advance table bookings — single-branch, same treatment as Table/Kot/
+    // CounterOrder above.
+    Reservation: createGenericModel('Reservation'),
 };
