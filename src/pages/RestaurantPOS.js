@@ -2240,7 +2240,6 @@ function renderCancelledKotHtml(items, ticketLabel, reason) {
 // branding, receipt theme, GST-by-rate breakdown, discount/tax lines per
 // this shop's own toggles) instead of a hand-rolled bare-bones layout that
 // drifts from those settings the moment any of them change.
-const ORDER_TYPE_LABELS = { 'dine-in': 'Dine-in', takeaway: 'Takeaway', delivery: 'Delivery', swiggy: 'Swiggy', zomato: 'Zomato' };
 
 async function previewBill() {
   if (store.cart.length === 0) return;
@@ -2256,20 +2255,27 @@ async function previewBill() {
 
   const previewOrder = {
     id: 'PREVIEW',
+    isPreview: true, // suppresses the bill-number/invoice-number and barcode lines — nothing's actually been billed yet
     items: store.cart,
     subtotal: totals.subtotal,
     discount: totals.discount,
     tax: totals.itemTax + totals.orderTax,
     total: totals.total,
     date: new Date().toISOString(),
-    orderType: ORDER_TYPE_LABELS[orderType] || orderType,
-    orderSource: AGGREGATOR_TYPES.includes(orderType) ? ORDER_TYPE_LABELS[orderType] : undefined,
+    // Raw lowercase — same shape completeBill()'s restaurantMeta.orderType
+    // already saves onto a real order, so describeOrderType() (shared,
+    // CheckoutService.js) labels both identically instead of drifting.
+    orderType,
     tableName: orderType === 'dine-in' ? orderLabel : undefined,
+    guestCount: orderType === 'dine-in' ? (guestCount || null) : undefined,
+    waiterName: store.selectedStaff?.name || undefined,
     customer: (orderType !== 'dine-in' && takeawayContact.name) ? { name: takeawayContact.name, phone: takeawayContact.phone } : undefined,
   };
   // Same settings this shop already configured for its real receipts —
-  // just the title swapped so it can't be mistaken for a paid tax invoice.
-  const previewSettings = { ...settings, receiptTitle: 'PROFORMA — NOT A TAX INVOICE' };
+  // just the title swapped to a plain customer-facing "BILL" (chosen over
+  // "PROFORMA — NOT A TAX INVOICE" — too much internal/legal jargon for
+  // what's handed straight to a customer at the table).
+  const previewSettings = { ...settings, receiptTitle: 'BILL' };
   const body = await renderReceiptBody(previewOrder, previewSettings, cur, false);
   await printReceiptHtml(body, 'Bill Preview');
 }

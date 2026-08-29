@@ -1104,6 +1104,24 @@ function renderGstSplit(rate, amount, cur, isInterState = false) {
  *    double-count it. Callers computing their own total must use this, not
  *    the sum of `breakdown`.
  */
+// Restaurant orders store order.orderType as the raw value RestaurantPOS.js
+// itself uses ('dine-in'/'takeaway'/'delivery'/'swiggy'/'zomato', lowercase
+// hyphenated) — this used to only be checked against title-cased legacy
+// values ('Dine-in'/'Dine In'/'Eat In'), which never actually matched a real
+// restaurant order, silently hiding the order-type line on every printed
+// bill regardless of type. Normalizes either shape to one display label +
+// an isDineIn flag, shared by both the thermal and A4/A5 templates below.
+const ORDER_TYPE_DISPLAY = {
+  'dine-in': 'Dine-in', 'dine in': 'Dine-in', 'eat in': 'Dine-in',
+  'takeaway': 'Takeaway', 'delivery': 'Delivery', 'swiggy': 'Swiggy', 'zomato': 'Zomato',
+};
+function describeOrderType(order) {
+  const raw = (order.orderType || '').toLowerCase();
+  const label = ORDER_TYPE_DISPLAY[raw] || order.orderType || '';
+  const isDineIn = raw === 'dine-in' || raw === 'dine in' || raw === 'eat in';
+  return { label, isDineIn };
+}
+
 function computeTaxByRate(order) {
   const taxByRate = {};
   let exclusiveTotal = 0;
@@ -1224,9 +1242,18 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
             ${order.customer?.phone ? `<div>Contact No.: ${escapeHtml(order.customer.phone)}</div>` : ''}
           ` : ''}
           ${settings.showDeliveryOnReceipt !== false && order.deliveryVehicle ? `<div>Delivery Vehicle: <strong>${escapeHtml(order.deliveryVehicle)}</strong></div>` : ''}
+          ${(() => {
+            const { label, isDineIn } = describeOrderType(order);
+            if (!label) return '';
+            const tableName = order.tableName || order.table?.name;
+            const guestsPart = isDineIn && order.guestCount ? ` &middot; ${order.guestCount} guests` : '';
+            const text = isDineIn && tableName ? `${label} &middot; Table: ${tableName}${guestsPart}` : `${label}${guestsPart}`;
+            return `<div style="margin-top:2px"><strong>${text}</strong></div>`;
+          })()}
+          ${order.waiterName ? `<div>Waiter: ${escapeHtml(order.waiterName)}</div>` : ''}
         </div>
         <div style="text-align:right">
-          <div>Invoice No.: <strong>${escapeHtml(String(order.dailyNumber || order.id))}</strong></div>
+          ${!order.isPreview ? `<div>Invoice No.: <strong>${escapeHtml(String(order.dailyNumber || order.id))}</strong></div>` : ''}
           <div>Date: ${new Date(dateStr).toLocaleDateString('en-IN')}</div>
           <div>Time: ${new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
         </div>
@@ -1355,7 +1382,7 @@ async function renderInvoiceBody(order, settings, cur, includeReturns = true) {
         </div>
       ` : ''}
       <!-- Barcode + footer message always print last, right next to each other -->
-      ${settings.printBarcodeOnReceipt ? `
+      ${settings.printBarcodeOnReceipt && !order.isPreview ? `
         <div style="text-align:center; margin:14px 0 0">
           <svg class="receipt-barcode" data-barcode-value="${order.id}"></svg>
         </div>
@@ -1444,15 +1471,23 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         </div>`;
         })()}
         ${settings.showReceiptTitle !== false ? `<div style="font-weight:800; font-size:13px; letter-spacing:1px; margin:6px 0">${escapeHtml(settings.receiptTitle || 'TAX INVOICE')}</div>` : ''}
+        ${!order.isPreview ? `
         <div class="receipt-row" style="font-size:11px; opacity:0.7; text-align:left;">
           <span>BILL NO: ${order.dailyNumber || order.id}</span>
           <span>${new Date(dateStr).toLocaleString('en-IN')}</span>
         </div>
+        ` : `
+        <div style="font-size:11px; opacity:0.7; text-align:center;">${new Date(dateStr).toLocaleString('en-IN')}</div>
+        `}
         ${(() => {
-          const isDineIn = ['Dine-in', 'Dine In', 'Eat In'].includes(order.orderType);
+          const { label, isDineIn } = describeOrderType(order);
+          if (!label) return '';
           const tableName = order.tableName || order.table?.name;
-          return (isDineIn && tableName) ? `<div style="font-size:11px;font-weight:bold">${order.orderType} &middot; Table: ${tableName}</div>` : '';
+          const guestsPart = isDineIn && order.guestCount ? ` &middot; ${order.guestCount} guests` : '';
+          const text = isDineIn && tableName ? `${label} &middot; Table: ${tableName}${guestsPart}` : `${label}${guestsPart}`;
+          return `<div style="font-size:11px;font-weight:bold">${text}</div>`;
         })()}
+        ${order.waiterName ? `<div style="font-size:10.5px;font-weight:600;opacity:0.8">Waiter: ${escapeHtml(order.waiterName)}</div>` : ''}
         ${order.orderSource && order.orderSource !== 'In-Store' ? `<div style="font-size:11px;font-weight:bold;color:var(--primary)">Source: ${order.orderSource}</div>` : ''}
         ${settings.showCustomerOnReceipt !== false && order.customer ? `
           <div style="margin-top:4px;padding-top:4px;border-top:1px dashed var(--border);font-size:12px">
@@ -1662,7 +1697,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
         </div>
       ` : ''}
       <!-- Barcode + footer message always print last, right next to each other -->
-      ${settings.printBarcodeOnReceipt ? `
+      ${settings.printBarcodeOnReceipt && !order.isPreview ? `
         <div class="receipt-barcode-wrap" style="text-align:center; margin:12px 0 0">
           <svg class="receipt-barcode" data-barcode-value="${order.id}"></svg>
         </div>
