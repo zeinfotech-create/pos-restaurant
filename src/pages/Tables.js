@@ -11,7 +11,7 @@ import { getTables, saveTable, deleteTable, getCounterOrders, getKots, getReserv
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, tableReadyToBill } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, tableReadyToBill, formatReservationTime } from '../utils/tableDisplay.js';
 
 let timerInterval = null;
 // 'tables' | 'reservations' — a plain in-page tab, not a route, so this
@@ -183,7 +183,7 @@ async function renderReservationsContent() {
           <div style="font-size:10.5px; font-weight:800; color:${meta.color}; white-space:nowrap;">${meta.label}</div>
         </div>
         <div style="display:flex; align-items:center; gap:14px; margin-top:10px; font-size:12px; color:var(--text-secondary); flex-wrap:wrap;">
-          <span><i class="fa-solid fa-clock" style="opacity:.6; margin-right:4px;"></i>${formatTimeLabel(r.reservationTime)}</span>
+          <span><i class="fa-solid fa-clock" style="opacity:.6; margin-right:4px;"></i>${formatReservationTime(r.reservationTime)}</span>
           <span><i class="fa-solid fa-user-group" style="opacity:.6; margin-right:4px;"></i>${r.guestCount || 1} guest${(r.guestCount || 1) === 1 ? '' : 's'}</span>
         </div>
         ${r.tableNames?.length ? `<div style="font-size:11.5px; font-weight:700; color:var(--primary); margin-top:6px;"><i class="fa-solid fa-chair" style="opacity:.7; margin-right:4px;"></i>${escapeAttr(r.tableSection && r.tableSection !== 'Main' ? `${r.tableSection} · ${r.tableNames.join(' + ')}` : r.tableNames.join(' + '))}${r.tableNames.length > 1 ? ` (${r.tableCapacity} seats combined)` : ''}</div>` : ''}
@@ -464,7 +464,7 @@ function renderTableCard(t, allTables, allParties, allKots, todaysReservations) 
         ${elapsed !== null ? `<div class="table-timer" data-occupied-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color};">${formatElapsed(elapsed)}</div>` : ''}
       </div>
       ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;">${occ.totalItems} item(s)</div>` : ''}
-      ${nextReservation ? `<div style="font-size:10.5px; color:#8b5cf6; font-weight:700; margin-top:6px;"><i class="fa-solid fa-calendar-check" style="margin-right:4px;"></i>${escapeAttr(nextReservation.customerName)} — ${formatTimeLabel(nextReservation.reservationTime)} · ${nextReservation.guestCount} guest${nextReservation.guestCount === 1 ? '' : 's'}${todaysReservations.length > 1 ? ` (+${todaysReservations.length - 1} more today)` : ''}</div>` : ''}
+      ${nextReservation ? `<div style="font-size:10.5px; color:#8b5cf6; font-weight:700; margin-top:6px;"><i class="fa-solid fa-calendar-check" style="margin-right:4px;"></i>${escapeAttr(nextReservation.customerName)} — ${formatReservationTime(nextReservation.reservationTime)} · ${nextReservation.guestCount} guest${nextReservation.guestCount === 1 ? '' : 's'}${todaysReservations.length > 1 ? ` (+${todaysReservations.length - 1} more today)` : ''}</div>` : ''}
       ${capacityBarHtml(occ.usedSeats, displayCap, statusColor)}
     </div>
   `;
@@ -474,15 +474,6 @@ function escapeAttr(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// 24h "HH:MM" -> "H:MM AM/PM" — shared by the reservation cards and, now,
-// a booked-free table's own card (see renderTableCard()'s isReservedAndFree).
-function formatTimeLabel(timeStr) {
-  if (!timeStr) return '';
-  const [h, m] = timeStr.split(':').map(Number);
-  const period = h >= 12 ? 'PM' : 'AM';
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
-}
 
 // Only the timer badges re-render on this tick (not the whole grid) so an
 // open modal / merge selection never gets clobbered by a background tick.

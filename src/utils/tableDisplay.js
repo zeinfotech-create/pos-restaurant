@@ -5,6 +5,17 @@
 // status colors, occupied-timers, sections, and merged tables are shown.
 // ============================================================
 
+// 24h "HH:MM" -> "H:MM AM/PM" — shared by both the Tables.js reservation
+// cards and RestaurantPOS.js's own table-picker "Reserved" line, so a
+// booking's time reads identically wherever it's shown.
+export function formatReservationTime(timeStr) {
+  if (!timeStr) return '';
+  const [h, m] = timeStr.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
 export const STATUS_META = {
   // 'free' uses --info rather than --primary/--success deliberately — some
   // themes retint --primary (e.g. green/purple/teal storefronts), which

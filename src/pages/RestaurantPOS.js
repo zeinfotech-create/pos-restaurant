@@ -24,14 +24,14 @@
 // unaffected by anything here.
 // ============================================================
 
-import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, updateSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder, getOrders } from '../db.js';
+import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, updateSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder, getOrders, getReservations } from '../db.js';
 import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff, clearCart } from '../store.js';
 import { confirmOrder, printReceiptHtml, renderReceiptBody } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { navigate } from '../router.js';
-import { STATUS_META, visibleTables, tableDisplayName, tableDisplayNameWithSection, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, summarizeCartIdStatus, buildKitchenStatusMapFor, partyServeStatus, tableReadyToBill, kitchenFacingOrderLabel } from '../utils/tableDisplay.js';
+import { STATUS_META, visibleTables, tableDisplayName, tableDisplayNameWithSection, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, summarizeCartIdStatus, buildKitchenStatusMapFor, partyServeStatus, tableReadyToBill, kitchenFacingOrderLabel, formatReservationTime } from '../utils/tableDisplay.js';
 import { hasRecipe } from '../utils/recipeCost.js';
 
 // A menu item is Sold Out when it (or, for a recipe dish, any ONE of its
@@ -838,6 +838,22 @@ async function renderPickerView() {
   // right on the grid card, so staff can see which tables need collecting
   // without drilling into each one first.
   const kotsForReadyCheck = await getKots();
+  // Same "Reserved" flag Tables.js's own management grid shows — this is
+  // the screen staff actually pick a table from to seat a walk-in, so
+  // "someone's booked this for later today" needs to be visible right
+  // here too, not only on a separate management page they may never open
+  // mid-service. Identical source/grouping as Tables.js so the two can't
+  // drift on what counts as "reserved today."
+  const todayStrForRes = new Date().toISOString().slice(0, 10);
+  const todaysReservationsRaw = (await getReservations()).filter(r => r.status === 'confirmed' && r.reservationDate === todayStrForRes && r.tableIds?.length);
+  const reservationsByTableId = new Map();
+  todaysReservationsRaw.forEach(r => {
+    r.tableIds.forEach(tid => {
+      if (!reservationsByTableId.has(tid)) reservationsByTableId.set(tid, []);
+      reservationsByTableId.get(tid).push(r);
+    });
+  });
+  reservationsByTableId.forEach(list => list.sort((a, b) => a.reservationTime.localeCompare(b.reservationTime)));
 
   area.innerHTML = `
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
@@ -865,10 +881,17 @@ async function renderPickerView() {
             // the green tint) so "this needs collecting" reads the same
             // way everywhere on this screen.
             const ready = occ.isOccupied && tableReadyToBill(occ, kotsForReadyCheck);
-            const cardBg = ready ? 'rgba(34,197,94,0.1)' : status.bg;
-            const cardBorder = ready ? 'var(--success)' : 'var(--border)';
-            const statusColor = ready ? 'var(--success)' : status.color;
-            const statusLabel = ready ? 'Ready to Bill' : (occ.isOccupied ? `${occ.usedSeats}/${capacity} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : status.label);
+            // Same violet "Reserved" override Tables.js's grid uses — only
+            // when the table is otherwise FREE (an occupied/ready table's
+            // own more urgent status still wins the color; the booking
+            // info line still shows underneath either way).
+            const tableReservations = reservationsByTableId.get(t.id);
+            const nextRes = tableReservations?.[0];
+            const isReservedAndFree = !occ.isOccupied && nextRes;
+            const cardBg = ready ? 'rgba(34,197,94,0.1)' : isReservedAndFree ? 'rgba(139,92,246,0.1)' : status.bg;
+            const cardBorder = ready ? 'var(--success)' : isReservedAndFree ? '#8b5cf6' : 'var(--border)';
+            const statusColor = ready ? 'var(--success)' : isReservedAndFree ? '#8b5cf6' : status.color;
+            const statusLabel = ready ? 'Ready to Bill' : (occ.isOccupied ? `${occ.usedSeats}/${capacity} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : (isReservedAndFree ? 'Reserved' : status.label));
             return `
               <div class="rpos-table-card ${ready ? 'rpos-box-ready' : ''}" data-id="${t.id}" style="background:${cardBg}; border:1px solid ${cardBorder};">
                 <div style="font-weight:800; font-size:16px;">${escapeHtml(tableDisplayName(t, allTables))}</div>
@@ -878,6 +901,7 @@ async function renderPickerView() {
                   ${elapsed !== null ? `<div class="rpos-table-timer" data-created-at="${occ.oldestCreatedAt}" style="font-size:11px; font-weight:800; color:${timerTier(elapsed).color}; white-space:nowrap;">${formatElapsed(elapsed)}</div>` : ''}
                 </div>
                 ${occ.totalItems > 0 ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:6px;">${occ.totalItems} item(s)</div>` : ''}
+                ${nextRes ? `<div style="font-size:10.5px; color:#8b5cf6; font-weight:700; margin-top:6px;"><i class="fa-solid fa-calendar-check" style="margin-right:4px;"></i>${escapeHtml(nextRes.customerName)} — ${formatReservationTime(nextRes.reservationTime)} · ${nextRes.guestCount} guest${nextRes.guestCount === 1 ? '' : 's'}${tableReservations.length > 1 ? ` (+${tableReservations.length - 1} more today)` : ''}</div>` : ''}
                 ${capacityBarHtml(occ.usedSeats, capacity, statusColor)}
               </div>
             `;
