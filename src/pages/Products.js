@@ -811,9 +811,9 @@ async function openProductForm(product, container, cur) {
               <option value="">Select a product...</option>
               ${allProductsForRecipe.map(p => `<option value="${p.id}" ${ing.productId === p.id ? 'selected' : ''}>${escapeHtml(p.name)} (${escapeHtml(p.unit || 'pcs')}, ${cur}${(p.costPrice || 0).toFixed(2)}/${escapeHtml(p.unit || 'pcs')})</option>`).join('')}
             </select>
-            <div style="flex:1; display:flex; align-items:center; gap:4px">
-              <input class="form-input recipe-qty-input" type="number" min="0" step="any" placeholder="Qty" value="${ing.qty ?? ''}" data-idx="${i}" style="width:100%" />
-              <span style="font-size:11px; color:var(--text-muted); white-space:nowrap">${escapeHtml(ingProduct?.unit || '')}</span>
+            <div style="flex:1; min-width:0; display:flex; align-items:center; gap:4px">
+              <input class="form-input recipe-qty-input" type="number" min="0" step="any" placeholder="Qty" value="${ing.qty ?? ''}" data-idx="${i}" style="flex:1; min-width:0" />
+              <span style="font-size:11px; color:var(--text-muted); white-space:nowrap; flex-shrink:0">${escapeHtml(ingProduct?.unit || '')}</span>
             </div>
             <button class="btn btn-icon remove-recipe-ingredient-btn" data-idx="${i}" style="color:var(--danger)"><i class="fa-solid fa-minus"></i></button>
           </div>
