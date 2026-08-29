@@ -807,7 +807,7 @@ async function openProductForm(product, container, cur) {
           const ingProduct = allProductsForRecipe.find(p => p.id === ing.productId);
           return `
           <div class="variant-row">
-            <select class="form-select recipe-ingredient-select" style="flex:2" data-idx="${i}">
+            <select class="form-select recipe-ingredient-select" style="flex:2; min-width:0" data-idx="${i}">
               <option value="">Select a product...</option>
               ${allProductsForRecipe.map(p => `<option value="${p.id}" ${ing.productId === p.id ? 'selected' : ''}>${escapeHtml(p.name)} (${escapeHtml(p.unit || 'pcs')}, ${cur}${(p.costPrice || 0).toFixed(2)}/${escapeHtml(p.unit || 'pcs')})</option>`).join('')}
             </select>
