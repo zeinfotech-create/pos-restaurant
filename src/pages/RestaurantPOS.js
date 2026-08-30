@@ -33,6 +33,7 @@ import { escapeHtml } from '../utils/escapeHtml.js';
 import { navigate } from '../router.js';
 import { STATUS_META, visibleTables, tableDisplayName, tableDisplayNameWithSection, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, summarizeCartIdStatus, buildKitchenStatusMapFor, partyServeStatus, tableReadyToBill, kitchenFacingOrderLabel, formatReservationTime } from '../utils/tableDisplay.js';
 import { hasRecipe } from '../utils/recipeCost.js';
+import { getActiveHappyHourDiscountPercent } from '../utils/happyHour.js';
 
 // A menu item is Sold Out when it (or, for a recipe dish, any ONE of its
 // ingredients) is out of stock and neither it nor that ingredient has
@@ -1543,13 +1544,21 @@ async function renderOrderingView() {
           ${products.length === 0 ? `<div style="${isMobile ? '' : 'grid-column:1/-1;'} text-align:center; padding:30px; color:var(--text-muted);">No items match</div>` : products.map(p => {
             const available = isProductAvailable(p, allProductsForStock);
             const soldOutStyle = available ? '' : 'opacity:.45; pointer-events:none; filter:grayscale(.6);';
+            // Happy Hour badge — purely informational here (the real
+            // discount is applied the moment addToCart() actually runs, see
+            // the click handler below); shown so staff/customer see the
+            // deal BEFORE tapping, not just after.
+            const hhPct = getActiveHappyHourDiscountPercent(store.settings?.happyHourRules, p);
+            const hhPriceHtml = hhPct > 0
+              ? `<span style="text-decoration:line-through; opacity:.5; margin-right:4px;">${cur}${Number(p.price || 0).toFixed(2)}</span>${cur}${(Number(p.price || 0) * (1 - hhPct / 100)).toFixed(2)}`
+              : `${cur}${Number(p.price || 0).toFixed(2)}`;
             return isMobile ? `
             <div class="rpos-product-card rpos-product-row" data-id="${p.id}" style="position:relative; ${soldOutStyle}">
               ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
               <div class="rpos-product-emoji">${p.emoji || '🍽️'}</div>
               <div class="rpos-product-info">
-                <div class="rpos-product-name">${escapeHtml(p.name)}</div>
-                <div class="rpos-product-price">${cur}${Number(p.price || 0).toFixed(2)}</div>
+                <div class="rpos-product-name">${escapeHtml(p.name)}${hhPct > 0 ? ` <span style="font-size:9.5px; font-weight:800; color:var(--warning);"><i class="fa-solid fa-clock"></i> -${hhPct}%</span>` : ''}</div>
+                <div class="rpos-product-price">${hhPriceHtml}</div>
               </div>
               ${available ? `<div class="rpos-product-add-btn"><i class="fa-solid fa-plus"></i></div>` : `<div style="font-size:10px; font-weight:800; color:var(--danger); letter-spacing:.5px; white-space:nowrap;">SOLD OUT</div>`}
             </div>
@@ -1557,9 +1566,10 @@ async function renderOrderingView() {
             <div class="rpos-product-card" data-id="${p.id}" style="position:relative; ${soldOutStyle}">
               ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder" style="position:absolute; top:2px; right:2px;"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
               ${!available ? `<div style="position:absolute; top:6px; right:6px; background:var(--danger); color:#fff; font-size:9px; font-weight:800; letter-spacing:.3px; padding:2px 6px; border-radius:4px;">SOLD OUT</div>` : ''}
+              ${available && hhPct > 0 ? `<div style="position:absolute; top:6px; left:6px; background:var(--warning); color:#fff; font-size:9px; font-weight:800; letter-spacing:.3px; padding:2px 6px; border-radius:4px;"><i class="fa-solid fa-clock"></i> -${hhPct}%</div>` : ''}
               <div style="width:44px; height:44px; margin:0 auto; border-radius:12px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:22px;">${p.emoji || '🍽️'}</div>
               <div style="font-size:12px; font-weight:700; margin-top:8px; text-align:center; line-height:1.3;">${escapeHtml(p.name)}</div>
-              <div style="font-size:12px; color:var(--primary); font-weight:800; text-align:center; margin-top:3px;">${cur}${Number(p.price || 0).toFixed(2)}</div>
+              <div style="font-size:12px; color:var(--primary); font-weight:800; text-align:center; margin-top:3px;">${hhPriceHtml}</div>
             </div>
           `; }).join('')}
         </div>
@@ -1655,6 +1665,19 @@ async function renderOrderingView() {
       // delta the next Send to Kitchen picks up. Nothing already sent gets
       // touched or re-fired, so quantities can never double up.
       addToCart(product);
+      // Happy Hour (Settings > KOT > Happy Hour Deals): if a deal is live
+      // for this product RIGHT NOW, its % REPLACES whatever discount the
+      // item already carries (its own static "Item Discount", or an
+      // earlier still-active deal) — simplest, most predictable behavior:
+      // "this item is X% off right now" rather than trying to stack or
+      // compare multiple discounts. A deal that expires mid-order doesn't
+      // retroactively strip a discount an already-added line already has —
+      // this only ever runs at the moment of adding.
+      const activePct = getActiveHappyHourDiscountPercent(store.settings?.happyHourRules, product);
+      if (activePct > 0) {
+        const cartId = String(product.id);
+        updateCartItem(cartId, { itemDiscount: activePct, itemDiscountType: 'pct' });
+      }
     });
   });
   const rposProductGrid = document.getElementById('rposProductGrid');

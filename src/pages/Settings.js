@@ -17,6 +17,7 @@ import { stateOptionsHtml } from '../utils/indianStates.js';
 let activeSettingsTab = 'general';
 let advancedConnectionExpanded = false;
 let aggregatorSettingsExpanded = false;
+let happyHourSettingsExpanded = false;
 
 // Swiggy/Zomato "Orders" panel — settings.${key}Enabled / ${key}Mode
 // ('demo'|'live') / ${key}ApiKey / ${key}StoreId, read by RestaurantPOS.js's
@@ -69,6 +70,106 @@ function renderAggregatorPlatformBlock(platform, s) {
     </div>
   `;
 }
+
+const HAPPY_HOUR_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function renderHappyHourRulesHtml(rules) {
+  if (!rules.length) return `<div style="text-align:center; padding:16px; color:var(--text-muted); font-size:12px;">No deals set up yet.</div>`;
+  return rules.map(r => {
+    const days = (r.daysOfWeek?.length === 7 || !r.daysOfWeek) ? 'Every day' : r.daysOfWeek.map(d => HAPPY_HOUR_DAY_LABELS[d]).join(', ');
+    return `
+    <div class="happy-hour-rule-row" data-id="${r.id}" style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; background:var(--bg-app); border:1px solid var(--border); border-radius:8px; margin-top:8px; ${r.enabled === false ? 'opacity:.5;' : ''}">
+      <div style="min-width:0;">
+        <div style="font-weight:700; font-size:12.5px; overflow-wrap:break-word;">${escapeHtml(r.name || 'Untitled Deal')} <span style="font-weight:800; color:var(--primary);">−${r.discountPercent}%</span></div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${r.startTime}–${r.endTime} · ${days} · ${r.scope === 'all' ? 'All items' : escapeHtml(r.scope)}</div>
+      </div>
+      <div style="display:flex; gap:4px; flex-shrink:0;">
+        <button type="button" class="btn-icon hh-toggle-btn" data-id="${r.id}" title="${r.enabled === false ? 'Enable' : 'Disable'}"><i class="fa-solid ${r.enabled === false ? 'fa-toggle-off' : 'fa-toggle-on'}" style="color:${r.enabled === false ? 'var(--text-muted)' : 'var(--success)'};"></i></button>
+        <button type="button" class="btn-icon hh-edit-btn" data-id="${r.id}" title="Edit"><i class="fa-solid fa-pen" style="font-size:10px;"></i></button>
+        <button type="button" class="btn-icon hh-delete-btn" data-id="${r.id}" title="Delete"><i class="fa-solid fa-trash" style="font-size:10px; color:var(--danger);"></i></button>
+      </div>
+    </div>
+  `;
+  }).join('');
+}
+
+async function openHappyHourRuleForm(rule) {
+  const isEdit = !!rule;
+  const categories = await getCategories();
+  const selectedDays = rule?.daysOfWeek?.length ? rule.daysOfWeek : [0, 1, 2, 3, 4, 5, 6];
+  openModal({
+    title: `<i class="fa-solid fa-clock mr-8"></i> ${isEdit ? 'Edit' : 'Add'} Happy Hour Deal`,
+    body: `
+      <div class="form-group">
+        <label class="form-label required">Deal Name</label>
+        <input class="form-input" id="hhName" placeholder="e.g. Evening Happy Hour" value="${escapeHtml(rule?.name || '')}" autofocus />
+      </div>
+      <div class="form-grid" style="margin-top:10px;">
+        <div class="form-group mb-0">
+          <label class="form-label required">Start Time</label>
+          <input class="form-input" id="hhStart" type="time" value="${rule?.startTime || '18:00'}" />
+        </div>
+        <div class="form-group mb-0">
+          <label class="form-label required">End Time</label>
+          <input class="form-input" id="hhEnd" type="time" value="${rule?.endTime || '20:00'}" />
+        </div>
+      </div>
+      <div class="form-group mt-8">
+        <label class="form-label">Days</label>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          ${HAPPY_HOUR_DAY_LABELS.map((label, i) => `
+            <label style="display:flex; align-items:center; gap:4px; padding:5px 9px; border:1px solid var(--border); border-radius:999px; cursor:pointer; font-size:11.5px;">
+              <input type="checkbox" class="hh-day-checkbox" value="${i}" ${selectedDays.includes(i) ? 'checked' : ''} style="width:14px; height:14px;" /> ${label}
+            </label>
+          `).join('')}
+        </div>
+      </div>
+      <div class="form-grid" style="margin-top:10px;">
+        <div class="form-group mb-0">
+          <label class="form-label required">Discount %</label>
+          <input class="form-input" id="hhPercent" type="number" min="1" max="100" value="${rule?.discountPercent || 20}" />
+        </div>
+        <div class="form-group mb-0">
+          <label class="form-label">Applies To</label>
+          <select class="form-input" id="hhScope">
+            <option value="all" ${!rule?.scope || rule.scope === 'all' ? 'selected' : ''}>All Items</option>
+            ${categories.map(c => `<option value="${escapeHtml(c.name)}" ${rule?.scope === c.name ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    `,
+    footer: `
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveHappyHourRuleBtn"><i class="fa-solid fa-check mr-4"></i> ${isEdit ? 'Update' : 'Add'} Deal</button>
+    `
+  });
+  document.getElementById('saveHappyHourRuleBtn')?.addEventListener('click', async () => {
+    const name = document.getElementById('hhName').value.trim();
+    const startTime = document.getElementById('hhStart').value;
+    const endTime = document.getElementById('hhEnd').value;
+    const discountPercent = Math.min(100, Math.max(1, parseInt(document.getElementById('hhPercent').value, 10) || 0));
+    if (!name || !startTime || !endTime || !discountPercent) {
+      showToast('Fill in name, start/end time, and a discount % of at least 1', 'error');
+      return;
+    }
+    const daysOfWeek = Array.from(document.querySelectorAll('.hh-day-checkbox:checked')).map(el => parseInt(el.value, 10));
+    if (daysOfWeek.length === 0) {
+      showToast('Pick at least one day', 'error');
+      return;
+    }
+    const scope = document.getElementById('hhScope').value;
+    const s = await getSettings();
+    const rules = (s.happyHourRules || []).slice();
+    const newRule = { id: rule?.id || 'hh-' + Date.now(), name, startTime, endTime, daysOfWeek, discountPercent, scope, enabled: rule?.enabled !== false };
+    const idx = rules.findIndex(r => r.id === newRule.id);
+    if (idx >= 0) rules[idx] = newRule; else rules.push(newRule);
+    await updateSettings({ happyHourRules: rules });
+    closeModal();
+    showToast(isEdit ? 'Deal updated' : 'Deal added', 'success');
+    await renderSettings(document.getElementById('page-container'));
+  });
+}
+
 // Cached result of the last syncEngine.listDevices() call — null means
 // "not fetched yet for this panel-open" (shows a loading state), an array
 // (possibly empty) means it resolved. Re-fetched every time the panel is
@@ -984,6 +1085,22 @@ export async function renderSettings(container) {
             ` : ''}
           </div>
 
+          <div class="card" style="padding:0; overflow:hidden; margin-top:16px;">
+            <button type="button" id="toggleHappyHourSettingsBtn" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px; background:none; border:none; cursor:pointer; font-weight:700; font-size:13px; color:var(--text-main);">
+              <span><i class="fa-solid fa-clock" style="color:var(--text-muted); margin-right:8px"></i> Happy Hour Deals</span>
+              <i class="fa-solid ${happyHourSettingsExpanded ? 'fa-chevron-up' : 'fa-chevron-down'}" style="color:var(--text-muted); font-size:11px"></i>
+            </button>
+            ${happyHourSettingsExpanded ? `
+              <div style="padding:0 16px 16px;">
+                <p style="font-size:11.5px; color:var(--text-muted); margin:0 0 14px; line-height:1.5;">
+                  Time-window discount rules — e.g. "6–8pm, 20% off Beverages". A rule applies automatically the moment an item's added to the cart in Restaurant POS while its window is active; nothing to remember at the counter. Multiple rules can be active at once (each item just gets whichever one applies to it).
+                </p>
+                <div id="happyHourRulesList">${renderHappyHourRulesHtml(s.happyHourRules || [])}</div>
+                <button type="button" class="btn btn-ghost btn-sm w-full" id="addHappyHourRuleBtn" style="margin-top:${(s.happyHourRules || []).length ? '10px' : '0'}"><i class="fa-solid fa-plus"></i> Add Deal</button>
+              </div>
+            ` : ''}
+          </div>
+
           ${renderTabSaveContainer('saveKotBtn', 'KOT')}
         </div>
 
@@ -1608,6 +1725,38 @@ export async function renderSettings(container) {
   container.querySelector('#toggleAggregatorSettingsBtn')?.addEventListener('click', async () => {
     aggregatorSettingsExpanded = !aggregatorSettingsExpanded;
     await renderSettings(document.getElementById('page-container'));
+  });
+
+  container.querySelector('#toggleHappyHourSettingsBtn')?.addEventListener('click', async () => {
+    happyHourSettingsExpanded = !happyHourSettingsExpanded;
+    await renderSettings(document.getElementById('page-container'));
+  });
+  container.querySelector('#addHappyHourRuleBtn')?.addEventListener('click', () => openHappyHourRuleForm(null));
+  container.querySelectorAll('.hh-edit-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const s2 = await getSettings();
+      const rule = (s2.happyHourRules || []).find(r => r.id === btn.dataset.id);
+      if (rule) openHappyHourRuleForm(rule);
+    });
+  });
+  container.querySelectorAll('.hh-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const confirmed = await showConfirm({ title: 'Delete Deal', message: 'Remove this Happy Hour deal?', okText: 'Delete' });
+      if (!confirmed) return;
+      const s2 = await getSettings();
+      const rules = (s2.happyHourRules || []).filter(r => r.id !== btn.dataset.id);
+      await updateSettings({ happyHourRules: rules });
+      showToast('Deal removed', 'info');
+      await renderSettings(document.getElementById('page-container'));
+    });
+  });
+  container.querySelectorAll('.hh-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const s2 = await getSettings();
+      const rules = (s2.happyHourRules || []).map(r => r.id === btn.dataset.id ? { ...r, enabled: r.enabled === false } : r);
+      await updateSettings({ happyHourRules: rules });
+      await renderSettings(document.getElementById('page-container'));
+    });
   });
   // Enable/mode toggles save immediately (no separate Save button needed
   // for these two — matches how instantly a checkbox/radio's effect is
