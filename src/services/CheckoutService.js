@@ -9,6 +9,7 @@ import { showToast } from '../components/Toast.js';
 import { syncEngine } from './syncEngine.js';
 import { resolveMethodConfig } from './QuickCheckoutService.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
+import { foodTypeIconHtml } from '../utils/foodType.js';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
 
@@ -798,6 +799,7 @@ export async function confirmOrder(payments, totals, settings, cur, creditData =
     return {
       id: i.id,
       name: i.name,
+      foodType: i.foodType || '',
       variantName: i.variantName || null,
       hsnCode: i.hsnCode || '',
       emoji: i.emoji,
@@ -1648,7 +1650,7 @@ export async function renderReceiptBody(order, settings, cur, includeReturns = t
     return `
         <tr>
           <td style="padding:4px 0; vertical-align:top">
-            <div style="font-weight:600">${escapeHtml(i.name)}</div>
+            <div style="font-weight:600">${foodTypeIconHtml(i.foodType, 9)}${escapeHtml(i.name)}</div>
             ${subLines ? `<div style="font-size:9px; opacity:0.65">${subLines}</div>` : ''}
           </td>
           <td style="text-align:center; vertical-align:top; padding:4px 0">${Number.isInteger(itemQty) ? itemQty : itemQty.toFixed(3)}${settings.enableUnitOfMeasure !== false ? ` ${escapeHtml(i.unit || 'pcs')}` : ''}</td>

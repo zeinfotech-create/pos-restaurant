@@ -988,6 +988,19 @@ async function openProductForm(product, container, cur) {
               </select>
             </div>
           </div>
+          <div class="form-group mb-0">
+            <label class="form-label">Food Type</label>
+            <div class="search-input-wrap">
+              <i class="fa-solid fa-leaf"></i>
+              <select class="form-select" id="pFoodType" style="padding-left:36px">
+                <option value="">Not a food item</option>
+                <option value="veg" ${product?.foodType === 'veg' ? 'selected' : ''}>🟩 Veg</option>
+                <option value="non-veg" ${product?.foodType === 'non-veg' ? 'selected' : ''}>🟥 Non-Veg</option>
+                <option value="egg" ${product?.foodType === 'egg' ? 'selected' : ''}>🟨 Egg</option>
+              </select>
+            </div>
+            <p class="form-help-text" style="margin:4px 0 0">Shows the FSSAI-style veg/non-veg mark on the menu &amp; receipt.</p>
+          </div>
         </div>
       `)}
 
@@ -1562,10 +1575,12 @@ async function openProductForm(product, container, cur) {
           finalRecipe = { ingredients: recipeIngredients.map(ing => ({ productId: ing.productId, qty: parseFloat(ing.qty) || 0 })), isCombo };
         }
 
+        const foodType = document.getElementById('pFoodType')?.value || '';
+
         const payload = {
           ...product, name: name_val, sku, barcode, price: finalPrice, costPrice: finalCost, stock: finalStock, minStock: finalMinStock, category, subCategory, emoji,
           image, variants: finalVariants, hsnCode, taxType, taxRate, itemDiscount, itemDiscountType, isReturnable, allowNegativeStock, mrp, expiryDate, manufacturingDate, unit,
-          location: { floor, row, rack }, recipe: finalRecipe
+          location: { floor, row, rack }, recipe: finalRecipe, foodType
         };
 
         const currentUser = await getCurrentUser();

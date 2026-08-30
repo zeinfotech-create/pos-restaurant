@@ -34,6 +34,7 @@ import { navigate } from '../router.js';
 import { STATUS_META, visibleTables, tableDisplayName, tableDisplayNameWithSection, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, summarizeCartIdStatus, buildKitchenStatusMapFor, partyServeStatus, tableReadyToBill, kitchenFacingOrderLabel, formatReservationTime } from '../utils/tableDisplay.js';
 import { hasRecipe } from '../utils/recipeCost.js';
 import { getActiveHappyHourDiscountPercent } from '../utils/happyHour.js';
+import { foodTypeIconHtml } from '../utils/foodType.js';
 
 // A menu item is Sold Out when it (or, for a recipe dish, any ONE of its
 // ingredients) is out of stock and neither it nor that ingredient has
@@ -1570,7 +1571,7 @@ async function renderOrderingView() {
               ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
               <div class="rpos-product-emoji">${p.emoji || '🍽️'}</div>
               <div class="rpos-product-info">
-                <div class="rpos-product-name">${escapeHtml(p.name)}${hhPct > 0 ? ` <span style="font-size:9.5px; font-weight:800; color:var(--warning);"><i class="fa-solid fa-clock"></i> -${hhPct}%</span>` : ''}</div>
+                <div class="rpos-product-name">${foodTypeIconHtml(p.foodType, 11)}${escapeHtml(p.name)}${hhPct > 0 ? ` <span style="font-size:9.5px; font-weight:800; color:var(--warning);"><i class="fa-solid fa-clock"></i> -${hhPct}%</span>` : ''}</div>
                 <div class="rpos-product-price">${hhPriceHtml}</div>
               </div>
               ${available ? `<div class="rpos-product-add-btn"><i class="fa-solid fa-plus"></i></div>` : `<div style="font-size:10px; font-weight:800; color:var(--danger); letter-spacing:.5px; white-space:nowrap;">SOLD OUT</div>`}
@@ -1581,7 +1582,7 @@ async function renderOrderingView() {
               ${!available ? `<div style="position:absolute; top:6px; right:6px; background:var(--danger); color:#fff; font-size:9px; font-weight:800; letter-spacing:.3px; padding:2px 6px; border-radius:4px;">SOLD OUT</div>` : ''}
               ${available && hhPct > 0 ? `<div style="position:absolute; top:6px; left:6px; background:var(--warning); color:#fff; font-size:9px; font-weight:800; letter-spacing:.3px; padding:2px 6px; border-radius:4px;"><i class="fa-solid fa-clock"></i> -${hhPct}%</div>` : ''}
               <div style="width:44px; height:44px; margin:0 auto; border-radius:12px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:22px;">${p.emoji || '🍽️'}</div>
-              <div style="font-size:12px; font-weight:700; margin-top:8px; text-align:center; line-height:1.3;">${escapeHtml(p.name)}</div>
+              <div style="font-size:12px; font-weight:700; margin-top:8px; text-align:center; line-height:1.3;">${foodTypeIconHtml(p.foodType, 10)}${escapeHtml(p.name)}</div>
               <div style="font-size:12px; color:var(--primary); font-weight:800; text-align:center; margin-top:3px;">${hhPriceHtml}</div>
             </div>
           `; }).join('')}
@@ -1618,7 +1619,7 @@ async function renderOrderingView() {
             return `
             <div class="rpos-cart-item">
               <div class="rpos-cart-item-top">
-                <div class="rpos-cart-item-name">${escapeHtml(i.name)}</div>
+                <div class="rpos-cart-item-name">${foodTypeIconHtml(i.foodType, 10)}${escapeHtml(i.name)}</div>
                 <button class="rpos-cart-item-remove rpos-remove-item" data-cart-id="${i.cartId}" title="Remove"><i class="fa-solid fa-xmark"></i></button>
               </div>
               ${(i.modifiers?.length || i.notes) ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;">${[...(i.modifiers || []), i.notes].filter(Boolean).map(escapeHtml).join(' · ')}</div>` : ''}
