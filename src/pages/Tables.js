@@ -697,26 +697,31 @@ function renderTableCard(t, allTables, allParties, allKots, todaysReservations) 
   const statusColor = ready ? 'var(--success)' : isReservedAndFree ? '#8b5cf6' : status.color;
   const statusLabel = ready ? 'Ready to Bill' : (occ.isOccupied ? `${occ.usedSeats}/${displayCap} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : (isReservedAndFree ? 'Reserved' : status.label));
   // Name gets its own full-width row rather than sharing one with the
-  // action buttons — three 36px .btn-icon buttons (the app's fixed
-  // icon-button size everywhere else) already eat well over 100px on
-  // their own, and squeezing the name into whatever was left made it
-  // disappear entirely on a narrow card rather than just truncate.
-  // Stacking makes that structurally impossible: each row only ever has
-  // one thing competing for its width.
+  // action buttons — FOUR 36px .btn-icon buttons (QR/edit/merge-or-unmerge/
+  // delete, the app's fixed icon-button size everywhere else) eat well over
+  // 140px on their own, and squeezing the name into whatever was left made
+  // it wrap awkwardly ("TABLE-" / "1" on separate lines) on a normal-width
+  // card instead of just truncating on a genuinely narrow one — a real
+  // regression once the QR button (self-order menu) became a 4th icon here
+  // and nobody re-checked whether the row still had room. FOUR 36px
+  // .btn-icon buttons alone need ~156px (4×36 + 3×4px gaps) — on this
+  // grid's 200px minimum card width there is NO room left over for "Seats
+  // N" to share that same row without wrapping too, so it gets its own
+  // full-width row as well: name / seats / actions, each on its own line,
+  // nothing ever competing for width regardless of how many action icons
+  // this card ends up with.
   return `
     <div class="table-card ${ready ? 'rpos-box-ready' : ''}" data-id="${t.id}" style="padding:16px 18px; border-radius:14px; border:1px solid ${cardBorder}; background:${cardBg}; cursor:pointer;">
-      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
-        <div style="font-size:17px; font-weight:800; overflow-wrap:break-word;">${escapeAttr(displayName)}</div>
-        <div class="table-card-actions" style="display:flex; gap:4px; flex-shrink:0;" onclick="event.stopPropagation()">
-          <button class="btn-icon qr-table-btn" data-id="${t.id}" title="Self-order QR menu for this table"><i class="fa-solid fa-qrcode" style="font-size:10px"></i></button>
-          <button class="btn-icon edit-table-btn" data-id="${t.id}" title="Edit"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
-          ${hasMerge
-            ? `<button class="btn-icon unmerge-table-btn" data-id="${t.id}" title="Unmerge"><i class="fa-solid fa-object-ungroup" style="font-size:10px"></i></button>`
-            : (!occ.isOccupied ? `<button class="btn-icon merge-table-btn" data-id="${t.id}" title="Merge with another table"><i class="fa-solid fa-object-group" style="font-size:10px"></i></button>` : '')}
-          <button class="btn-icon del-table-btn" data-id="${t.id}" title="Delete"><i class="fa-solid fa-trash" style="font-size:10px; color:var(--danger)"></i></button>
-        </div>
-      </div>
+      <div style="font-size:17px; font-weight:800; overflow-wrap:break-word;">${escapeAttr(displayName)}</div>
       <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${displayCap}</div>
+      <div class="table-card-actions" style="display:flex; gap:4px; justify-content:flex-end; margin-top:8px;" onclick="event.stopPropagation()">
+        <button class="btn-icon qr-table-btn" data-id="${t.id}" title="Self-order QR menu for this table"><i class="fa-solid fa-qrcode" style="font-size:10px"></i></button>
+        <button class="btn-icon edit-table-btn" data-id="${t.id}" title="Edit"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
+        ${hasMerge
+          ? `<button class="btn-icon unmerge-table-btn" data-id="${t.id}" title="Unmerge"><i class="fa-solid fa-object-ungroup" style="font-size:10px"></i></button>`
+          : (!occ.isOccupied ? `<button class="btn-icon merge-table-btn" data-id="${t.id}" title="Merge with another table"><i class="fa-solid fa-object-group" style="font-size:10px"></i></button>` : '')}
+        <button class="btn-icon del-table-btn" data-id="${t.id}" title="Delete"><i class="fa-solid fa-trash" style="font-size:10px; color:var(--danger)"></i></button>
+      </div>
       <div style="margin-top:14px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
         <div style="font-size:11px; font-weight:700; color:${statusColor};">
           <i class="fa-solid ${ready ? 'fa-circle-check' : 'fa-circle'}" style="font-size:${ready ? '11px' : '6px'}; margin-right:5px"></i>${statusLabel}
