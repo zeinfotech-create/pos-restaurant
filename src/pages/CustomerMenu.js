@@ -22,6 +22,7 @@ import { isProductAvailable } from './RestaurantPOS.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { foodTypeIconHtml } from '../utils/foodType.js';
 import { showToast } from '../components/Toast.js';
+import { tableDisplayNameWithSection } from '../utils/tableDisplay.js';
 
 let localCart = []; // [{productId, name, price, qty}] — this page's OWN cart, never store.cart
 let activeCategory = '';
@@ -55,9 +56,28 @@ async function renderContent(container, tableId) {
   const cartCount = localCart.reduce((s, i) => s + i.qty, 0);
   const cartTotal = localCart.reduce((s, i) => s + i.price * i.qty, 0);
 
+  // Section/Area-aware label (e.g. "AC Hall · Table 3") — this shop has
+  // multiple sections whose tables reuse the same plain numbers/names (AC
+  // Hall's "1", Ground Floor's "1", ...), so the bare name alone is
+  // ambiguous both to the customer confirming they scanned the right table
+  // and to staff reviewing a request. Skips the prefix entirely for an
+  // unsectioned/"Main" table — same helper RestaurantPOS.js's own header
+  // already uses, so this can't drift from how staff see the same table.
+  const tableLabel = table ? tableDisplayNameWithSection(table, tables) : 'Menu';
+
+  // This whole page is a STANDALONE route (router.js) — style.css locks
+  // every standalone page's #page-container (the `container` this function
+  // receives) to `overflow:hidden; height:100vh`, correct for a page like
+  // RestaurantPOS.js that builds its own internal scroll regions, but this
+  // page had never had one — with no scroll container of its own, the menu
+  // grid had nowhere for its overflow to go on a real phone (touch-scroll
+  // did nothing once there were more products than fit one screen), even
+  // though it looked fine in a desktop browser's short product list. Same
+  // fix as Kitchen.js's own popout-window scroll fix (v9q): a nested
+  // `height:100vh/100dvh; overflow-y:auto` region of this page's own.
   if (submitted) {
     container.innerHTML = `
-      <div style="min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; background:var(--bg-app);">
+      <div style="height:100vh; height:100dvh; overflow-y:auto; box-sizing:border-box; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; background:var(--bg-app);">
         <div style="font-size:56px; margin-bottom:16px;">✅</div>
         <div style="font-size:20px; font-weight:800; margin-bottom:8px;">Sent to the counter!</div>
         <div style="font-size:14px; color:var(--text-muted); max-width:320px;">Your order request has been sent — a staff member will confirm it shortly. No need to do anything else.</div>
@@ -72,12 +92,12 @@ async function renderContent(container, tableId) {
   }
 
   container.innerHTML = `
-    <div style="min-height:100vh; display:flex; flex-direction:column; background:var(--bg-app);">
-      <div style="padding:16px; background:var(--bg-elevated); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5;">
-        <div style="font-size:16px; font-weight:800;">🍽️ ${table ? escapeHtml(table.name) : 'Menu'}</div>
+    <div style="height:100vh; height:100dvh; overflow-y:auto; box-sizing:border-box; display:flex; flex-direction:column; background:var(--bg-app);">
+      <div style="padding:16px; background:var(--bg-elevated); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; flex-shrink:0;">
+        <div style="font-size:16px; font-weight:800;">🍽️ ${escapeHtml(tableLabel)}</div>
         <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">Browse the menu and send your order request to the counter — no login needed.</div>
       </div>
-      <div style="display:flex; gap:8px; overflow-x:auto; padding:12px 16px; background:var(--bg-elevated); border-bottom:1px solid var(--border);">
+      <div style="display:flex; gap:8px; overflow-x:auto; padding:12px 16px; background:var(--bg-elevated); border-bottom:1px solid var(--border); flex-shrink:0;">
         <button class="cm-cat-tab ${!activeCategory ? 'active' : ''}" data-cat="">All</button>
         ${categories.map(c => `<button class="cm-cat-tab ${activeCategory === c.name ? 'active' : ''}" data-cat="${escapeHtml(c.name)}">${escapeHtml(c.name)}</button>`).join('')}
       </div>

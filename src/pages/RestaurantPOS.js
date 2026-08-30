@@ -688,6 +688,7 @@ function registerKotBadgeLiveRefresh() {
 }
 
 let orderTypePickerLiveListenerRegistered = false;
+let tableGridLiveListenerRegistered = false;
 // Same reasoning as registerPartyPickerLiveRefresh()/registerKotBadgeLiveRefresh()
 // above — the top-level "N open" badges are a one-time snapshot from
 // whenever this screen was rendered, and nothing else ever revisits that
@@ -882,6 +883,15 @@ async function renderPickerView() {
     });
   });
   reservationsByTableId.forEach(list => list.sort((a, b) => a.reservationTime.localeCompare(b.reservationTime)));
+  // Self-order QR menu requests still waiting on staff, counted per table —
+  // shown right on the grid card (not just once a table's actually opened)
+  // so a request doesn't sit unnoticed until staff happens to drill into
+  // that specific table. Same live-refresh registration as the rest of this
+  // picker (registerOrderTypePickerLiveRefresh(), already wired below).
+  const pendingRequestsByTableId = new Map();
+  (await getMenuRequests()).filter(r => r.status === 'pending').forEach(r => {
+    pendingRequestsByTableId.set(r.tableId, (pendingRequestsByTableId.get(r.tableId) || 0) + 1);
+  });
 
   area.innerHTML = `
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
@@ -921,8 +931,10 @@ async function renderPickerView() {
             const statusColor = ready ? 'var(--success)' : isReservedAndFree ? '#8b5cf6' : status.color;
             const statusLabel = ready ? 'Ready to Bill' : (occ.isOccupied ? `${occ.usedSeats}/${capacity} seated${occ.partyCount > 1 ? ` · ${occ.partyCount} boxes` : ''}` : (isReservedAndFree ? 'Reserved' : status.label));
             const thisDisplayName = tableDisplayName(t, allTables);
+            const pendingReqCount = pendingRequestsByTableId.get(t.id) || 0;
             return `
-              <div class="rpos-table-card ${ready ? 'rpos-box-ready' : ''}" data-id="${t.id}" style="background:${cardBg}; border:1px solid ${cardBorder};">
+              <div class="rpos-table-card ${ready ? 'rpos-box-ready' : ''}" data-id="${t.id}" style="background:${cardBg}; border:1px solid ${cardBorder}; position:relative;">
+                ${pendingReqCount > 0 ? `<div style="position:absolute; top:-6px; right:-6px; background:var(--warning); color:#fff; font-size:10px; font-weight:800; min-width:20px; height:20px; padding:0 5px; border-radius:999px; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,.15);"><i class="fa-solid fa-bell" style="margin-right:3px; font-size:9px;"></i>${pendingReqCount}</div>` : ''}
                 <div style="font-weight:800; font-size:16px;">${escapeHtml(thisDisplayName)}</div>
                 <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${capacity}</div>
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
@@ -953,6 +965,28 @@ async function renderPickerView() {
     });
   });
   startTablesTimerLoop();
+  registerTableGridLiveRefresh();
+}
+
+// The table GRID's own "N customer requests" awareness — distinct from
+// registerOrderTypePickerLiveRefresh() just above, which only covers the
+// very first "What kind of order?" screen (view==='picker' && !orderType),
+// never this grid (view==='picker' && orderType==='dine-in' && !drillTable).
+// A customer's QR-menu submission (CustomerMenu.js) needs to show up as a
+// badge on that table's own card the moment it's sent — not require staff
+// to already be inside that specific table to notice it — same reasoning
+// as registerOrderingViewLiveRefresh()'s menu_requests handling.
+function registerTableGridLiveRefresh() {
+  if (tableGridLiveListenerRegistered) return;
+  const onRelevantChange = (e) => {
+    if (!['counter_orders', 'menu_requests', 'reservations'].includes(e.detail?.store)) return;
+    if (!(view === 'picker' && orderType === 'dine-in' && !drillTable)) return;
+    if (!document.getElementById('rposContent')) return;
+    renderPickerView();
+  };
+  window.addEventListener('storage-change', onRelevantChange);
+  window.addEventListener('data-synced', onRelevantChange);
+  tableGridLiveListenerRegistered = true;
 }
 
 function startTablesTimerLoop() {
@@ -1822,7 +1856,12 @@ let orderingViewLiveListenerRegistered = false;
 function registerOrderingViewLiveRefresh() {
   if (orderingViewLiveListenerRegistered) return;
   const onKotChange = (e) => {
-    if (e.detail?.store !== 'kots') return;
+    // Also re-renders on 'menu_requests' — a customer's QR-menu submission
+    // (CustomerMenu.js) needs to show up as an "N customer requests" badge
+    // the moment it's sent, not just whenever something else happens to
+    // re-render this view next. Same staleness class this exact function
+    // already fixed for kots (v9r/v9s in this module's own history).
+    if (!['kots', 'menu_requests'].includes(e.detail?.store)) return;
     if (!(view === 'ordering') || !orderType) return;
     if (!document.getElementById('rposContent')) return;
     renderOrderingView();
