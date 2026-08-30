@@ -667,7 +667,9 @@ export async function renderSettings(container) {
                 <div id="serviceChargePercentWrap" style="${s.serviceChargeEnabled ? '' : 'display:none'}">
                   <label class="form-label">Service Charge %</label>
                   <input class="form-input" id="sServiceChargePercent" type="number" step="0.1" min="0" max="100" value="${s.serviceChargePercent ?? 5}" style="max-width:160px" />
-                  <p class="form-help-text">Automatically added to every Dine-in bill (Restaurant POS) as its own line, on top of tax — not applied to Takeaway, Delivery, Swiggy, or Zomato orders.</p>
+                  <label class="form-label" style="margin-top:10px">Only charge for parties of at least</label>
+                  <input class="form-input" id="sServiceChargeMinGuests" type="number" min="1" max="99" value="${s.serviceChargeMinGuests || 1}" style="max-width:160px" />
+                  <p class="form-help-text">Automatically added to every Dine-in bill (Restaurant POS) as its own line, on top of tax — not applied to Takeaway, Delivery, Swiggy, or Zomato orders. Leave the party-size box at 1 to charge every dine-in table regardless of size; raise it (e.g. 6) to only charge larger parties.</p>
                 </div>
               </div>
 
@@ -1817,6 +1819,7 @@ export async function renderSettings(container) {
       taxRate: parseFloat(container.querySelector('#sTaxRate').value) || 0,
       serviceChargeEnabled: container.querySelector('#sServiceChargeEnabled')?.checked || false,
       serviceChargePercent: Math.min(100, Math.max(0, parseFloat(container.querySelector('#sServiceChargePercent')?.value) || 0)),
+      serviceChargeMinGuests: Math.max(1, parseInt(container.querySelector('#sServiceChargeMinGuests')?.value, 10) || 1),
       paymentMethods: JSON.parse(container.querySelector('#sPaymentMethods')?.value || '[]'),
       expenseCategories: JSON.parse(container.querySelector('#sExpenseCategories')?.value || '[]'),
       // The whole block (and this hidden input) doesn't exist in the DOM

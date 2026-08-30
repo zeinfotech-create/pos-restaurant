@@ -264,6 +264,19 @@ function migrateLegacySentFlags() {
   });
 }
 
+// Dine-in only, gated on both Settings > General's "Enable Service Charge"
+// AND its party-size threshold ("Only charge for parties of at least N",
+// defaults to 1 — meaning "charge every dine-in table", same as before
+// this threshold existed). Called both when an order is first entered/
+// resumed AND whenever guestCount changes mid-order (a party crossing the
+// threshold up or down must re-evaluate, not just keep whatever charge
+// state the order started with) — one function so the two call sites can
+// never drift on the actual gating logic.
+function applyServiceChargeForCurrentParty() {
+  const meetsThreshold = (guestCount || 0) >= (store.settings?.serviceChargeMinGuests || 1);
+  store.serviceChargePercent = (orderType === 'dine-in' && store.settings?.serviceChargeEnabled && meetsThreshold) ? (store.settings.serviceChargePercent || 0) : 0;
+}
+
 // Resume an existing order — a dine-in box (pass `table`) or a takeaway/
 // delivery order (leave `table` null). orderSessionId is the order's own
 // id, always, so it can never drift from what its KOTs were saved with.
@@ -287,7 +300,7 @@ async function enterCounterOrder(order, table = null) {
   // Re-read here rather than trusting a possibly-stale `store.settings`
   // snapshot, same reasoning store.js's own allowNegativeStock re-check
   // already uses elsewhere.
-  store.serviceChargePercent = (orderType === 'dine-in' && store.settings?.serviceChargeEnabled) ? (store.settings.serviceChargePercent || 0) : 0;
+  applyServiceChargeForCurrentParty();
   migrateLegacySentFlags();
   if (order.waiterId) {
     const waiter = (await getStaff()).find(s => s.id === order.waiterId);
@@ -1721,6 +1734,7 @@ async function renderOrderingView() {
       const remaining = Math.max(0, capacity - usedByOthers);
       promptGuestCount(async (count) => {
         guestCount = count;
+        applyServiceChargeForCurrentParty();
         await persistOrderState();
         await renderOrderingView();
       }, remaining, `${remaining} seat${remaining === 1 ? '' : 's'} available for this box (table seats ${capacity} total).`, true);
