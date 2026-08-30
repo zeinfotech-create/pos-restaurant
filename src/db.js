@@ -1936,6 +1936,16 @@ export async function saveSettings(settings) {
       // Security - USE CAPTURED VALUES
       settingsLockEnabled: securityToSync.settingsLockEnabled ?? globalRecord.settingsLockEnabled,
       masterPin: securityToSync.masterPin ?? globalRecord.masterPin,
+      // Self-order QR menu (CustomerMenu.js) is read by an ANONYMOUS device
+      // with no branch context at all (getSettings() with no branchId falls
+      // through to global_settings only — branch-specific records are
+      // never even considered) — so this must always mirror to global here,
+      // exactly like settingsLockEnabled/masterPin above, or toggling it
+      // from a branch's own Settings tab would silently never take effect
+      // for the actual customer-facing page. Confirmed live: without this
+      // line, a real customer device kept loading the menu after the
+      // setting was switched off, because global_settings never got it.
+      enableSelfOrderMenu: dataToSave.enableSelfOrderMenu ?? globalRecord.enableSelfOrderMenu,
       updatedAt: new Date().toISOString()
     };
     await updateData('settings', updatedGlobal);

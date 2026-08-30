@@ -7,7 +7,7 @@
 // does the actual selling.
 // ============================================================
 
-import { getTables, saveTable, deleteTable, getCounterOrders, getKots, getReservations, saveReservation, updateReservationStatus, deleteReservation, getWaitlist, saveWaitlistEntry, updateWaitlistStatus, deleteWaitlistEntry } from '../db.js';
+import { getTables, saveTable, deleteTable, getCounterOrders, getKots, getReservations, saveReservation, updateReservationStatus, deleteReservation, getWaitlist, saveWaitlistEntry, updateWaitlistStatus, deleteWaitlistEntry, getSettings } from '../db.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { navigate } from '../router.js';
@@ -20,6 +20,12 @@ let timerInterval = null;
 // route, so this page's own back-button/nav-item behavior doesn't need to
 // change at all.
 let activeTablesTab = 'tables';
+// Settings > KOT > "Self-Order QR Menu" — set once per renderTablesContent()
+// call (not re-fetched per card) and read by renderTableCard() to decide
+// whether to even show the QR button. Off by default is NOT the default —
+// this defaults to true (already-enabled) so an install that never touches
+// this new setting keeps the exact behavior it already had.
+let selfOrderMenuEnabled = true;
 
 export async function renderTables(container) {
   container.innerHTML = `
@@ -63,6 +69,7 @@ async function renderTablesContent() {
   const area = document.getElementById('tablesContent');
   if (!area) return;
 
+  selfOrderMenuEnabled = (await getSettings()).enableSelfOrderMenu !== false;
   const allTables = await getTables();
   const tables = visibleTables(allTables).sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
   const grouped = groupBySection(tables);
@@ -715,7 +722,7 @@ function renderTableCard(t, allTables, allParties, allKots, todaysReservations) 
       <div style="font-size:17px; font-weight:800; overflow-wrap:break-word;">${escapeAttr(displayName)}</div>
       <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Seats ${displayCap}</div>
       <div class="table-card-actions" style="display:flex; gap:4px; justify-content:flex-end; margin-top:8px;" onclick="event.stopPropagation()">
-        <button class="btn-icon qr-table-btn" data-id="${t.id}" title="Self-order QR menu for this table"><i class="fa-solid fa-qrcode" style="font-size:10px"></i></button>
+        ${selfOrderMenuEnabled ? `<button class="btn-icon qr-table-btn" data-id="${t.id}" title="Self-order QR menu for this table"><i class="fa-solid fa-qrcode" style="font-size:10px"></i></button>` : ''}
         <button class="btn-icon edit-table-btn" data-id="${t.id}" title="Edit"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
         ${hasMerge
           ? `<button class="btn-icon unmerge-table-btn" data-id="${t.id}" title="Unmerge"><i class="fa-solid fa-object-ungroup" style="font-size:10px"></i></button>`

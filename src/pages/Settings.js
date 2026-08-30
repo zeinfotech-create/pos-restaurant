@@ -1095,6 +1095,14 @@ export async function renderSettings(container) {
             ` : ''}
           </div>
 
+          <div class="card" style="padding:16px; margin-top:16px;">
+            <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+              <input type="checkbox" id="sEnableSelfOrderMenu" ${s.enableSelfOrderMenu !== false ? 'checked' : ''} style="width:18px; height:18px;" />
+              <span style="font-weight:700; font-size:13px;"><i class="fa-solid fa-qrcode" style="color:var(--text-muted); margin-right:6px"></i>Self-Order QR Menu</span>
+            </label>
+            <p class="form-help-text" style="margin:8px 0 0 28px;">Lets a customer scan the QR code on their table (Tables page) to browse the menu and send an order request — no app or login needed. Turning this off immediately disables every table's QR link (a customer scanning it, even an old printed code, sees "not available" instead of the menu) and hides the QR button on Tables.</p>
+          </div>
+
           <div class="card" style="padding:0; overflow:hidden; margin-top:16px;">
             <button type="button" id="toggleHappyHourSettingsBtn" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px; background:none; border:none; cursor:pointer; font-weight:700; font-size:13px; color:var(--text-main);">
               <span><i class="fa-solid fa-clock" style="color:var(--text-muted); margin-right:8px"></i> Happy Hour Deals</span>
@@ -1948,6 +1956,7 @@ export async function renderSettings(container) {
       kotPrintConnectionType: container.querySelector('#sKotPrintConnectionType')?.value || 'system',
       kotPrinterIp: container.querySelector('#sKotPrinterIp')?.value.trim() || '',
       kotPrinterPort: parseInt(container.querySelector('#sKotPrinterPort')?.value, 10) || 9100,
+      enableSelfOrderMenu: container.querySelector('#sEnableSelfOrderMenu')?.checked || false,
     });
   });
 

@@ -18,7 +18,7 @@
 // — same trust boundary as every other customer-facing input in this app.
 // ============================================================
 
-import { getProducts, getCategories, getTables, saveMenuRequest } from '../db.js';
+import { getProducts, getCategories, getTables, saveMenuRequest, getSettings } from '../db.js';
 import { isProductAvailable } from './RestaurantPOS.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { foodTypeIconHtml } from '../utils/foodType.js';
@@ -31,6 +31,22 @@ let viewMode = 'menu'; // 'menu' | 'cart' | 'submitted' — cart is a review ste
 
 export async function renderCustomerMenu(container, subPage) {
   const tableId = subPage || '';
+  // Settings > KOT > "Self-Order QR Menu" — checked BEFORE anything else,
+  // so turning it off makes every table's QR link (even an old printed
+  // one, or a customer's already-bookmarked page) stop working immediately
+  // — this is the actual page a scanned QR loads, not just the button that
+  // shows it, so a client-side gate here is the real enforcement point.
+  const settings = await getSettings();
+  if (settings.enableSelfOrderMenu === false) {
+    container.innerHTML = scrollShell(`
+      <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center;">
+        <div style="font-size:44px; margin-bottom:16px; opacity:.4;">🚫</div>
+        <div style="font-size:17px; font-weight:800; margin-bottom:8px;">Ordering here isn't available right now</div>
+        <div style="font-size:13px; color:var(--text-muted); max-width:320px;">Please ask a staff member to take your order.</div>
+      </div>
+    `);
+    return;
+  }
   viewMode = 'menu';
   localCart = [];
   await renderContent(container, tableId);
