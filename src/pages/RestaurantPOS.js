@@ -1641,6 +1641,12 @@ async function renderOrderingView() {
                   <span>${i.qty}</span>
                   <button class="rpos-qty-plus" data-cart-id="${i.cartId}"><i class="fa-solid fa-plus"></i></button>
                 </div>
+                ${orderType === 'dine-in' && guestCount >= 2 ? `
+                  <select class="form-input rpos-split-guest-select" data-cart-id="${i.cartId}" title="Who ordered this? (for item-level bill split)" style="font-size:10px; padding:2px 4px; max-width:80px; height:auto;">
+                    <option value="">Shared</option>
+                    ${Array.from({ length: guestCount }, (_, g) => g + 1).map(g => `<option value="${g}" ${i.splitGuest === g ? 'selected' : ''}>Guest ${g}</option>`).join('')}
+                  </select>
+                ` : ''}
                 ${sentQty <= 0 ? `
                   <button class="rpos-cart-item-customize rpos-customize-item" data-cart-id="${i.cartId}" title="Customize"><i class="fa-solid fa-sliders"></i></button>
                   <select class="form-input rpos-course-select" data-cart-id="${i.cartId}" style="font-size:10px; padding:2px 4px; max-width:82px; height:auto;">
@@ -1722,6 +1728,7 @@ async function renderOrderingView() {
   document.querySelectorAll('.rpos-modify-item').forEach(el => el.addEventListener('click', () => openModifyModal(el.dataset.cartId)));
   document.querySelectorAll('.rpos-resend-item').forEach(el => el.addEventListener('click', () => resendItem(el.dataset.cartId)));
   document.querySelectorAll('.rpos-course-select').forEach(el => el.addEventListener('change', e => { updateCartItem(el.dataset.cartId, { course: e.target.value || null }); }));
+  document.querySelectorAll('.rpos-split-guest-select').forEach(el => el.addEventListener('change', e => { updateCartItem(el.dataset.cartId, { splitGuest: e.target.value ? Number(e.target.value) : null }); persistOrderState(); }));
   document.querySelectorAll('.rpos-send-course').forEach(el => el.addEventListener('click', () => sendToKitchen(el.dataset.course || null)));
 
   document.getElementById('rposMenuSearch')?.addEventListener('input', async e => {
@@ -2454,12 +2461,15 @@ function openPaymentPanel() {
     return `
       <div id="rposPayRows" style="display:flex; flex-direction:column; gap:8px;">
         ${rows.map((r, i) => `
-          <div style="display:flex; gap:8px;">
-            <select class="form-input rpos-pay-method" data-idx="${i}" style="flex:1;">
-              ${methods.map(m => `<option value="${escapeHtml(m)}" ${r.method === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
-            </select>
-            <input type="number" class="form-input rpos-pay-amount" data-idx="${i}" value="${r.amount}" style="max-width:110px;" />
-            ${rows.length > 1 ? `<button type="button" class="btn-icon rpos-pay-remove" data-idx="${i}"><i class="fa-solid fa-xmark" style="color:var(--danger);"></i></button>` : ''}
+          <div>
+            <div style="display:flex; gap:8px;">
+              <select class="form-input rpos-pay-method" data-idx="${i}" style="flex:1;">
+                ${methods.map(m => `<option value="${escapeHtml(m)}" ${r.method === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+              </select>
+              <input type="number" class="form-input rpos-pay-amount" data-idx="${i}" value="${r.amount}" style="max-width:110px;" />
+              ${rows.length > 1 ? `<button type="button" class="btn-icon rpos-pay-remove" data-idx="${i}"><i class="fa-solid fa-xmark" style="color:var(--danger);"></i></button>` : ''}
+            </div>
+            ${r.note ? `<div style="font-size:10.5px; color:var(--text-muted); margin:2px 0 0 2px;">${escapeHtml(r.note)}</div>` : ''}
           </div>
         `).join('')}
       </div>
@@ -2469,6 +2479,7 @@ function openPaymentPanel() {
           <div style="display:flex; align-items:center; gap:4px;">
             <input type="number" id="rposSplitGuestsInput" min="2" max="20" value="${guestCount >= 2 ? guestCount : 2}" class="form-input" style="width:52px; padding:6px 4px; text-align:center;" />
             <button type="button" class="btn btn-ghost btn-sm" id="rposSplitEvenlyBtn"><i class="fa-solid fa-users"></i> Split Evenly</button>
+            ${orderType === 'dine-in' && guestCount >= 2 ? `<button type="button" class="btn btn-ghost btn-sm" id="rposSplitByItemBtn" title="Uses each item's assigned Guest, set on the cart items above"><i class="fa-solid fa-receipt"></i> Split by Item</button>` : ''}
           </div>
         </div>
         <div style="font-size:12px; font-weight:700; color:${Math.abs(balance) < 0.01 ? 'var(--success)' : 'var(--danger)'};">
@@ -2585,6 +2596,64 @@ function openPaymentPanel() {
       rows = Array.from({ length: n }, (_, i) => ({
         method: methods[0],
         amount: (baseCents + (i < remainderCents ? 1 : 0)) / 100,
+      }));
+      rebind();
+    });
+    // "Split by Item" — unlike Split Evenly (equal shares), each guest pays
+    // in proportion to what THEY actually ordered (per-item `splitGuest`
+    // tags set on the cart above), not an equal slice. Deliberately a
+    // reasonable approximation, not a legally-precise per-item tax
+    // recomputation: each item's own (price × qty, after its own item-level
+    // discount) is used as its "weight" — order-level discount, service
+    // charge, and tax all then apply proportionally via each guest's SHARE
+    // of the order's already-correctly-computed totals.total, the same way
+    // Split Evenly already treats the total as one pool to divide, just
+    // weighted instead of equal. An item left "Shared" (no guest assigned)
+    // splits its weight equally across every guest — the common case for a
+    // starter or a shared dessert nobody wants to fuss over.
+    document.getElementById('rposSplitByItemBtn')?.addEventListener('click', () => {
+      const n = Math.max(2, Math.min(20, parseInt(document.getElementById('rposSplitGuestsInput')?.value, 10) || 2));
+      const weight = (item) => {
+        const base = (Number(item.price) || 0) * (Number(item.qty) || 0);
+        const disc = item.itemDiscountType === 'pct' ? (base * (item.itemDiscount || 0) / 100) : ((item.itemDiscount || 0) * (Number(item.qty) || 0));
+        return Math.max(0, base - disc);
+      };
+      const guestWeights = Array.from({ length: n }, () => 0);
+      const guestItemNames = Array.from({ length: n }, () => []);
+      let totalWeight = 0;
+      store.cart.forEach(item => {
+        const w = weight(item);
+        totalWeight += w;
+        if (item.splitGuest && item.splitGuest >= 1 && item.splitGuest <= n) {
+          guestWeights[item.splitGuest - 1] += w;
+          guestItemNames[item.splitGuest - 1].push(item.name);
+        } else {
+          // Shared/unassigned — split its weight equally across every guest
+          guestWeights.forEach((_, gi) => { guestWeights[gi] += w / n; });
+        }
+      });
+      if (totalWeight <= 0) {
+        showToast('Add items and assign a Guest to each one before splitting by item.', 'warning');
+        return;
+      }
+      // Same integer-paisa-exact technique as Split Evenly — largest-
+      // remainder method so every row is a clean 2-decimal amount AND the
+      // rows sum to EXACTLY the total (required by Complete Bill's own
+      // sum-must-match check), while staying as fair as possible about
+      // which guest(s) absorb the inevitable odd paisa.
+      const totalCents = Math.round(totals.total * 100);
+      const rawCents = guestWeights.map(w => (w / totalWeight) * totalCents);
+      const baseCentsArr = rawCents.map(Math.floor);
+      let usedCents = baseCentsArr.reduce((s, c) => s + c, 0);
+      let leftover = totalCents - usedCents;
+      const remainderOrder = rawCents
+        .map((c, i) => ({ i, frac: c - baseCentsArr[i] }))
+        .sort((a, b) => b.frac - a.frac);
+      for (let k = 0; k < leftover; k++) baseCentsArr[remainderOrder[k % n].i] += 1;
+      rows = baseCentsArr.map((cents, i) => ({
+        method: methods[0],
+        amount: cents / 100,
+        note: `Guest ${i + 1}${guestItemNames[i].length ? ` — ${guestItemNames[i].join(', ')}` : ' — shared items only'}`,
       }));
       rebind();
     });
