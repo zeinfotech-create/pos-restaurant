@@ -7,15 +7,16 @@
 // does the actual selling.
 // ============================================================
 
-import { getTables, saveTable, deleteTable, getCounterOrders, getKots, getReservations, saveReservation, updateReservationStatus, deleteReservation } from '../db.js';
+import { getTables, saveTable, deleteTable, getCounterOrders, getKots, getReservations, saveReservation, updateReservationStatus, deleteReservation, getWaitlist, saveWaitlistEntry, updateWaitlistStatus, deleteWaitlistEntry } from '../db.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { navigate } from '../router.js';
 import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, tableReadyToBill, formatReservationTime } from '../utils/tableDisplay.js';
 
 let timerInterval = null;
-// 'tables' | 'reservations' — a plain in-page tab, not a route, so this
-// page's own back-button/nav-item behavior doesn't need to change at all.
+// 'tables' | 'reservations' | 'waitlist' — a plain in-page tab, not a
+// route, so this page's own back-button/nav-item behavior doesn't need to
+// change at all.
 let activeTablesTab = 'tables';
 
 export async function renderTables(container) {
@@ -25,16 +26,20 @@ export async function renderTables(container) {
         <div class="page-title">Tables</div>
         <div class="page-subtitle">Manage your dining tables — click a free table to start taking an order</div>
       </div>
-      <button class="btn btn-primary" id="addTableBtn" style="${activeTablesTab === 'reservations' ? 'display:none' : ''}">
+      <button class="btn btn-primary" id="addTableBtn" style="${activeTablesTab !== 'tables' ? 'display:none' : ''}">
         <i class="fa-solid fa-plus"></i> New Table
       </button>
-      <button class="btn btn-primary" id="addReservationBtn" style="${activeTablesTab === 'tables' ? 'display:none' : ''}">
+      <button class="btn btn-primary" id="addReservationBtn" style="${activeTablesTab !== 'reservations' ? 'display:none' : ''}">
         <i class="fa-solid fa-calendar-plus"></i> New Reservation
+      </button>
+      <button class="btn btn-primary" id="addWaitlistBtn" style="${activeTablesTab !== 'waitlist' ? 'display:none' : ''}">
+        <i class="fa-solid fa-user-plus"></i> Add to Waitlist
       </button>
     </div>
     <div style="display:flex; gap:8px; margin-bottom:18px; border-bottom:1px solid var(--border);">
       <button class="btn btn-ghost tables-tab-btn ${activeTablesTab === 'tables' ? 'active-tab' : ''}" data-tab="tables" style="border-radius:8px 8px 0 0; ${activeTablesTab === 'tables' ? 'border-bottom:2px solid var(--primary); color:var(--primary);' : ''}"><i class="fa-solid fa-chair"></i> Tables</button>
       <button class="btn btn-ghost tables-tab-btn ${activeTablesTab === 'reservations' ? 'active-tab' : ''}" data-tab="reservations" style="border-radius:8px 8px 0 0; ${activeTablesTab === 'reservations' ? 'border-bottom:2px solid var(--primary); color:var(--primary);' : ''}"><i class="fa-solid fa-calendar-check"></i> Reservations</button>
+      <button class="btn btn-ghost tables-tab-btn ${activeTablesTab === 'waitlist' ? 'active-tab' : ''}" data-tab="waitlist" style="border-radius:8px 8px 0 0; ${activeTablesTab === 'waitlist' ? 'border-bottom:2px solid var(--primary); color:var(--primary);' : ''}"><i class="fa-solid fa-users-line"></i> Waitlist</button>
     </div>
     <div id="tablesContent"></div>
   `;
@@ -42,8 +47,11 @@ export async function renderTables(container) {
     btn.addEventListener('click', () => { activeTablesTab = btn.dataset.tab; renderTables(container); });
   });
   document.getElementById('addReservationBtn')?.addEventListener('click', () => openReservationForm(null));
+  document.getElementById('addWaitlistBtn')?.addEventListener('click', () => openWaitlistForm());
   if (activeTablesTab === 'reservations') {
     await renderReservationsContent();
+  } else if (activeTablesTab === 'waitlist') {
+    await renderWaitlistContent();
   } else {
     await renderTablesContent();
   }
@@ -288,6 +296,152 @@ async function renderReservationsContent() {
       const r = all.find(x => x.id === btn.dataset.id);
       if (r) openReservationForm(r);
     });
+  });
+}
+
+// ── Waitlist — parties physically waiting RIGHT NOW for the next free
+// table, distinct from Reservations (a pre-booking for a FUTURE time).
+// Deliberately no table assignment, ever — that's the whole point of a
+// waitlist: staff decide which table a waiting party gets at the moment
+// one actually frees up, not in advance. ─────────────────────────────────
+const WAITLIST_STATUS_META = {
+  waiting: { label: 'Waiting', color: 'var(--warning)', bg: 'rgba(234,179,8,0.08)' },
+  seated: { label: 'Seated', color: 'var(--success)', bg: 'rgba(34,197,94,0.08)' },
+  left: { label: 'Left', color: 'var(--text-muted)', bg: 'var(--bg-app)' },
+};
+
+async function renderWaitlistContent() {
+  const area = document.getElementById('tablesContent');
+  if (!area) return;
+
+  const all = await getWaitlist();
+  const waiting = all.filter(w => w.status === 'waiting');
+  const history = all.filter(w => w.status !== 'waiting')
+    .sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''));
+
+  const waitlistCard = (w) => {
+    const meta = WAITLIST_STATUS_META[w.status] || WAITLIST_STATUS_META.waiting;
+    return `
+      <div class="table-card" data-wl-id="${w.id}" style="padding:14px 16px; border-radius:12px; border:1px solid var(--border); background:${meta.bg}; cursor:default;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
+          <div>
+            <div style="font-size:15px; font-weight:800;">${escapeAttr(w.customerName || 'Guest')}</div>
+            <div style="font-size:11.5px; color:var(--text-muted); margin-top:2px;">${escapeAttr(w.customerPhone || '')}</div>
+          </div>
+          <div style="font-size:10.5px; font-weight:800; color:${meta.color}; white-space:nowrap;">${meta.label}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:14px; margin-top:10px; font-size:12px; color:var(--text-secondary); flex-wrap:wrap;">
+          <span><i class="fa-solid fa-user-group" style="opacity:.6; margin-right:4px;"></i>${w.partySize || 1} guest${(w.partySize || 1) === 1 ? '' : 's'}</span>
+          ${w.status === 'waiting' ? `<span class="table-timer" data-occupied-at="${escapeAttr(w.addedAt)}" style="font-weight:700; color:${timerTier(Date.now() - new Date(w.addedAt).getTime()).color};">${formatElapsed(Date.now() - new Date(w.addedAt).getTime())} waiting</span>` : `<span>Added ${new Date(w.addedAt).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' })}</span>`}
+        </div>
+        ${w.notes ? `<div style="font-size:11px; color:var(--text-muted); margin-top:6px; font-style:italic;">${escapeAttr(w.notes)}</div>` : ''}
+        <div style="display:flex; gap:6px; margin-top:12px; flex-wrap:wrap;">
+          ${w.status === 'waiting' ? `
+            <button class="btn btn-primary btn-sm seat-waitlist-btn" data-id="${w.id}"><i class="fa-solid fa-chair"></i> Seat Now</button>
+            <button class="btn btn-ghost btn-sm left-waitlist-btn" data-id="${w.id}" style="color:var(--danger)" title="Left without a table"><i class="fa-solid fa-xmark"></i></button>
+          ` : `
+            <button class="btn btn-ghost btn-sm del-waitlist-btn" data-id="${w.id}" style="color:var(--danger)"><i class="fa-solid fa-trash"></i> Remove</button>
+          `}
+        </div>
+      </div>
+    `;
+  };
+
+  const renderGrid = (list, emptyText) => {
+    if (list.length === 0) return `<div style="text-align:center; padding:24px; color:var(--text-muted); font-size:12.5px;">${emptyText}</div>`;
+    return `<div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap:12px;">${list.map(waitlistCard).join('')}</div>`;
+  };
+
+  area.innerHTML = `
+    ${renderGrid(waiting, 'Nobody waiting right now — tap "Add to Waitlist" when a walk-in party needs to wait for a table.')}
+    ${history.length > 0 ? `
+      <div style="margin-top:18px;">
+        <button class="btn btn-ghost btn-sm" id="toggleWaitlistHistoryBtn"><i class="fa-solid fa-clock-rotate-left"></i> Show seated &amp; left (${history.length})</button>
+        <div id="waitlistHistoryArea" style="display:none; margin-top:14px;">${renderGrid(history, '')}</div>
+      </div>
+    ` : ''}
+  `;
+
+  document.getElementById('toggleWaitlistHistoryBtn')?.addEventListener('click', (e) => {
+    const histArea = document.getElementById('waitlistHistoryArea');
+    if (!histArea) return;
+    const show = histArea.style.display === 'none';
+    histArea.style.display = show ? '' : 'none';
+    e.currentTarget.innerHTML = `<i class="fa-solid fa-clock-rotate-left"></i> ${show ? 'Hide' : 'Show'} seated & left (${history.length})`;
+  });
+
+  area.querySelectorAll('.seat-waitlist-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await updateWaitlistStatus(btn.dataset.id, 'seated');
+      // Unlike a reservation (which can carry a pre-picked table), a
+      // waitlist party never has one — jump to the dine-in table grid so
+      // staff can pick whichever table actually just freed up, instead of
+      // a specific table id that doesn't exist here.
+      navigate('restaurant-pos');
+    });
+  });
+  area.querySelectorAll('.left-waitlist-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await updateWaitlistStatus(btn.dataset.id, 'left');
+      await renderWaitlistContent();
+    });
+  });
+  area.querySelectorAll('.del-waitlist-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ok = await showConfirm({ title: 'Remove Entry', message: 'Permanently remove this waitlist record?', okText: 'Remove' });
+      if (!ok) return;
+      await deleteWaitlistEntry(btn.dataset.id);
+      await renderWaitlistContent();
+    });
+  });
+
+  startTimerLoop();
+}
+
+function openWaitlistForm() {
+  openModal({
+    title: `<i class="fa-solid fa-user-plus mr-8"></i> Add to Waitlist`,
+    body: `
+      <div class="form-group">
+        <label class="form-label required">Guest Name</label>
+        <input class="form-input" id="wlName" placeholder="e.g. Ramesh" autofocus />
+      </div>
+      <div class="form-grid" style="margin-top:10px;">
+        <div class="form-group mb-0">
+          <label class="form-label">Phone</label>
+          <input class="form-input" id="wlPhone" placeholder="e.g. 9876543210" />
+        </div>
+        <div class="form-group mb-0">
+          <label class="form-label required">Party Size</label>
+          <input class="form-input" id="wlPartySize" type="number" min="1" value="2" />
+        </div>
+      </div>
+      <div class="form-group mt-8">
+        <label class="form-label">Notes (optional)</label>
+        <textarea class="form-input" id="wlNotes" rows="2" placeholder="e.g. Prefers AC Hall"></textarea>
+      </div>
+    `,
+    footer: `
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveWaitlistBtn"><i class="fa-solid fa-user-plus mr-4"></i> Add to Waitlist</button>
+    `
+  });
+  document.getElementById('saveWaitlistBtn')?.addEventListener('click', async () => {
+    const customerName = document.getElementById('wlName').value.trim();
+    const partySize = parseInt(document.getElementById('wlPartySize').value, 10) || 1;
+    if (!customerName) {
+      showToast('Guest name is required', 'error');
+      return;
+    }
+    await saveWaitlistEntry({
+      customerName,
+      customerPhone: document.getElementById('wlPhone').value.trim(),
+      partySize,
+      notes: document.getElementById('wlNotes').value.trim(),
+    });
+    closeModal();
+    showToast('Added to waitlist', 'success');
+    await renderWaitlistContent();
   });
 }
 

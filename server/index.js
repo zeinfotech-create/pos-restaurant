@@ -93,7 +93,7 @@ const UpgradeKey = require('./models/UpgradeKey');
 // doc — every sync of a category/sub-category/backup entry/import entry
 // created a fresh near-empty document instead of updating one, with the
 // real data (name, etc.) never actually persisted.
-const { Category, SubCategory, ImportTracker, BackupHistory, ImportHistory, StaffIncentive, StockTransfer, Expense, Attendance, Table, Kot, CounterOrder, Reservation } = require('./models/GenericModels');
+const { Category, SubCategory, ImportTracker, BackupHistory, ImportHistory, StaffIncentive, StockTransfer, Expense, Attendance, Table, Kot, CounterOrder, Reservation, Waitlist } = require('./models/GenericModels');
 
 const ModelMap = {
     'users': User,
@@ -129,7 +129,8 @@ const ModelMap = {
     'tables': Table,
     'kots': Kot,
     'counter_orders': CounterOrder,
-    'reservations': Reservation
+    'reservations': Reservation,
+    'waitlist': Waitlist
 };
 
 // ============================================================
@@ -1140,7 +1141,7 @@ wss.on('connection', (ws, req) => {
                     console.log(`[Hub] 📂 Fetch All Request for ${licenseKey} (Branch: ${branchId || 'All'})`);
 
                     const results = {};
-                    const branchScopedStores = ['products', 'registers', 'customers', 'suppliers', 'orders', 'purchases', 'appointments', 'staff', 'shifts', 'returns', 'categories', 'sub_categories', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations'];
+                    const branchScopedStores = ['products', 'registers', 'customers', 'suppliers', 'orders', 'purchases', 'appointments', 'staff', 'shifts', 'returns', 'categories', 'sub_categories', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist'];
 
                     const fetchPromises = Object.entries(ModelMap).map(async ([store, Model]) => {
                         let query = { licenseKey };

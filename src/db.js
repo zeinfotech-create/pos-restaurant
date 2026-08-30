@@ -6,7 +6,7 @@ const DB_NAME = 'zepos_db';
 // at on a real device (IndexedDB versions only ever go up, never down —
 // opening with a lower version than what's already on disk throws immediately
 // and the whole app fails to initialize, before onboarding can even render).
-const DB_VERSION = 13; // 9: added pos_tables + pos_kots (restaurant module); 10: added pos_counter_orders (multiple concurrent takeaway/delivery orders); 11: re-bump — a dev session had already opened at v10 before pos_counter_orders existed in this file, permanently skipping its creation (IndexedDB upgrades are one-way); this re-triggers onupgradeneeded so any install stuck in that partial state (not just one machine) gets the missing store created — createObjectStore() is already guarded per-key, so this is a no-op for anyone who upgraded cleanly; 12: added pos_reservations (table booking/reservation feature); 13: re-bump — the EXACT same class of bug as 11: a live dev session's HMR almost certainly re-ran this file's top-level `indexedDB.open(DB_NAME, 12)` the moment the DB_VERSION edit landed, a few seconds BEFORE the KEYS.RESERVATIONS edit landed right after it — permanently marking that device "done through v12" with pos_reservations never created (confirmed live: a real device hit "Store pos_reservations NOT FOUND" on saveReservation). This re-triggers onupgradeneeded once more so that device (and any other stuck in the same partial state) gets the missing store created — again a no-op for anyone who happened to upgrade cleanly straight to v12 with both edits already in place.
+const DB_VERSION = 14; // 9: added pos_tables + pos_kots (restaurant module); 10: added pos_counter_orders (multiple concurrent takeaway/delivery orders); 11: re-bump — a dev session had already opened at v10 before pos_counter_orders existed in this file, permanently skipping its creation (IndexedDB upgrades are one-way); this re-triggers onupgradeneeded so any install stuck in that partial state (not just one machine) gets the missing store created — createObjectStore() is already guarded per-key, so this is a no-op for anyone who upgraded cleanly; 12: added pos_reservations (table booking/reservation feature); 13: re-bump — the EXACT same class of bug as 11: a live dev session's HMR almost certainly re-ran this file's top-level `indexedDB.open(DB_NAME, 12)` the moment the DB_VERSION edit landed, a few seconds BEFORE the KEYS.RESERVATIONS edit landed right after it — permanently marking that device "done through v12" with pos_reservations never created (confirmed live: a real device hit "Store pos_reservations NOT FOUND" on saveReservation). This re-triggers onupgradeneeded once more so that device (and any other stuck in the same partial state) gets the missing store created — again a no-op for anyone who happened to upgrade cleanly straight to v12 with both edits already in place. 14: added pos_waitlist (walk-in waitlist feature) — DB_VERSION+KEYS edited together in the same change this time, dev session killed BEFORE this edit landed (not just before the restart), specifically to avoid a 3rd repeat of the v11/v13 HMR race.
 
 class DbService {
   constructor() {
@@ -400,6 +400,7 @@ export const KEYS = {
   // whichever table's actually free when they arrive, same as any walk-in,
   // and mark the reservation Seated from here as a record-keeping step.
   RESERVATIONS: 'pos_reservations',
+  WAITLIST: 'pos_waitlist',
   // Tombstones: track deleted record IDs so pos_full_state won't resurrect them
   DELETED_TOMBSTONES: 'pos_deleted_tombstones'
 };
@@ -4175,7 +4176,7 @@ export async function updateData(store, data, isSilent = false) {
     // never get an isSynced field set at all. Both are worth syncing: a
     // multi-branch owner reviewing "who imported what, when" or "was a
     // backup taken" shouldn't have to check that specific device.
-    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations'];
+    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist'];
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable
@@ -4198,7 +4199,7 @@ export async function updateData(store, data, isSilent = false) {
         // syncAllLocalData()'s own retry list, which did nothing since that
         // retry filters on isSynced !== true — a record already wrongly
         // marked true there is invisible to it too).
-        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations'];
+        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist'];
         if (syncStores.includes(store.toLowerCase())) {
           data.isSynced = false;
         } else {
@@ -4456,6 +4457,43 @@ export async function updateReservationStatus(id, status) {
 
 export async function deleteReservation(id) {
   await deleteData('reservations', id);
+}
+
+// Walk-in waitlist — for the "restaurant's full, party's standing there"
+// case Reservations doesn't cover (a reservation is a pre-booking for a
+// FUTURE time; a waitlist entry is a party physically waiting RIGHT NOW for
+// the next table to free up). Deliberately no table assignment at all —
+// unlike a reservation, which staff can optionally pre-pick a table for,
+// a waitlist party gets seated at whatever actually frees up next, decided
+// at the moment "Seat Now" is clicked, not in advance.
+export async function getWaitlist(branchId = null) {
+  const all = (await db.getAll(KEYS.WAITLIST)) || [];
+  const filtered = branchId ? all.filter(w => w.branchId === branchId) : all;
+  return filtered.sort((a, b) => (a.addedAt || '').localeCompare(b.addedAt || ''));
+}
+
+export async function saveWaitlistEntry(entry) {
+  if (!entry.id) entry.id = 'wl-' + Date.now();
+  if (!entry.addedAt) entry.addedAt = new Date().toISOString();
+  if (!entry.status) entry.status = 'waiting'; // 'waiting' | 'seated' | 'left'
+  if (!entry.branchId) {
+    const cb = await getCurrentBranch();
+    entry.branchId = cb?.id || 'b1';
+  }
+  await updateData('waitlist', entry);
+  return entry;
+}
+
+export async function updateWaitlistStatus(id, status) {
+  const entry = await getDataById('waitlist', id);
+  if (!entry) return null;
+  entry.status = status;
+  await updateData('waitlist', entry);
+  return entry;
+}
+
+export async function deleteWaitlistEntry(id) {
+  await deleteData('waitlist', id);
 }
 
 // A CounterOrder is the takeaway/delivery equivalent of a table's

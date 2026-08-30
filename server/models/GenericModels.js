@@ -50,4 +50,7 @@ module.exports = {
     // Advance table bookings — single-branch, same treatment as Table/Kot/
     // CounterOrder above.
     Reservation: createGenericModel('Reservation'),
+    // Walk-in waitlist entries — single-branch, same treatment as
+    // Reservation/Table/Kot/CounterOrder above.
+    Waitlist: createGenericModel('Waitlist'),
 };
