@@ -214,8 +214,11 @@ async function renderKitchenContent() {
   // Tickets) genuinely are two separate physical tickets at two different
   // stages, so they correctly stay apart across columns; only tickets that
   // are actually at the same stage get visually combined under one order.
-  const pendingGroups = groupByOrder(pending, splitTickets);
-  const activeGroups = groupByOrder(active, splitTickets);
+  // Rush-flagged orders bump to the front of their column, ahead of
+  // anything older but not flagged — within each priority tier, still
+  // oldest-first same as before.
+  const pendingGroups = byRushThenAge(groupByOrder(pending, splitTickets));
+  const activeGroups = byRushThenAge(groupByOrder(active, splitTickets));
   // A screen meant to be glanced at (or not looked at all, on a second
   // monitor/PC) needs more than a silently-updated list — flag whether a
   // ticket genuinely wasn't here last render, so a fresh order gets an
@@ -379,6 +382,7 @@ function ticketHeader(k) {
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
       <div style="font-weight:800; font-size:13px; display:flex; align-items:center; gap:6px;">
+        ${k.isRush ? rushBadge() : ''}
         ${k.tableName ? escapeHtml(kitchenFacingOrderLabel(k.tableName)) : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}
         ${isAddOn ? `<span style="font-size:9.5px; font-weight:800; color:var(--warning); white-space:nowrap;"><i class="fa-solid fa-circle-plus" style="margin-right:3px;"></i>ADD-ON #${k.waveNumber}</span>` : ''}
       </div>
@@ -387,6 +391,26 @@ function ticketHeader(k) {
     ${k.waiterName ? `<div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;"><i class="fa-solid fa-user" style="margin-right:4px; opacity:.5;"></i>${escapeHtml(k.waiterName)}</div>` : ''}
     ${isAddOn ? `<div style="font-size:10.5px; color:var(--warning); margin-top:2px; font-weight:700;"><i class="fa-solid fa-triangle-exclamation" style="margin-right:4px;"></i>More for an order already in progress — not a new one</div>` : ''}
   `;
+}
+
+// Plain colored text + icon, same visual language as the ADD-ON badge right
+// next to it — this codebase deliberately moved away from filled/pill-style
+// badges on cards (see tableDisplay.js history), so RUSH stays consistent
+// with that rather than reintroducing one just for this flag.
+function rushBadge() {
+  return `<span style="font-size:9.5px; font-weight:800; color:var(--danger); white-space:nowrap;"><i class="fa-solid fa-fire" style="margin-right:3px;"></i>RUSH</span>`;
+}
+
+// A group is "rush" if ANY ticket in it is — an order flagged rush after its
+// first wave already went out should still bump the whole group, not just
+// the newer wave sitting inside it.
+function groupIsRush(group) { return group.some(k => k.isRush); }
+function byRushThenAge(groups) {
+  return groups.slice().sort((a, b) => {
+    const ra = groupIsRush(a), rb = groupIsRush(b);
+    if (ra !== rb) return ra ? -1 : 1;
+    return byAge(a[0], b[0]);
+  });
 }
 
 function newTicketItemLine(i) {
@@ -435,7 +459,7 @@ function renderNewTicketGroup(group) {
   return `
     <div class="card rpos-kot-card" style="padding:14px;">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-        <div style="font-weight:800; font-size:13px;">${orderLabel}</div>
+        <div style="font-weight:800; font-size:13px; display:flex; align-items:center; gap:6px;">${groupIsRush(group) ? rushBadge() : ''}${orderLabel}</div>
         <span class="rpos-kitchen-col-count">${group.length} tickets</span>
       </div>
       ${group.map((k, i) => `
@@ -508,7 +532,7 @@ function renderActiveTicketGroup(group) {
   return `
     <div class="card rpos-kot-card" style="padding:14px;">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-        <div style="font-weight:800; font-size:13px;">${orderLabel}</div>
+        <div style="font-weight:800; font-size:13px; display:flex; align-items:center; gap:6px;">${groupIsRush(group) ? rushBadge() : ''}${orderLabel}</div>
         <span class="rpos-kitchen-col-count">${group.length} tickets</span>
       </div>
       ${group.map((k, i) => {

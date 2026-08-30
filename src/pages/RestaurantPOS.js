@@ -150,6 +150,7 @@ let currentSort = 'name-asc';
 let dragSrcProductId = null; // set during a custom-order drag, mirrors POS.js's own mechanism
 let partyNumberRepairInProgress = false; // guards renderTablePartyPicker()'s self-heal loop against re-entrant stray renders — see its own comment
 let guestCount = null; // dine-in only
+let isRush = false; // whole-order priority flag — VIP/urgent, tells the kitchen to bump this order ahead of others already queued
 let changeLog = []; // {type:'cancel'|'modify', name, qty, reason, at, by} — audit trail for anything edited after being fired to the kitchen
 let orderSessionId = null; // ties every KOT sent during this one order together — always the current order's own persisted id, deterministic
 // platformOrderId: only meaningful for swiggy/zomato — the platform's OWN
@@ -247,6 +248,7 @@ export async function renderRestaurantPOS(container, subPage) {
     drillTable = null;
     selectedCounterOrder = null;
     guestCount = null;
+    isRush = false;
     changeLog = [];
     orderSessionId = null;
     mobileCartOpen = false;
@@ -288,6 +290,7 @@ async function enterCounterOrder(order, table = null) {
   orderType = order.orderType;
   orderSessionId = order.id;
   guestCount = order.guestCount || null;
+  isRush = order.isRush || false;
   takeawayContact = {
     name: order.contactName || '',
     phone: order.contactPhone || '',
@@ -717,6 +720,7 @@ function handleBack() {
       view = 'picker';
       selectedCounterOrder = null;
       guestCount = null;
+      isRush = false;
       changeLog = [];
       orderSessionId = null;
       setStaff(null);
@@ -730,6 +734,7 @@ function handleBack() {
     drillTable = null;
     selectedCounterOrder = null;
     guestCount = null;
+    isRush = false;
     changeLog = [];
     orderSessionId = null;
     setStaff(null);
@@ -751,6 +756,7 @@ function handleBack() {
     drillTable = null;
     selectedCounterOrder = null;
     guestCount = null;
+    isRush = false;
     changeLog = [];
     orderSessionId = null;
     setStaff(null);
@@ -1519,6 +1525,10 @@ async function renderOrderingView() {
             ${orderType === 'dine-in' ? `<button class="btn-icon" id="rposEditGuestsBtn" style="font-size:11px; font-weight:600; color:var(--text-muted);" title="Edit party size"><i class="fa-solid fa-users" style="margin-right:4px;"></i>${guestCount || '—'}<i class="fa-solid fa-pen" style="font-size:9px; margin-left:4px; opacity:.5;"></i></button>` : ''}
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <button class="btn btn-sm" id="rposRushToggleBtn" title="${isRush ? 'Remove rush priority' : 'Mark this order as rush/priority for the kitchen'}"
+              style="${isRush ? 'background:var(--danger); color:#fff; border-color:var(--danger);' : 'background:transparent; color:var(--text-muted); border:1px solid var(--border);'} font-size:12px; font-weight:700;">
+              <i class="fa-solid fa-fire${isRush ? '' : '-flame-simple'}"></i> ${isRush ? 'RUSH' : 'Mark Rush'}
+            </button>
             <select class="form-input" id="rposWaiterSelect" style="max-width:150px; font-size:12px;">
               <option value="">Waiter (optional)</option>
               ${staffList.map(s => `<option value="${s.id}" ${store.selectedStaff?.id === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
@@ -1723,6 +1733,12 @@ async function renderOrderingView() {
   document.getElementById('rposWaiterSelect')?.addEventListener('change', e => {
     const staff = staffList.find(s => s.id === e.target.value);
     setStaff(staff || null);
+  });
+  document.getElementById('rposRushToggleBtn')?.addEventListener('click', async () => {
+    isRush = !isRush;
+    await persistOrderState();
+    await renderOrderingView();
+    showToast(isRush ? 'Order marked as RUSH — kitchen will see this flagged' : 'Rush priority removed', isRush ? 'warning' : 'info');
   });
   document.getElementById('rposEditGuestsBtn')?.addEventListener('click', () => {
     if (!selectedTable) return;
@@ -2206,6 +2222,7 @@ async function persistOrderState() {
   selectedCounterOrder = await saveCounterOrder({
     ...selectedCounterOrder,
     items: store.cart,
+    isRush,
     guestCount: orderType === 'dine-in' ? guestCount : undefined,
     contactName: orderType !== 'dine-in' ? (takeawayContact.name || '') : undefined,
     contactPhone: orderType !== 'dine-in' ? (takeawayContact.phone || '') : undefined,
@@ -2260,6 +2277,7 @@ async function sendToKitchen(courseFilter = null) {
       orderType,
       orderSessionId,
       waveNumber,
+      isRush,
       course: courseFilter || null,
       contactName: takeawayContact.name || '',
       waiterName: store.selectedStaff?.name || null,
@@ -2727,6 +2745,7 @@ async function cancelWholeOrder(reason) {
   selectedTable = null;
   selectedCounterOrder = null;
   guestCount = null;
+  isRush = false;
   changeLog = [];
   orderSessionId = null;
   setStaff(null);
@@ -2799,6 +2818,7 @@ async function completeBill(payments, tipAmount = 0) {
   selectedTable = null;
   selectedCounterOrder = null;
   guestCount = null;
+  isRush = false;
   changeLog = [];
   orderSessionId = null;
   setStaff(null);
