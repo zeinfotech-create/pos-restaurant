@@ -6,7 +6,7 @@ import './style.css';
 import './dashboard-animations.css';
 import './settings-redesign.css';
 import { navigate, initRouter, getCurrentPage } from './router.js';
-import { getSettings, updateSettings, getBranchRegisters, getSession, getSessionTheme, setSessionTheme, getSidebarCollapsed, setSidebarCollapsed, getBranches, getCurrentShift, closeRegister, openRegister, getCustomers, getBusinessFeatures, deleteData, updateData, saveSession, getDataById, getUsers, hasPermission, getLowStockProducts, getExpiringProducts, getCurrentBranch, getCurrentUser, getCurrentRegisterId, hashPassword, verifyPassword } from './db.js';
+import { getSettings, updateSettings, getBranchRegisters, getSession, getSessionTheme, setSessionTheme, getSidebarCollapsed, setSidebarCollapsed, getBranches, getCurrentShift, closeRegister, openRegister, getCustomers, getBusinessFeatures, deleteData, updateData, saveSession, getDataById, getUsers, hasPermission, getLowStockProducts, getExpiringProducts, getMenuRequests, getCurrentBranch, getCurrentUser, getCurrentRegisterId, hashPassword, verifyPassword } from './db.js';
 import { showToast } from './components/Toast.js';
 import { store, initStore, onCartUpdate, getCartTotals, updateQty, clearCart, setDiscount, removeFromCart, updateCartItem } from './store.js';
 import { openModal, closeModal, showConfirm, showAlert } from './components/Modal.js';
@@ -505,9 +505,10 @@ async function renderTopbar() {
     const titleSpan = document.getElementById('topbar-current-page');
     if (titleSpan) titleSpan.textContent = getPageTitle(getCurrentPage());
     
-    // 2. Update low stock / expiry badges
+    // 2. Update low stock / expiry / customer-request badges
     updateGlobalLowStockBadge();
     updateGlobalExpiryBadge();
+    updateGlobalMenuRequestBadge();
     return;
   }
 
@@ -549,6 +550,7 @@ async function renderTopbar() {
     
     <div id="globalLowStockContainer" style="position:relative; margin-right:8px;"></div>
     <div id="globalExpiryContainer" style="position:relative; margin-right:8px;"></div>
+    <div id="globalMenuRequestContainer" style="position:relative; margin-right:8px;"></div>
     
     <!-- Shortcuts Menu -->
     <div class="topbar-notif-wrapper" style="position:relative;">
@@ -616,6 +618,7 @@ async function renderTopbar() {
 
   updateGlobalLowStockBadge();
   updateGlobalExpiryBadge();
+  updateGlobalMenuRequestBadge();
 }
 
 async function updateGlobalLowStockBadge() {
@@ -694,15 +697,62 @@ async function updateGlobalExpiryBadge() {
   });
 }
 
-// Low Stock / Expiry Event Listeners
+// Self-order QR menu requests (CustomerMenu.js) still waiting on staff —
+// same pattern as the low-stock/expiry badges above, but reachable from
+// EVERY page (Dashboard, Products, anywhere), not just while already inside
+// Restaurant POS's own per-table badges (RestaurantPOS.js's ordering-view
+// header + table-grid picker). A request sent while staff is somewhere else
+// entirely would otherwise go unnoticed until they happened to open
+// Restaurant POS on their own.
+async function updateGlobalMenuRequestBadge() {
+  const container = document.getElementById('globalMenuRequestContainer');
+  if (!container) return;
+
+  const pending = (await getMenuRequests(store.branch?.id)).filter(r => r.status === 'pending');
+
+  if (pending.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  // If button already exists, just update the count — avoids DOM flash/blink
+  const existingBtn = document.getElementById('globalMenuRequestBtn');
+  if (existingBtn) {
+    const badge = existingBtn.querySelector('.notif-badge');
+    if (badge) badge.textContent = pending.length;
+    return;
+  }
+
+  container.innerHTML = `
+    <button class="btn btn-ghost btn-sm" id="globalMenuRequestBtn" title="Customer order requests waiting" style="border:1px solid var(--primary); color:var(--primary); position:relative; background:rgba(99,102,241,0.05)">
+      <i class="fa-solid fa-bell"></i>
+      <span class="notif-badge" style="position:absolute; top:-6px; right:-6px; font-size:10px; border-radius:10px; padding:2px 6px; background:var(--primary); color:#fff; border:1px solid var(--bg-surface)">${pending.length}</span>
+    </button>
+  `;
+
+  document.getElementById('globalMenuRequestBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // No single "all requests" page to land on — Restaurant POS's own table
+    // grid already shows a per-table badge (and the ordering view a full
+    // review-and-accept modal) for every pending request, so that's the
+    // most useful place to send staff to act on one.
+    window.navigate('restaurant-pos');
+  });
+}
+
+// Low Stock / Expiry / Menu Request Event Listeners
 window.addEventListener('storage-change', (e) => {
   if (e?.detail?.store === 'products') {
     updateGlobalLowStockBadge();
     updateGlobalExpiryBadge();
   }
+  if (e?.detail?.store === 'menu_requests') updateGlobalMenuRequestBadge();
 });
 window.addEventListener('data-synced', updateGlobalLowStockBadge);
 window.addEventListener('data-synced', updateGlobalExpiryBadge);
+window.addEventListener('data-synced', (e) => {
+  if (e?.detail?.store === 'menu_requests') updateGlobalMenuRequestBadge();
+});
 window.addEventListener('license-status-changed', () => { 
   renderTopbar(); 
   renderSidebar(); 
