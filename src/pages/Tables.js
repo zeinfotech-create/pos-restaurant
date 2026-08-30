@@ -18,6 +18,17 @@ let timerInterval = null;
 // route, so this page's own back-button/nav-item behavior doesn't need to
 // change at all.
 let activeTablesTab = 'tables';
+// 'grid' | 'floor' — a view-mode toggle WITHIN the 'tables' tab (same
+// underlying table data either way, just laid out differently), not a
+// separate top-level tab — it's still fundamentally "manage my tables",
+// just optionally arranged to match the real room instead of auto-flowing.
+let tableViewMode = 'grid';
+// Floor Plan's drag-to-arrange is locked behind this — OFF by default, so
+// a normal tap on a table still starts an order exactly like Grid view;
+// only while explicitly editing does a table become draggable instead of
+// clickable, preventing an accidental drag (or an accidental order-start
+// while trying to drag) either way.
+let floorEditMode = false;
 
 export async function renderTables(container) {
   container.innerHTML = `
@@ -91,13 +102,22 @@ async function renderTablesContent() {
   reservationsByTable.forEach(list => list.sort((a, b) => a.reservationTime.localeCompare(b.reservationTime)));
 
   area.innerHTML = `
+    ${tables.length > 0 ? `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+        <div style="display:flex; gap:6px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:8px; padding:3px;">
+          <button class="btn btn-sm ${tableViewMode === 'grid' ? 'btn-primary' : 'btn-ghost'}" id="viewModeGridBtn" style="border-radius:6px;"><i class="fa-solid fa-table-cells"></i> Grid</button>
+          <button class="btn btn-sm ${tableViewMode === 'floor' ? 'btn-primary' : 'btn-ghost'}" id="viewModeFloorBtn" style="border-radius:6px;"><i class="fa-solid fa-map-location-dot"></i> Floor Plan</button>
+        </div>
+        ${tableViewMode === 'floor' ? `<button class="btn btn-sm ${floorEditMode ? 'btn-primary' : 'btn-ghost'}" id="floorEditToggleBtn">${floorEditMode ? '<i class="fa-solid fa-check"></i> Done Arranging' : '<i class="fa-solid fa-arrows-up-down-left-right"></i> Edit Layout'}</button>` : ''}
+      </div>
+    ` : ''}
     ${tables.length === 0 ? `
       <div class="card" style="padding:48px; text-align:center; color:var(--text-muted);">
         <i class="fa-solid fa-chair" style="font-size:36px; opacity:0.2; margin-bottom:12px; display:block"></i>
         <div style="font-size:14px; font-weight:700">No tables yet</div>
         <div style="font-size:12px; margin-top:4px">Click "New Table" to add your first one</div>
       </div>
-    ` : grouped.map(({ section, tables: sectionTables }) => `
+    ` : tableViewMode === 'floor' ? grouped.map(({ section, tables: sectionTables }) => renderFloorSection(section, sectionTables, grouped.length, allTables, allParties, allKots, reservationsByTable)).join('') : grouped.map(({ section, tables: sectionTables }) => `
       <div style="margin-bottom:22px;">
         ${grouped.length > 1 ? `<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid var(--border);"><span style="font-size:12px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeAttr(section)}</span><span style="font-size:10.5px; color:var(--text-muted); background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; padding:1px 8px;">${sectionTables.length}</span></div>` : ''}
         <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:14px;">
@@ -132,8 +152,112 @@ async function renderTablesContent() {
     </style>
   `;
 
-  await setupTablesListeners();
+  document.getElementById('viewModeGridBtn')?.addEventListener('click', () => { tableViewMode = 'grid'; floorEditMode = false; renderTablesContent(); });
+  document.getElementById('viewModeFloorBtn')?.addEventListener('click', () => { tableViewMode = 'floor'; renderTablesContent(); });
+  document.getElementById('floorEditToggleBtn')?.addEventListener('click', () => { floorEditMode = !floorEditMode; renderTablesContent(); });
+
+  if (tableViewMode === 'floor') {
+    setupFloorPlanDrag();
+  } else {
+    await setupTablesListeners();
+  }
   startTimerLoop();
+}
+
+// ── Floor Plan — the SAME table data as Grid view, just laid out to roughly
+// match the real room instead of an auto-flowing grid, so staff can glance
+// at it and recognize "that's my restaurant" instead of an alphabetized
+// list. One canvas per section (a canvas mixing sections would be
+// meaningless — Ground Floor and AC Hall aren't the same physical room).
+// Position is stored as a 0–100 PERCENTAGE of the canvas, not pixels, so it
+// stays correct across any window size without needing to be re-arranged
+// per device.
+const FLOOR_CANVAS_HEIGHT = 420;
+
+function renderFloorSection(section, sectionTables, sectionCount, allTables, allParties, allKots, reservationsByTable) {
+  // A table that's never been positioned yet (brand new, or Floor Plan
+  // used for the first time) gets a simple auto-arranged grid position —
+  // computed fresh every render from its INDEX, not saved, so it doesn't
+  // silently claim a "real" position until someone actually drags it (see
+  // the drag handler below, which is the only thing that ever persists
+  // layoutX/layoutY).
+  const cols = Math.max(1, Math.min(6, Math.ceil(Math.sqrt(sectionTables.length * 1.6))));
+  return `
+    <div style="margin-bottom:22px;">
+      ${sectionCount > 1 ? `<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid var(--border);"><span style="font-size:12px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; opacity:.5;"></i>${escapeAttr(section)}</span><span style="font-size:10.5px; color:var(--text-muted); background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; padding:1px 8px;">${sectionTables.length}</span></div>` : ''}
+      <div class="floor-canvas" style="position:relative; height:${FLOOR_CANVAS_HEIGHT}px; border:1px dashed var(--border); border-radius:14px; background:repeating-linear-gradient(45deg, var(--bg-elevated) 0px, var(--bg-elevated) 1px, transparent 1px, transparent 24px); overflow:hidden;">
+        ${sectionTables.map((t, i) => {
+          const hasPos = typeof t.layoutX === 'number' && typeof t.layoutY === 'number';
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          const rows = Math.ceil(sectionTables.length / cols);
+          const x = hasPos ? t.layoutX : ((col + 0.5) / cols) * 100;
+          const y = hasPos ? t.layoutY : ((row + 0.5) / Math.max(1, rows)) * 100;
+          return `
+            <div class="floor-table-wrap" data-id="${t.id}" style="position:absolute; left:${x}%; top:${y}%; transform:translate(-50%,-50%); width:160px; ${floorEditMode ? 'cursor:grab; touch-action:none;' : 'cursor:pointer;'}">
+              ${renderTableCard(t, allTables, allParties, allKots, reservationsByTable.get(t.id))}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// Plain pointer-events drag (no library) — mousedown on a floor-table-wrap
+// (only while floorEditMode is on) tracks movement as a % of the canvas'
+// own bounding box, clamped to 0–100 so a table can never be dragged off
+// the visible floor, and persists via saveTable() only once on release
+// (not on every pixel of movement) to avoid hammering IndexedDB/sync with
+// a write per frame.
+function setupFloorPlanDrag() {
+  if (!floorEditMode) {
+    // Not editing — a plain tap still starts an order, identical to Grid
+    // view's own click-to-navigate.
+    document.querySelectorAll('.floor-table-wrap').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.table-card-actions')) return;
+        navigate(`restaurant-pos/${el.dataset.id}`);
+      });
+    });
+    return;
+  }
+  document.querySelectorAll('.floor-table-wrap').forEach(wrap => {
+    const canvas = wrap.closest('.floor-canvas');
+    if (!canvas) return;
+    let dragging = false;
+    wrap.addEventListener('pointerdown', (e) => {
+      // The card's own edit/merge/delete buttons must still work while
+      // arranging — only a drag starting OUTSIDE them should move the card.
+      if (e.target.closest('.table-card-actions')) return;
+      dragging = true;
+      wrap.setPointerCapture(e.pointerId);
+      wrap.style.cursor = 'grabbing';
+      wrap.style.zIndex = '10';
+    });
+    wrap.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const rect = canvas.getBoundingClientRect();
+      const xPct = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100));
+      const yPct = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100));
+      wrap.style.left = xPct + '%';
+      wrap.style.top = yPct + '%';
+      wrap.dataset.pendingX = xPct;
+      wrap.dataset.pendingY = yPct;
+    });
+    const finishDrag = async (e) => {
+      if (!dragging) return;
+      dragging = false;
+      wrap.style.cursor = 'grab';
+      wrap.style.zIndex = '';
+      if (wrap.dataset.pendingX == null) return;
+      const table = (await getTables()).find(x => x.id === wrap.dataset.id);
+      if (!table) return;
+      await saveTable({ ...table, layoutX: parseFloat(wrap.dataset.pendingX), layoutY: parseFloat(wrap.dataset.pendingY) });
+    };
+    wrap.addEventListener('pointerup', finishDrag);
+    wrap.addEventListener('pointercancel', finishDrag);
+  });
 }
 
 // ── Reservations — advance table bookings ("6pm, party of 4"). Deliberately
