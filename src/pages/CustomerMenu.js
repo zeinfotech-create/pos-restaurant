@@ -40,9 +40,9 @@ const STEPPER_STYLES = `
     .cm-step-btn { display:flex; align-items:center; justify-content:center; border:none; border-radius:999px; cursor:pointer; flex-shrink:0; background:var(--primary); color:#fff; transition:transform .12s ease; }
     .cm-step-btn:active { transform:scale(0.8); }
     .cm-step-qty { text-align:center; font-weight:800; color:var(--primary); }
-    .cm-stepper-sm { padding:2px; gap:1px; }
-    .cm-stepper-sm .cm-step-btn { width:20px; height:20px; font-size:8.5px; }
-    .cm-stepper-sm .cm-step-qty { min-width:18px; font-size:11px; }
+    .cm-stepper-sm { padding:3px; gap:2px; }
+    .cm-stepper-sm .cm-step-btn { width:23px; height:23px; font-size:9.5px; }
+    .cm-stepper-sm .cm-step-qty { min-width:20px; font-size:12px; }
     .cm-stepper-lg { padding:3px; gap:4px; }
     .cm-stepper-lg .cm-step-btn { width:30px; height:30px; font-size:11px; }
     .cm-stepper-lg .cm-step-qty { min-width:26px; font-size:14px; }
@@ -219,17 +219,16 @@ async function renderContent(container, tableId) {
           const inCart = localCart.find(i => i.productId === p.id);
           return `
           <div class="card cm-product-card" data-id="${p.id}" style="padding:12px; text-align:center; cursor:pointer; position:relative;">
+            <div style="font-size:26px; margin-bottom:6px;">${p.emoji || '🍽️'}</div>
+            <div style="font-size:12.5px; font-weight:700;">${foodTypeIconHtml(p.foodType, 9)}${escapeHtml(p.name)}</div>
+            <div style="font-size:12px; color:var(--primary); font-weight:800; margin-top:2px;">₹${Number(p.price || 0).toFixed(2)}</div>
             ${inCart ? `
-              <div class="cm-stepper cm-stepper-sm" style="position:absolute; top:6px; left:6px; right:6px; justify-content:space-between;">
+              <div class="cm-stepper cm-stepper-sm" style="width:100%; margin-top:8px; justify-content:space-between;">
                 <button class="cm-step-btn cm-grid-minus" data-id="${p.id}"><i class="fa-solid fa-minus"></i></button>
                 <span class="cm-step-qty">${inCart.qty}</span>
                 <button class="cm-step-btn cm-grid-plus" data-id="${p.id}"><i class="fa-solid fa-plus"></i></button>
               </div>
-            ` : ''}
-            <div style="font-size:26px; margin-bottom:6px; margin-top:${inCart ? '22px' : '0'};">${p.emoji || '🍽️'}</div>
-            <div style="font-size:12.5px; font-weight:700;">${foodTypeIconHtml(p.foodType, 9)}${escapeHtml(p.name)}</div>
-            <div style="font-size:12px; color:var(--primary); font-weight:800; margin-top:2px;">₹${Number(p.price || 0).toFixed(2)}</div>
-            ${!inCart ? `<button class="btn btn-ghost btn-sm cm-grid-add" data-id="${p.id}" style="width:100%; margin-top:8px; font-size:11px; padding:5px;"><i class="fa-solid fa-plus"></i> Add</button>` : ''}
+            ` : `<button class="btn btn-ghost btn-sm cm-grid-add" data-id="${p.id}" style="width:100%; margin-top:8px; font-size:11px; padding:5px;"><i class="fa-solid fa-plus"></i> Add</button>`}
           </div>
         `; }).join('')}
       </div>
