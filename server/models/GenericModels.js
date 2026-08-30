@@ -56,4 +56,7 @@ module.exports = {
     // Post-bill customer ratings — single-branch, same treatment as
     // Waitlist/Reservation/Table/Kot/CounterOrder above.
     Feedback: createGenericModel('Feedback'),
+    // Self-order QR menu submissions — single-branch, same treatment as
+    // Feedback/Waitlist/Reservation/Table/Kot/CounterOrder above.
+    MenuRequest: createGenericModel('MenuRequest'),
 };

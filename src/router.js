@@ -29,6 +29,7 @@ import { renderAttendance } from './pages/Attendance.js';
 import { renderTables } from './pages/Tables.js';
 import { renderRestaurantPOS } from './pages/RestaurantPOS.js';
 import { renderKitchen } from './pages/Kitchen.js';
+import { renderCustomerMenu } from './pages/CustomerMenu.js';
 
 const routes = {
     dashboard: renderDashboard,
@@ -78,6 +79,14 @@ const routes = {
     // kd already uses, same short-alias pattern.
     'mobile-order': renderRestaurantPOS,
     mo: renderRestaurantPOS,
+    // The customer self-order QR menu — reached anonymously (no login) via
+    // http://<lan-ip>:3030/#customer-menu/<tableId>, or the short alias
+    // #menu/<tableId> for a shorter QR/typed URL. See CustomerMenu.js's own
+    // header comment for the full design (local-only cart, submits a
+    // MenuRequest for staff to review rather than writing into a live order
+    // directly).
+    'customer-menu': renderCustomerMenu,
+    menu: renderCustomerMenu,
 };
 
 let currentPage = 'dashboard';
@@ -118,7 +127,7 @@ export async function navigate(page) {
     console.log(`[Router] Navigating to: ${page}`);
     
     const [mainPage, subPage] = page.split('/');
-    const publicPages = ['customer-display', 'login', 'onboarding', 'activation'];
+    const publicPages = ['customer-display', 'login', 'onboarding', 'activation', 'customer-menu', 'menu'];
 
     // 0. Global Installation Check
     const { getSettings, updateSettings } = await import('./db.js');
@@ -134,7 +143,7 @@ export async function navigate(page) {
     // a login: a black screen, no redirect, no hint of what else exists
     // here. 'login' stays reachable since it's the one step before 'kd'/
     // 'kitchen-display' actually works.
-    if (!isElectron && !['login', 'kitchen-display', 'kd', 'mobile-order', 'mo'].includes(mainPage)) {
+    if (!isElectron && !['login', 'kitchen-display', 'kd', 'mobile-order', 'mo', 'customer-menu', 'menu'].includes(mainPage)) {
         console.warn(`[Router] Non-Electron client requested "${mainPage}" — locking to black screen (LAN access is Kitchen Display/mobile ordering only).`);
         lockOutNonKitchenAccess();
         return;
@@ -172,7 +181,7 @@ export async function navigate(page) {
         // a startup glitch, not a genuine enforcement point.
         if (isAlreadySetUp) {
             const { syncEngine } = await import('./services/syncEngine.js');
-            const activationExemptPages = ['login', 'onboarding', 'activation', 'customer-display', 'kitchen-display', 'kd', 'mobile-order', 'mo'];
+            const activationExemptPages = ['login', 'onboarding', 'activation', 'customer-display', 'kitchen-display', 'kd', 'mobile-order', 'mo', 'customer-menu', 'menu'];
             const loggedInUser = await getCurrentUser();
             if (loggedInUser && !syncEngine.isLifetimeActivated && !activationExemptPages.includes(mainPage)) {
                 console.log('[Router] Electron: Not activated yet. Forcing Activation gate.');
@@ -259,7 +268,7 @@ export async function navigate(page) {
     }
 
     // Handle Standalone Pages (No sidebar/topbar)
-    const standalonePages = ['customer-display', 'login', 'onboarding', 'activation', 'quick-pos', 'restaurant-pos', 'kitchen-display', 'kd', 'mobile-order', 'mo'];
+    const standalonePages = ['customer-display', 'login', 'onboarding', 'activation', 'quick-pos', 'restaurant-pos', 'kitchen-display', 'kd', 'mobile-order', 'mo', 'customer-menu', 'menu'];
     const isStandalone = standalonePages.includes(mainPage);
 
     document.body.classList.toggle('standalone-view', isStandalone);

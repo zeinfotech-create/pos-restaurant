@@ -6,7 +6,7 @@ const DB_NAME = 'zepos_db';
 // at on a real device (IndexedDB versions only ever go up, never down —
 // opening with a lower version than what's already on disk throws immediately
 // and the whole app fails to initialize, before onboarding can even render).
-const DB_VERSION = 15; // 9: added pos_tables + pos_kots (restaurant module); 10: added pos_counter_orders (multiple concurrent takeaway/delivery orders); 11: re-bump — a dev session had already opened at v10 before pos_counter_orders existed in this file, permanently skipping its creation (IndexedDB upgrades are one-way); this re-triggers onupgradeneeded so any install stuck in that partial state (not just one machine) gets the missing store created — createObjectStore() is already guarded per-key, so this is a no-op for anyone who upgraded cleanly; 12: added pos_reservations (table booking/reservation feature); 13: re-bump — the EXACT same class of bug as 11: a live dev session's HMR almost certainly re-ran this file's top-level `indexedDB.open(DB_NAME, 12)` the moment the DB_VERSION edit landed, a few seconds BEFORE the KEYS.RESERVATIONS edit landed right after it — permanently marking that device "done through v12" with pos_reservations never created (confirmed live: a real device hit "Store pos_reservations NOT FOUND" on saveReservation). This re-triggers onupgradeneeded once more so that device (and any other stuck in the same partial state) gets the missing store created — again a no-op for anyone who happened to upgrade cleanly straight to v12 with both edits already in place. 14: added pos_waitlist (walk-in waitlist feature) — DB_VERSION+KEYS edited together in the same change this time, dev session killed BEFORE this edit landed (not just before the restart), specifically to avoid a 3rd repeat of the v11/v13 HMR race. 15: added pos_feedback (post-bill customer rating) — same discipline: DB_VERSION+KEYS edited together, dev session killed first.
+const DB_VERSION = 16; // 9: added pos_tables + pos_kots (restaurant module); 10: added pos_counter_orders (multiple concurrent takeaway/delivery orders); 11: re-bump — a dev session had already opened at v10 before pos_counter_orders existed in this file, permanently skipping its creation (IndexedDB upgrades are one-way); this re-triggers onupgradeneeded so any install stuck in that partial state (not just one machine) gets the missing store created — createObjectStore() is already guarded per-key, so this is a no-op for anyone who upgraded cleanly; 12: added pos_reservations (table booking/reservation feature); 13: re-bump — the EXACT same class of bug as 11: a live dev session's HMR almost certainly re-ran this file's top-level `indexedDB.open(DB_NAME, 12)` the moment the DB_VERSION edit landed, a few seconds BEFORE the KEYS.RESERVATIONS edit landed right after it — permanently marking that device "done through v12" with pos_reservations never created (confirmed live: a real device hit "Store pos_reservations NOT FOUND" on saveReservation). This re-triggers onupgradeneeded once more so that device (and any other stuck in the same partial state) gets the missing store created — again a no-op for anyone who happened to upgrade cleanly straight to v12 with both edits already in place. 14: added pos_waitlist (walk-in waitlist feature) — DB_VERSION+KEYS edited together in the same change this time, dev session killed BEFORE this edit landed (not just before the restart), specifically to avoid a 3rd repeat of the v11/v13 HMR race. 15: added pos_feedback (post-bill customer rating) — same discipline: DB_VERSION+KEYS edited together, dev session killed first. 16: added pos_menu_requests (self-order QR menu) — same discipline again.
 
 class DbService {
   constructor() {
@@ -406,6 +406,15 @@ export const KEYS = {
   // only returns a boolean, not the saved order's id), just enough context
   // (table/order label, total, guest count, date) to review later.
   FEEDBACK: 'pos_feedback',
+  // A customer's self-order QR menu submission — {tableId, items:[{productId,
+  // name, price, qty}], note, status:'pending'|'accepted'|'dismissed'}.
+  // Deliberately NOT written straight into the table's live cart — a
+  // customer's own device has no business writing directly into staff's
+  // order state (a race with staff editing simultaneously, or a mistaken/
+  // spam submission, would corrupt a real order) — staff review and accept
+  // each request explicitly (RestaurantPOS.js), same trust boundary as any
+  // other customer-facing input in this app.
+  MENU_REQUESTS: 'pos_menu_requests',
   // Tombstones: track deleted record IDs so pos_full_state won't resurrect them
   DELETED_TOMBSTONES: 'pos_deleted_tombstones'
 };
@@ -497,8 +506,15 @@ export async function getBusinessFeatures() {
 export async function hasPermission(action) {
   const [module, detail] = action.includes(':') ? action.split(':') : [action, null];
 
-  // Public pages accessible without login
-  if (['login', 'onboarding', 'customer-display', 'activation'].includes(module)) return true;
+  // Public pages accessible without login. Checked against just the FIRST
+  // path segment (module.split('/')[0]) rather than the raw module string —
+  // the customer QR menu carries its table id as a subPage
+  // ('customer-menu/<tableId>'), which would never equal the bare
+  // 'customer-menu' string this array actually lists. Scoped to only this
+  // check (not the ACL logic below) so it can't change behavior for any
+  // other route.
+  const publicModule = module.split('/')[0];
+  if (['login', 'onboarding', 'customer-display', 'activation', 'customer-menu', 'menu'].includes(publicModule)) return true;
 
   const user = await getCurrentUser();
   if (!user) return false;
@@ -4189,7 +4205,7 @@ export async function updateData(store, data, isSilent = false) {
     // never get an isSynced field set at all. Both are worth syncing: a
     // multi-branch owner reviewing "who imported what, when" or "was a
     // backup taken" shouldn't have to check that specific device.
-    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist', 'feedback'];
+    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist', 'feedback', 'menu_requests'];
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable
@@ -4212,7 +4228,7 @@ export async function updateData(store, data, isSilent = false) {
         // syncAllLocalData()'s own retry list, which did nothing since that
         // retry filters on isSynced !== true — a record already wrongly
         // marked true there is invisible to it too).
-        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist', 'feedback'];
+        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist', 'feedback', 'menu_requests'];
         if (syncStores.includes(store.toLowerCase())) {
           data.isSynced = false;
         } else {
@@ -4532,6 +4548,40 @@ export async function saveFeedback(entry) {
 
 export async function deleteFeedback(id) {
   await deleteData('feedback', id);
+}
+
+// Self-order QR menu submissions — {tableId, items, note, status}. Staff
+// review each request (RestaurantPOS.js) and explicitly Accept (merges into
+// the live cart via the normal addToCart() pipeline) or Dismiss; a
+// customer's own device never writes directly into a table's order.
+export async function getMenuRequests(branchId = null) {
+  const all = (await db.getAll(KEYS.MENU_REQUESTS)) || [];
+  const filtered = branchId ? all.filter(r => r.branchId === branchId) : all;
+  return filtered.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+}
+
+export async function saveMenuRequest(entry) {
+  if (!entry.id) entry.id = 'mr-' + Date.now();
+  if (!entry.createdAt) entry.createdAt = new Date().toISOString();
+  if (!entry.status) entry.status = 'pending';
+  if (!entry.branchId) {
+    const cb = await getCurrentBranch();
+    entry.branchId = cb?.id || 'b1';
+  }
+  await updateData('menu_requests', entry);
+  return entry;
+}
+
+export async function updateMenuRequestStatus(id, status) {
+  const entry = await getDataById('menu_requests', id);
+  if (!entry) return null;
+  entry.status = status;
+  await updateData('menu_requests', entry);
+  return entry;
+}
+
+export async function deleteMenuRequest(id) {
+  await deleteData('menu_requests', id);
 }
 
 // A CounterOrder is the takeaway/delivery equivalent of a table's

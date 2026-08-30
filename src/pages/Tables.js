@@ -12,6 +12,8 @@ import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { navigate } from '../router.js';
 import { STATUS_META, visibleTables, tableDisplayName, tableDisplayCapacity, groupBySection, tableOccupancy, tableStatusKey, capacityBarHtml, formatElapsed, timerTier, tableReadyToBill, formatReservationTime } from '../utils/tableDisplay.js';
+import { syncEngine } from '../services/syncEngine.js';
+import QRCode from 'qrcode';
 
 let timerInterval = null;
 // 'tables' | 'reservations' | 'waitlist' — a plain in-page tab, not a
@@ -830,6 +832,7 @@ function renderTableCard(t, allTables, allParties, allKots, todaysReservations) 
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
         <div style="font-size:17px; font-weight:800; overflow-wrap:break-word;">${escapeAttr(displayName)}</div>
         <div class="table-card-actions" style="display:flex; gap:4px; flex-shrink:0;" onclick="event.stopPropagation()">
+          <button class="btn-icon qr-table-btn" data-id="${t.id}" title="Self-order QR menu for this table"><i class="fa-solid fa-qrcode" style="font-size:10px"></i></button>
           <button class="btn-icon edit-table-btn" data-id="${t.id}" title="Edit"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
           ${hasMerge
             ? `<button class="btn-icon unmerge-table-btn" data-id="${t.id}" title="Unmerge"><i class="fa-solid fa-object-ungroup" style="font-size:10px"></i></button>`
@@ -935,6 +938,42 @@ async function setupTablesListeners() {
         await renderTablesContent();
       };
     }, 50);
+  });
+
+  // Self-order QR menu — links straight to this table's customer menu over
+  // LAN (server/index.js's static-file serving, same entry point kd/mo
+  // already use). syncEngine.lanIp is only populated once the hub's own
+  // register_success has echoed it back — window.location.hostname is a
+  // solid fallback either way (this page IS running on the shop PC).
+  document.querySelectorAll('.qr-table-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const table = (await getTables()).find(t => t.id === btn.dataset.id);
+      if (!table) return;
+      const host = syncEngine.lanIp || window.location.hostname || 'localhost';
+      const url = `http://${host}:3030/#menu/${table.id}`;
+      openModal({
+        title: `<i class="fa-solid fa-qrcode mr-8"></i> QR Menu — ${escapeAttr(tableDisplayName(table))}`,
+        body: `
+          <div style="text-align:center;">
+            <div id="tableQrLoading" style="padding:30px; color:var(--text-muted); font-size:12px;">Generating...</div>
+            <img id="tableQrImg" style="display:none; width:220px; height:220px;" alt="Table QR" />
+            <p style="font-size:11px; color:var(--text-muted); margin-top:12px; word-break:break-all;">${escapeAttr(url)}</p>
+            <p style="font-size:12px; color:var(--text-muted); margin-top:10px;">Print this and place it on the table — customers scan it (same Wi-Fi) to browse the menu and send an order request, no app or login needed.</p>
+          </div>
+        `,
+        footer: `<button class="btn btn-primary" onclick="closeModal()">Done</button>`
+      });
+      const dataUrl = await QRCode.toDataURL(url, { width: 220, margin: 1 }).catch(() => null);
+      const img = document.getElementById('tableQrImg');
+      const loading = document.getElementById('tableQrLoading');
+      if (dataUrl && img) {
+        img.src = dataUrl;
+        img.style.display = 'inline-block';
+        if (loading) loading.style.display = 'none';
+      } else if (loading) {
+        loading.textContent = 'Could not generate QR code.';
+      }
+    });
   });
 
   document.querySelectorAll('.edit-table-btn').forEach(btn => {

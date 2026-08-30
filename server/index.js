@@ -93,7 +93,7 @@ const UpgradeKey = require('./models/UpgradeKey');
 // doc — every sync of a category/sub-category/backup entry/import entry
 // created a fresh near-empty document instead of updating one, with the
 // real data (name, etc.) never actually persisted.
-const { Category, SubCategory, ImportTracker, BackupHistory, ImportHistory, StaffIncentive, StockTransfer, Expense, Attendance, Table, Kot, CounterOrder, Reservation, Waitlist, Feedback } = require('./models/GenericModels');
+const { Category, SubCategory, ImportTracker, BackupHistory, ImportHistory, StaffIncentive, StockTransfer, Expense, Attendance, Table, Kot, CounterOrder, Reservation, Waitlist, Feedback, MenuRequest } = require('./models/GenericModels');
 
 const ModelMap = {
     'users': User,
@@ -131,7 +131,8 @@ const ModelMap = {
     'counter_orders': CounterOrder,
     'reservations': Reservation,
     'waitlist': Waitlist,
-    'feedback': Feedback
+    'feedback': Feedback,
+    'menu_requests': MenuRequest
 };
 
 // ============================================================
@@ -326,6 +327,27 @@ const server = http.createServer(async (req, res) => {
         } catch (err) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ hasUsers: false, error: err.message, dbConnected: isDbConnected }));
+        }
+    }
+
+    // Public, unauthenticated: the customer QR menu (CustomerMenu.js) has no
+    // login step to adopt this shop's real licenseKey through — a fresh
+    // device would otherwise sit on the 'LOCAL_EXE' placeholder forever,
+    // never actually seeing this shop's real products/tables. Same "no
+    // filter, single shop" reasoning as /api/install-check just above: a
+    // standalone local hub represents exactly one shop, so any user's own
+    // licenseKey IS the shop's real one. Not sensitive info at this trust
+    // level (LAN-only, same as everything else this endpoint's caller can
+    // already reach) — just enough to point a fresh device at the right
+    // tenant before its first sync.
+    if (req.url === '/api/local-license-key' && req.method === 'GET') {
+        try {
+            const anyUser = await DBManager.findOne(User, 'users', {});
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ licenseKey: anyUser?.licenseKey || 'LOCAL_EXE' }));
+        } catch (err) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ licenseKey: 'LOCAL_EXE', error: err.message }));
         }
     }
 
@@ -1142,7 +1164,7 @@ wss.on('connection', (ws, req) => {
                     console.log(`[Hub] 📂 Fetch All Request for ${licenseKey} (Branch: ${branchId || 'All'})`);
 
                     const results = {};
-                    const branchScopedStores = ['products', 'registers', 'customers', 'suppliers', 'orders', 'purchases', 'appointments', 'staff', 'shifts', 'returns', 'categories', 'sub_categories', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist', 'feedback'];
+                    const branchScopedStores = ['products', 'registers', 'customers', 'suppliers', 'orders', 'purchases', 'appointments', 'staff', 'shifts', 'returns', 'categories', 'sub_categories', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist', 'feedback', 'menu_requests'];
 
                     const fetchPromises = Object.entries(ModelMap).map(async ([store, Model]) => {
                         let query = { licenseKey };

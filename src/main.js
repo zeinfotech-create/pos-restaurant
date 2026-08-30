@@ -6,7 +6,7 @@ import './style.css';
 import './dashboard-animations.css';
 import './settings-redesign.css';
 import { navigate, initRouter, getCurrentPage } from './router.js';
-import { getSettings, getBranchRegisters, getSession, getSessionTheme, setSessionTheme, getSidebarCollapsed, setSidebarCollapsed, getBranches, getCurrentShift, closeRegister, openRegister, getCustomers, getBusinessFeatures, deleteData, updateData, saveSession, getDataById, getUsers, hasPermission, getLowStockProducts, getExpiringProducts, getCurrentBranch, getCurrentUser, getCurrentRegisterId, hashPassword, verifyPassword } from './db.js';
+import { getSettings, updateSettings, getBranchRegisters, getSession, getSessionTheme, setSessionTheme, getSidebarCollapsed, setSidebarCollapsed, getBranches, getCurrentShift, closeRegister, openRegister, getCustomers, getBusinessFeatures, deleteData, updateData, saveSession, getDataById, getUsers, hasPermission, getLowStockProducts, getExpiringProducts, getCurrentBranch, getCurrentUser, getCurrentRegisterId, hashPassword, verifyPassword } from './db.js';
 import { showToast } from './components/Toast.js';
 import { store, initStore, onCartUpdate, getCartTotals, updateQty, clearCart, setDiscount, removeFromCart, updateCartItem } from './store.js';
 import { openModal, closeModal, showConfirm, showAlert } from './components/Modal.js';
@@ -1701,6 +1701,30 @@ async function initApp() {
   // Register & Shifts at all.
   setInterval(checkRegisterOpenReminder, 5 * 60 * 1000);
   checkRegisterOpenReminder();
+
+  // Anonymous customer-menu entry point (CustomerMenu.js) has no login step
+  // to adopt this shop's real licenseKey the way Login.js's own flow does —
+  // a fresh device would otherwise sit on the 'LOCAL_EXE' placeholder
+  // forever (same class of bug the kd/mo mobile entry points hit and fixed,
+  // this segment's v9z1-v9z3 — but those fixes all happen INSIDE the login
+  // step, which this route never reaches). Fetch the real key from this
+  // hub's own public, unauthenticated endpoint (a standalone local hub is
+  // always exactly one shop — see server/index.js's /api/install-check for
+  // the same "no filter, single shop" reasoning) BEFORE the very first sync
+  // connection below, so this device's first-ever products/tables fetch
+  // already uses the correct key instead of the placeholder.
+  if (location.hash.startsWith('#menu/') || location.hash.startsWith('#customer-menu/')) {
+    try {
+      const s = await getSettings();
+      if (!s.licenseKey || s.licenseKey === 'LOCAL_EXE') {
+        const res = await fetch(`${window.location.origin}/api/local-license-key`);
+        const data = await res.json();
+        if (data?.licenseKey && data.licenseKey !== 'LOCAL_EXE') {
+          await updateSettings({ licenseKey: data.licenseKey, networkId: data.licenseKey });
+        }
+      }
+    } catch (e) { console.warn('[CustomerMenu] licenseKey pre-adoption failed', e); }
+  }
 
   // Initialize Core Services
   try {

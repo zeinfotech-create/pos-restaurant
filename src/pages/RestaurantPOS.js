@@ -24,7 +24,7 @@
 // unaffected by anything here.
 // ============================================================
 
-import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, updateSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder, getOrders, getReservations, saveFeedback } from '../db.js';
+import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, updateSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder, getOrders, getReservations, saveFeedback, getMenuRequests, updateMenuRequestStatus } from '../db.js';
 import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff, clearCart } from '../store.js';
 import { confirmOrder, printReceiptHtml, renderReceiptBody, generateUpiQrDataUrl } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
@@ -43,7 +43,7 @@ import { promptModuleLock } from './Security.js';
 // unfiltered product list — a recipe's ingredient (e.g. raw rice) commonly
 // won't match whatever search/category filter narrowed the menu grid's own
 // `products` array down to what's actually displayed.
-function isProductAvailable(p, allProducts) {
+export function isProductAvailable(p, allProducts) {
   if (p.allowNegativeStock) return true;
   if (hasRecipe(p)) {
     return p.recipe.ingredients.every(ing => {
@@ -1458,6 +1458,12 @@ async function renderOrderingView() {
   const staffList = await getStaff();
   const allTables = orderType === 'dine-in' ? await getTables() : [];
   const orderLabel = currentOrderLabel(allTables);
+  // Self-order QR menu requests for THIS table, still waiting on staff —
+  // dine-in only (the QR menu is table-scoped; takeaway/delivery have no
+  // physical table for a customer to scan a code at).
+  const pendingMenuRequests = orderType === 'dine-in' && selectedTable
+    ? (await getMenuRequests()).filter(r => r.tableId === selectedTable.id && r.status === 'pending')
+    : [];
   const search = menuSearch.trim().toLowerCase();
   const normSearch = normalizeSearchQuery(search);
   const allProductsForStock = await getProducts();
@@ -1525,6 +1531,7 @@ async function renderOrderingView() {
             ${orderType === 'dine-in' ? `<button class="btn-icon" id="rposEditGuestsBtn" style="font-size:11px; font-weight:600; color:var(--text-muted);" title="Edit party size"><i class="fa-solid fa-users" style="margin-right:4px;"></i>${guestCount || '—'}<i class="fa-solid fa-pen" style="font-size:9px; margin-left:4px; opacity:.5;"></i></button>` : ''}
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            ${pendingMenuRequests.length > 0 ? `<button class="btn btn-sm" id="rposMenuRequestsBtn" style="background:var(--warning); color:#fff; border-color:var(--warning); font-size:12px; font-weight:700;"><i class="fa-solid fa-bell"></i> ${pendingMenuRequests.length} customer request${pendingMenuRequests.length === 1 ? '' : 's'}</button>` : ''}
             <button class="btn btn-sm" id="rposRushToggleBtn" title="${isRush ? 'Remove rush priority' : 'Mark this order as rush/priority for the kitchen'}"
               style="${isRush ? 'background:var(--danger); color:#fff; border-color:var(--danger);' : 'background:transparent; color:var(--text-muted); border:1px solid var(--border);'} font-size:12px; font-weight:700;">
               <i class="fa-solid fa-fire${isRush ? '' : '-flame-simple'}"></i> ${isRush ? 'RUSH' : 'Mark Rush'}
@@ -1747,6 +1754,7 @@ async function renderOrderingView() {
     await renderOrderingView();
     showToast(isRush ? 'Order marked as RUSH — kitchen will see this flagged' : 'Rush priority removed', isRush ? 'warning' : 'info');
   });
+  document.getElementById('rposMenuRequestsBtn')?.addEventListener('click', () => openMenuRequestsModal());
   document.getElementById('rposEditGuestsBtn')?.addEventListener('click', () => {
     if (!selectedTable) return;
     const capacity = tableDisplayCapacity(selectedTable, allTables);
@@ -2922,6 +2930,66 @@ async function completeBill(payments, tipAmount = 0) {
   // bill-completion flow above. Off by default (settings.enableFeedbackPrompt)
   // so a shop that doesn't want this extra step at the counter sees nothing.
   if (settings.enableFeedbackPrompt) promptFeedback(feedbackContext);
+}
+
+// ── Self-order QR menu requests — a customer's own submission never writes
+// directly into the live cart (see CustomerMenu.js's own header comment for
+// why); staff review each one here and explicitly Accept (merges into the
+// cart through the SAME addToCart() pipeline a staff tap already uses — so
+// stock/pricing/availability stay authoritative, not whatever price the
+// customer's device happened to see) or Dismiss. ─────────────────────────
+async function openMenuRequestsModal() {
+  if (!selectedTable) return;
+  const requests = (await getMenuRequests()).filter(r => r.tableId === selectedTable.id && r.status === 'pending');
+  if (requests.length === 0) { showToast('No pending requests', 'info'); return; }
+  const allProducts = await getProducts();
+
+  const renderList = (reqs) => reqs.map(r => `
+    <div class="card" data-req-id="${r.id}" style="padding:12px; margin-bottom:10px;">
+      <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">${new Date(r.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
+      ${(r.items || []).map(i => `<div style="font-size:13px;">${i.qty}x ${escapeHtml(i.name)} — ${store.settings?.currency || '₹'}${(i.price * i.qty).toFixed(2)}</div>`).join('')}
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="btn btn-ghost btn-sm rpos-mr-dismiss" data-req-id="${r.id}">Dismiss</button>
+        <button class="btn btn-primary btn-sm rpos-mr-accept" data-req-id="${r.id}" style="flex:1;"><i class="fa-solid fa-check mr-4"></i> Add to Order</button>
+      </div>
+    </div>
+  `).join('');
+
+  openModal({
+    title: `<i class="fa-solid fa-bell mr-8" style="color:var(--warning);"></i> Customer Requests`,
+    body: `<div id="rposMrList">${renderList(requests)}</div>`,
+    footer: `<button class="btn btn-ghost" onclick="closeModal()">Close</button>`
+  });
+
+  setTimeout(() => {
+    const bind = () => {
+      document.querySelectorAll('.rpos-mr-dismiss').forEach(btn => {
+        btn.onclick = async () => {
+          await updateMenuRequestStatus(btn.dataset.reqId, 'dismissed');
+          document.querySelector(`[data-req-id="${btn.dataset.reqId}"]`)?.remove();
+          if (!document.querySelector('[data-req-id]')) closeModal();
+        };
+      });
+      document.querySelectorAll('.rpos-mr-accept').forEach(btn => {
+        btn.onclick = async () => {
+          const req = requests.find(r => r.id === btn.dataset.reqId);
+          if (!req) return;
+          btn.disabled = true;
+          for (const item of (req.items || [])) {
+            const product = allProducts.find(p => String(p.id) === String(item.productId));
+            if (product) addToCart(product, null, item.qty);
+          }
+          await updateMenuRequestStatus(req.id, 'accepted');
+          await persistOrderState();
+          await renderOrderingView();
+          showToast('Added to order', 'success');
+          document.querySelector(`[data-req-id="${req.id}"]`)?.remove();
+          if (!document.querySelector('[data-req-id]')) closeModal();
+        };
+      });
+    };
+    bind();
+  }, 50);
 }
 
 // ── Post-bill rating — staff asks the customer at the counter, taps the
