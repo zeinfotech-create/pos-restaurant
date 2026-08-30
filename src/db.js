@@ -6,7 +6,7 @@ const DB_NAME = 'zepos_db';
 // at on a real device (IndexedDB versions only ever go up, never down —
 // opening with a lower version than what's already on disk throws immediately
 // and the whole app fails to initialize, before onboarding can even render).
-const DB_VERSION = 14; // 9: added pos_tables + pos_kots (restaurant module); 10: added pos_counter_orders (multiple concurrent takeaway/delivery orders); 11: re-bump — a dev session had already opened at v10 before pos_counter_orders existed in this file, permanently skipping its creation (IndexedDB upgrades are one-way); this re-triggers onupgradeneeded so any install stuck in that partial state (not just one machine) gets the missing store created — createObjectStore() is already guarded per-key, so this is a no-op for anyone who upgraded cleanly; 12: added pos_reservations (table booking/reservation feature); 13: re-bump — the EXACT same class of bug as 11: a live dev session's HMR almost certainly re-ran this file's top-level `indexedDB.open(DB_NAME, 12)` the moment the DB_VERSION edit landed, a few seconds BEFORE the KEYS.RESERVATIONS edit landed right after it — permanently marking that device "done through v12" with pos_reservations never created (confirmed live: a real device hit "Store pos_reservations NOT FOUND" on saveReservation). This re-triggers onupgradeneeded once more so that device (and any other stuck in the same partial state) gets the missing store created — again a no-op for anyone who happened to upgrade cleanly straight to v12 with both edits already in place. 14: added pos_waitlist (walk-in waitlist feature) — DB_VERSION+KEYS edited together in the same change this time, dev session killed BEFORE this edit landed (not just before the restart), specifically to avoid a 3rd repeat of the v11/v13 HMR race.
+const DB_VERSION = 15; // 9: added pos_tables + pos_kots (restaurant module); 10: added pos_counter_orders (multiple concurrent takeaway/delivery orders); 11: re-bump — a dev session had already opened at v10 before pos_counter_orders existed in this file, permanently skipping its creation (IndexedDB upgrades are one-way); this re-triggers onupgradeneeded so any install stuck in that partial state (not just one machine) gets the missing store created — createObjectStore() is already guarded per-key, so this is a no-op for anyone who upgraded cleanly; 12: added pos_reservations (table booking/reservation feature); 13: re-bump — the EXACT same class of bug as 11: a live dev session's HMR almost certainly re-ran this file's top-level `indexedDB.open(DB_NAME, 12)` the moment the DB_VERSION edit landed, a few seconds BEFORE the KEYS.RESERVATIONS edit landed right after it — permanently marking that device "done through v12" with pos_reservations never created (confirmed live: a real device hit "Store pos_reservations NOT FOUND" on saveReservation). This re-triggers onupgradeneeded once more so that device (and any other stuck in the same partial state) gets the missing store created — again a no-op for anyone who happened to upgrade cleanly straight to v12 with both edits already in place. 14: added pos_waitlist (walk-in waitlist feature) — DB_VERSION+KEYS edited together in the same change this time, dev session killed BEFORE this edit landed (not just before the restart), specifically to avoid a 3rd repeat of the v11/v13 HMR race. 15: added pos_feedback (post-bill customer rating) — same discipline: DB_VERSION+KEYS edited together, dev session killed first.
 
 class DbService {
   constructor() {
@@ -401,6 +401,11 @@ export const KEYS = {
   // and mark the reservation Seated from here as a record-keeping step.
   RESERVATIONS: 'pos_reservations',
   WAITLIST: 'pos_waitlist',
+  // Post-bill customer rating (1-5 stars + optional comment) — captured by
+  // staff at checkout, not tied to a specific saved Order record (confirmOrder()
+  // only returns a boolean, not the saved order's id), just enough context
+  // (table/order label, total, guest count, date) to review later.
+  FEEDBACK: 'pos_feedback',
   // Tombstones: track deleted record IDs so pos_full_state won't resurrect them
   DELETED_TOMBSTONES: 'pos_deleted_tombstones'
 };
@@ -4184,7 +4189,7 @@ export async function updateData(store, data, isSilent = false) {
     // never get an isSynced field set at all. Both are worth syncing: a
     // multi-branch owner reviewing "who imported what, when" or "was a
     // backup taken" shouldn't have to check that specific device.
-    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist'];
+    const sortableStores = ['products', 'customers', 'suppliers', 'staff', 'users', 'categories', 'sub_categories', 'branches', 'purchases', 'orders', 'returns', 'settings', 'appointments', 'staff_incentives', 'backup_history', 'import_history', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist', 'feedback'];
     if (sortableStores.includes(store.toLowerCase())) {
         data.updatedAt = new Date().toISOString();
         // Also mark for sync if applicable
@@ -4207,7 +4212,7 @@ export async function updateData(store, data, isSilent = false) {
         // syncAllLocalData()'s own retry list, which did nothing since that
         // retry filters on isSynced !== true — a record already wrongly
         // marked true there is invisible to it too).
-        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist'];
+        const syncStores = ['orders', 'returns', 'settings', 'backup_history', 'import_history', 'inventory_logs', 'users', 'branches', 'registers', 'products', 'customers', 'suppliers', 'staff', 'categories', 'sub_categories', 'purchases', 'appointments', 'staff_incentives', 'stock_transfers', 'expenses', 'attendance', 'tables', 'kots', 'counter_orders', 'reservations', 'waitlist', 'feedback'];
         if (syncStores.includes(store.toLowerCase())) {
           data.isSynced = false;
         } else {
@@ -4502,6 +4507,31 @@ export async function updateWaitlistStatus(id, status) {
 
 export async function deleteWaitlistEntry(id) {
   await deleteData('waitlist', id);
+}
+
+// Post-bill customer rating — {rating: 1-5, comment, orderLabel, orderType,
+// total, guestCount, branchId, createdAt}. Not tied to a specific saved
+// Order record (confirmOrder() only returns a boolean, not the saved
+// order's id) — enough context to review later without a strict foreign key.
+export async function getFeedback(branchId = null) {
+  const all = (await db.getAll(KEYS.FEEDBACK)) || [];
+  const filtered = branchId ? all.filter(f => f.branchId === branchId) : all;
+  return filtered.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+}
+
+export async function saveFeedback(entry) {
+  if (!entry.id) entry.id = 'fb-' + Date.now();
+  if (!entry.createdAt) entry.createdAt = new Date().toISOString();
+  if (!entry.branchId) {
+    const cb = await getCurrentBranch();
+    entry.branchId = cb?.id || 'b1';
+  }
+  await updateData('feedback', entry);
+  return entry;
+}
+
+export async function deleteFeedback(id) {
+  await deleteData('feedback', id);
 }
 
 // A CounterOrder is the takeaway/delivery equivalent of a table's

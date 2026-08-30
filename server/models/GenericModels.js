@@ -53,4 +53,7 @@ module.exports = {
     // Walk-in waitlist entries — single-branch, same treatment as
     // Reservation/Table/Kot/CounterOrder above.
     Waitlist: createGenericModel('Waitlist'),
+    // Post-bill customer ratings — single-branch, same treatment as
+    // Waitlist/Reservation/Table/Kot/CounterOrder above.
+    Feedback: createGenericModel('Feedback'),
 };

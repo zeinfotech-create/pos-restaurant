@@ -24,7 +24,7 @@
 // unaffected by anything here.
 // ============================================================
 
-import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, updateSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder, getOrders, getReservations } from '../db.js';
+import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, updateSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder, getOrders, getReservations, saveFeedback } from '../db.js';
 import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff, clearCart } from '../store.js';
 import { confirmOrder, printReceiptHtml, renderReceiptBody, generateUpiQrDataUrl } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
@@ -2785,8 +2785,19 @@ async function completeBill(payments, tipAmount = 0) {
     tip: tipAmount || 0,
   };
 
+  // Captured BEFORE confirmOrder() — it clears store.cart on success as one
+  // of its own side effects, so reading totals afterward would see an empty
+  // cart (confirmed live: the feedback prompt below showed ₹0.00 until this
+  // was moved here).
+  const preBillTotal = getCartTotals().total;
+
   const succeeded = await confirmOrder(payments, getCartTotals(), settings, cur, { isCredit: false, creditInfo: '' }, restaurantMeta);
   if (!succeeded) return; // confirmOrder() already showed its own error toast
+
+  // Snapshot what the feedback prompt needs BEFORE module state resets below
+  // — confirmOrder() only returns true/false, not the saved order's id, so
+  // this is captured context (not a strict foreign key to the Order record).
+  const feedbackContext = { orderLabel, orderType, total: preBillTotal, guestCount: guestCount || null };
 
   const container = document.getElementById('page-container');
   const wasDineIn = orderType === 'dine-in';
@@ -2837,4 +2848,58 @@ async function completeBill(payments, tipAmount = 0) {
     drillTable = null;
     await renderRestaurantPOS(container);
   }
+
+  // Fires after the picker's back in view — never blocks/delays the actual
+  // bill-completion flow above. Off by default (settings.enableFeedbackPrompt)
+  // so a shop that doesn't want this extra step at the counter sees nothing.
+  if (settings.enableFeedbackPrompt) promptFeedback(feedbackContext);
+}
+
+// ── Post-bill rating — staff asks the customer at the counter, taps the
+// stars on their behalf. Deliberately skippable with one click (Skip),
+// never a blocking/required step — a busy till shouldn't be held up by
+// this. Not tied to a specific saved Order record (see feedbackContext's
+// own comment above) — enough context to review later. ────────────────────
+function promptFeedback(ctx) {
+  let selectedRating = 0;
+  openModal({
+    title: '<i class="fa-solid fa-star mr-8" style="color:#f59e0b;"></i> How was the experience?',
+    body: `
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:14px;">${escapeHtml(ctx.orderLabel || 'This order')} — ${store.settings?.currency || '₹'}${(ctx.total || 0).toFixed(2)}</div>
+      <div id="fbStars" style="display:flex; gap:8px; justify-content:center; font-size:32px; margin-bottom:14px;">
+        ${[1, 2, 3, 4, 5].map(n => `<i class="fa-regular fa-star fb-star" data-n="${n}" style="cursor:pointer; color:#f59e0b; transition:transform .1s;"></i>`).join('')}
+      </div>
+      <textarea class="form-input" id="fbComment" rows="2" placeholder="Any comment (optional)"></textarea>
+    `,
+    footer: `
+      <button class="btn btn-ghost" id="fbSkipBtn">Skip</button>
+      <button class="btn btn-primary" id="fbSubmitBtn" disabled><i class="fa-solid fa-check mr-4"></i> Submit</button>
+    `
+  });
+  setTimeout(() => {
+    const starEls = document.querySelectorAll('.fb-star');
+    const submitBtn = document.getElementById('fbSubmitBtn');
+    const paintStars = (n) => {
+      starEls.forEach(el => {
+        const on = Number(el.dataset.n) <= n;
+        el.className = `fa-star fb-star ${on ? 'fa-solid' : 'fa-regular'}`;
+      });
+    };
+    starEls.forEach(el => {
+      el.addEventListener('click', () => {
+        selectedRating = Number(el.dataset.n);
+        paintStars(selectedRating);
+        submitBtn.disabled = false;
+      });
+    });
+    document.getElementById('fbSkipBtn')?.addEventListener('click', () => closeModal());
+    submitBtn?.addEventListener('click', async () => {
+      if (!selectedRating) return;
+      submitBtn.disabled = true;
+      const comment = document.getElementById('fbComment')?.value.trim() || '';
+      await saveFeedback({ rating: selectedRating, comment, orderLabel: ctx.orderLabel, orderType: ctx.orderType, total: ctx.total, guestCount: ctx.guestCount });
+      closeModal();
+      showToast('Thanks for the feedback!', 'success');
+    });
+  }, 50);
 }

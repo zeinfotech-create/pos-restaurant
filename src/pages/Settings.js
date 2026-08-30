@@ -673,6 +673,14 @@ export async function renderSettings(container) {
                 </div>
               </div>
 
+              <div class="form-group" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--border)">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                  <input type="checkbox" id="sEnableFeedbackPrompt" ${s.enableFeedbackPrompt ? 'checked' : ''} style="width:18px; height:18px" />
+                  <span class="form-label" style="margin:0">Ask for a quick rating after billing (Restaurant POS)</span>
+                </label>
+                <p class="form-help-text">A skippable 1-5 star prompt (with an optional comment) appears right after Bill Now completes — staff ask the customer and tap it on their behalf.</p>
+              </div>
+
               <!-- Integration of Payment Methods into General -->
               <div class="form-group" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--border)">
                 <label class="form-label">Configured Payment Methods</label>
@@ -1830,6 +1838,7 @@ export async function renderSettings(container) {
       serviceChargeEnabled: container.querySelector('#sServiceChargeEnabled')?.checked || false,
       serviceChargePercent: Math.min(100, Math.max(0, parseFloat(container.querySelector('#sServiceChargePercent')?.value) || 0)),
       serviceChargeMinGuests: Math.max(1, parseInt(container.querySelector('#sServiceChargeMinGuests')?.value, 10) || 1),
+      enableFeedbackPrompt: container.querySelector('#sEnableFeedbackPrompt')?.checked || false,
       paymentMethods: JSON.parse(container.querySelector('#sPaymentMethods')?.value || '[]'),
       expenseCategories: JSON.parse(container.querySelector('#sExpenseCategories')?.value || '[]'),
       // The whole block (and this hidden input) doesn't exist in the DOM
