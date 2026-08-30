@@ -26,7 +26,7 @@
 
 import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, updateSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder, getOrders, getReservations } from '../db.js';
 import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff, clearCart } from '../store.js';
-import { confirmOrder, printReceiptHtml, renderReceiptBody } from '../services/CheckoutService.js';
+import { confirmOrder, printReceiptHtml, renderReceiptBody, generateUpiQrDataUrl } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
@@ -2407,13 +2407,60 @@ function openPaymentPanel() {
     </div>
   ` : '';
 
+  // Lives OUTSIDE #rposPayBody deliberately — that div's innerHTML gets
+  // fully replaced by rebind() on every row edit (split add/remove, amount
+  // typed), which would otherwise wipe an already-shown QR mid-scan every
+  // time the cashier so much as adjusts a split amount. A static amount
+  // upfront (the full total, before any split) covers the common case;
+  // "Show UPI QR" re-generates it fresh for the CURRENT balance at click
+  // time, so it still works correctly after a split too — just needs a
+  // re-click, not a re-render, after adjusting rows.
+  const upiQrHtml = settings.upiId ? `
+    <div style="margin-top:14px; padding-top:14px; border-top:1px dashed var(--border);">
+      <button type="button" class="btn btn-ghost btn-sm" id="rposShowUpiQrBtn"><i class="fa-solid fa-qrcode"></i> Show UPI QR</button>
+      <div id="rposUpiQrBox" style="display:none; margin-top:10px; text-align:center; padding:14px; border:1px solid var(--border); border-radius:10px;">
+        <img id="rposUpiQrImg" style="width:180px; height:180px;" alt="UPI QR" />
+        <div id="rposUpiQrAmount" style="margin-top:8px; font-weight:800;"></div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Scan with any UPI app — GPay, PhonePe, Paytm...</div>
+      </div>
+    </div>
+  ` : '';
+
   openModal({
     title: `<i class="fa-solid fa-receipt mr-8"></i> Bill — ${cur}${totals.total.toFixed(2)}`,
-    body: `<div id="rposPayBody">${renderRows()}</div>${tipFieldHtml}`,
+    body: `<div id="rposPayBody">${renderRows()}</div>${upiQrHtml}${tipFieldHtml}`,
     footer: `
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" id="rposConfirmBillBtn" style="min-width:140px;"><i class="fa-solid fa-check mr-4"></i> Complete Bill</button>
     `
+  });
+
+  document.getElementById('rposShowUpiQrBtn')?.addEventListener('click', async () => {
+    // Prefer a row the cashier has actually labeled "UPI" (renamed via the
+    // method dropdown, e.g. splitting Cash ₹20 + UPI ₹22) — its own amount
+    // is unambiguous. Otherwise fall back to whatever's still unpaid right
+    // now (the full total before any split, or the remaining slice once one
+    // exists but nothing's tagged UPI yet — a split that ALREADY sums to
+    // the total, like Cash+Card with no UPI row, has no real "UPI amount"
+    // to show, so the full total is the least-wrong default there too).
+    const upiRow = rows.find(r => /upi/i.test(r.method));
+    let amount;
+    if (upiRow) {
+      amount = Number(upiRow.amount) || 0;
+    } else {
+      const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+      const balance = Math.round((totals.total - sum) * 100) / 100;
+      amount = balance > 0 ? balance : totals.total;
+    }
+    if (!(amount > 0)) { showToast('Nothing to charge — set an amount first.', 'error'); return; }
+    const btn = document.getElementById('rposShowUpiQrBtn');
+    btn.disabled = true;
+    const dataUrl = await generateUpiQrDataUrl(settings.upiId, amount, settings.storeName, `Bill ${cur}${amount.toFixed(2)}`);
+    btn.disabled = false;
+    if (!dataUrl) { showToast('Could not generate UPI QR — check the UPI ID in Settings.', 'error'); return; }
+    document.getElementById('rposUpiQrImg').src = dataUrl;
+    document.getElementById('rposUpiQrAmount').textContent = `${cur}${amount.toFixed(2)}`;
+    document.getElementById('rposUpiQrBox').style.display = 'block';
   });
 
   const rebind = () => {

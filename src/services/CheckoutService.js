@@ -10,6 +10,36 @@ import { syncEngine } from './syncEngine.js';
 import { resolveMethodConfig } from './QuickCheckoutService.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import JsBarcode from 'jsbarcode';
+import QRCode from 'qrcode';
+
+/**
+ * Builds a scannable UPI payment QR (as a data: URL PNG) for a given amount —
+ * shared by any checkout flow that wants a "show QR, guest scans and pays,
+ * cashier confirms" step. Uses the standard `upi://pay` deep-link scheme
+ * every UPI app (GPay/PhonePe/Paytm/BHIM/...) already recognizes — nothing
+ * server-side, no payment gateway: this is a static amount-prefilled QR, the
+ * same trust model as accepting Cash — the cashier still visually confirms
+ * the payment came in before completing the bill, exactly like today.
+ * Returns null (not a throw) when `upiId` isn't configured, so a caller can
+ * just skip rendering the QR option entirely.
+ */
+export async function generateUpiQrDataUrl(upiId, amount, payeeName, note) {
+  if (!upiId || !(amount > 0)) return null;
+  const params = new URLSearchParams({
+    pa: upiId,
+    pn: payeeName || 'Store',
+    am: amount.toFixed(2),
+    cu: 'INR',
+    ...(note ? { tn: note } : {}),
+  });
+  const uri = `upi://pay?${params.toString()}`;
+  try {
+    return await QRCode.toDataURL(uri, { width: 220, margin: 1 });
+  } catch (e) {
+    console.error('[CheckoutService] generateUpiQrDataUrl failed:', e.message);
+    return null;
+  }
+}
 
 /**
  * Renders JsBarcode into every `.receipt-barcode` placeholder SVG inside a
