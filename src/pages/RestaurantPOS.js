@@ -35,6 +35,7 @@ import { STATUS_META, visibleTables, tableDisplayName, tableDisplayNameWithSecti
 import { hasRecipe } from '../utils/recipeCost.js';
 import { getActiveHappyHourDiscountPercent } from '../utils/happyHour.js';
 import { foodTypeIconHtml } from '../utils/foodType.js';
+import { promptModuleLock } from './Security.js';
 
 // A menu item is Sold Out when it (or, for a recipe dish, any ONE of its
 // ingredients) is out of stock and neither it nor that ingredient has
@@ -2032,6 +2033,20 @@ async function openModifyModal(cartId) {
   }, 50);
 }
 
+// ── Manager PIN gate for voiding an already-sent kitchen item (Settings >
+// Security > "Require Manager PIN to cancel a sent kitchen item"). Reuses
+// the SAME Master PIN that already gates the Settings module — one PIN a
+// manager already knows, not a second one to configure. When the setting's
+// off (or no PIN is set), this is a no-op passthrough so the existing
+// reason-only flow is completely unchanged for a shop that doesn't want the
+// extra step. Called after the reason has already been typed/confirmed, so
+// a manager approving still sees exactly what they're approving.
+async function requireVoidApproval(onApproved) {
+  const settings = store.settings || await getSettings();
+  if (!settings.voidApprovalEnabled || !settings.masterPin) return onApproved();
+  promptModuleLock(settings.masterPin, onApproved, 'Manager Approval', 'Enter Manager PIN to confirm this cancellation');
+}
+
 // ── Cancel with mandatory reason (only enforced once an item has actually
 // been fired to the kitchen — cancelling something that never left the cart
 // has no kitchen/food-cost impact, so no audit friction there). Used only by
@@ -2116,12 +2131,14 @@ async function requestRemoveItem(cartId) {
       return;
     }
     promptVoidReason(item, async (reason) => {
-      logChange(item, reason, 'cancel');
-      const cancelledQty = item.sentQty;
-      await voidCartItemInKots(cartId);
-      await printItemCancelTicket(item, cancelledQty, reason);
-      removeFromCart(cartId);
-      await persistOrderState();
+      requireVoidApproval(async () => {
+        logChange(item, reason, 'cancel');
+        const cancelledQty = item.sentQty;
+        await voidCartItemInKots(cartId);
+        await printItemCancelTicket(item, cancelledQty, reason);
+        removeFromCart(cartId);
+        await persistOrderState();
+      });
     });
   } else {
     removeFromCart(cartId);
@@ -2161,14 +2178,21 @@ async function requestQtyMinus(cartId) {
       okText: `Reduce to ${nextQty}`,
     }).then(async confirmed => {
       if (!confirmed) return;
-      const reason = 'Quantity reduced';
-      logChange(item, reason, 'cancel');
-      const cancelledQty = item.sentQty;
-      await voidCartItemInKots(cartId);
-      await printItemCancelTicket(item, cancelledQty, reason);
-      item.sentQty = 0;
-      await updateQty(cartId, -1);
-      await persistOrderState();
+      // Same manager-approval gate as the full-line cancel — when the
+      // setting's on, a shop owner deliberately wants friction on ANY
+      // reduction into an already-sent quantity, not just a full cancel;
+      // when it's off (the default), this stays exactly as low-friction as
+      // before.
+      requireVoidApproval(async () => {
+        const reason = 'Quantity reduced';
+        logChange(item, reason, 'cancel');
+        const cancelledQty = item.sentQty;
+        await voidCartItemInKots(cartId);
+        await printItemCancelTicket(item, cancelledQty, reason);
+        item.sentQty = 0;
+        await updateQty(cartId, -1);
+        await persistOrderState();
+      });
     });
   } else {
     updateQty(cartId, -1);
@@ -2635,7 +2659,7 @@ async function promptCancelWholeOrder() {
       const reason = reasonInput?.value.trim();
       if (!reason) return showToast('Please enter a reason', 'error');
       closeModal();
-      cancelWholeOrder(reason);
+      requireVoidApproval(() => cancelWholeOrder(reason));
     });
   }, 50);
 }

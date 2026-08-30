@@ -291,7 +291,19 @@ export function promptModuleLock(correctPin, onVerified, title = 'Security Lock'
     document.body.appendChild(lockOverlay);
 
     let currentPin = '';
-    const maxLen = Math.max(4, correctPin.length);
+    // BUG FIXED HERE: this used to be `Math.max(4, correctPin.length)` —
+    // correct when correctPin was a raw plaintext PIN (its own length IS the
+    // digit count), but Settings.js has hashed the master PIN before saving
+    // it (`sha256:<salt>:<hash>`, 70+ chars) for a while now, and this
+    // never got updated to match. maxLen ended up 70+, so the auto-submit
+    // check (`currentPin.length === maxLen`) could never fire for a real
+    // 4-6 digit PIN typed on the pad — this dialog silently never accepted
+    // ANY input. Match the app's own 4-6 digit PIN policy (Settings.js's
+    // own save validation) for a hashed correctPin; keep respecting a
+    // legacy plaintext PIN's real (short) length unchanged.
+    const isHashed = typeof correctPin === 'string' && correctPin.startsWith('sha256:');
+    const maxLen = isHashed ? 6 : Math.max(4, correctPin.length);
+    const minDigits = isHashed ? 4 : maxLen;
 
     const updateDots = () => {
         for (let i = 0; i < 6; i++) {
@@ -324,7 +336,10 @@ export function promptModuleLock(correctPin, onVerified, title = 'Security Lock'
                 lockOverlay.remove();
                 if (onVerified) onVerified();
             }, 300);
-        } else {
+        } else if (currentPin.length >= maxLen) {
+            // Only a real, complete wrong guess counts as a failed attempt —
+            // a mid-length prefix (still possible below) shouldn't burn a
+            // rate-limit try.
             recordPinFailure('module-lock');
             currentPin = '';
             updateDots();
@@ -333,6 +348,9 @@ export function promptModuleLock(correctPin, onVerified, title = 'Security Lock'
             setTimeout(() => card.classList.remove('shake'), 500);
             window.showToast('Incorrect PIN', 'error');
         }
+        // else: a 4- or 5-digit real PIN that didn't match yet at this
+        // length — just keep waiting for more digits, same as lockApp()'s
+        // own PIN-unlock flow does for a variable-length PIN.
     };
 
     lockOverlay.querySelectorAll('.pin-btn[data-value]').forEach(btn => {
@@ -340,7 +358,7 @@ export function promptModuleLock(correctPin, onVerified, title = 'Security Lock'
             if (currentPin.length < maxLen) {
                 currentPin += btn.dataset.value;
                 updateDots();
-                if (currentPin.length === maxLen) {
+                if (currentPin.length >= minDigits) {
                     setTimeout(checkPin, 100);
                 }
             }

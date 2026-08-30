@@ -1212,8 +1212,18 @@ export async function renderSettings(container) {
                   </div>
                 </label>
               </div>
-              
-              <div id="masterPinContainer" style="display: ${s.settingsLockEnabled ? 'block' : 'none'}; margin-top: 16px;">
+
+              <div class="form-group" style="margin-top:14px">
+                <label class="flex items-center gap-12 cursor-pointer">
+                  <input type="checkbox" id="sVoidApprovalEnabled" ${s.voidApprovalEnabled ? 'checked' : ''} style="width:20px;height:20px" />
+                  <div>
+                    <div class="font-bold">Require Manager PIN to cancel a sent kitchen item</div>
+                    <p style="font-size:12px;opacity:0.6">In Restaurant POS, cancelling an item (or the whole order) after it's already gone to the kitchen will ask for the same Master PIN below before it's allowed — stops a staff member voiding a cooked dish on their own.</p>
+                  </div>
+                </label>
+              </div>
+
+              <div id="masterPinContainer" style="display: ${(s.settingsLockEnabled || s.voidApprovalEnabled) ? 'block' : 'none'}; margin-top: 16px;">
                 <label class="form-label">Master Security PIN (4-6 digits)</label>
                 <div style="position:relative">
                   <input type="password" class="form-input" id="sMasterPin" value=""
@@ -2248,12 +2258,13 @@ export async function renderSettings(container) {
   // 3. Security Settings
   document.getElementById('saveSecurityBtn')?.addEventListener('click', async () => {
     const lockEnabled = document.getElementById('sSettingsLockEnabled')?.checked || false;
+    const voidApprovalEnabled = document.getElementById('sVoidApprovalEnabled')?.checked || false;
     // Blank means "keep the current PIN" (the field is never pre-filled with
     // it anymore — see the render above) — only validate/replace it when the
     // user actually typed a new one.
     const pin = document.getElementById('sMasterPin')?.value?.trim() || '';
 
-    if (lockEnabled && !pin && !s.masterPin) {
+    if ((lockEnabled || voidApprovalEnabled) && !pin && !s.masterPin) {
       return showToast('Master PIN must be 4 to 6 digits!', 'error');
     }
     if (pin && (pin.length < 4 || pin.length > 6)) {
@@ -2272,15 +2283,20 @@ export async function renderSettings(container) {
     await handleSave('Security', {
       autoLockMinutes: parseInt(document.getElementById('sAutoLock').value) || 0,
       settingsLockEnabled: lockEnabled,
+      voidApprovalEnabled,
       ...(pin ? { masterPin: await hashPassword(pin) } : {})
     });
   });
 
-  // Toggle PIN field visibility
-  document.getElementById('sSettingsLockEnabled')?.addEventListener('change', (e) => {
+  // Toggle PIN field visibility — shown if EITHER lock feature that shares
+  // this one Master PIN is turned on.
+  const syncMasterPinVisibility = () => {
     const container = document.getElementById('masterPinContainer');
-    if (container) container.style.display = e.target.checked ? 'block' : 'none';
-  });
+    const show = document.getElementById('sSettingsLockEnabled')?.checked || document.getElementById('sVoidApprovalEnabled')?.checked;
+    if (container) container.style.display = show ? 'block' : 'none';
+  };
+  document.getElementById('sSettingsLockEnabled')?.addEventListener('change', syncMasterPinVisibility);
+  document.getElementById('sVoidApprovalEnabled')?.addEventListener('change', syncMasterPinVisibility);
 
   // 4. Operations Settings
   document.getElementById('saveAddonsBtn')?.addEventListener('click', async () => {
