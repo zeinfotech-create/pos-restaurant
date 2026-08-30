@@ -2383,8 +2383,14 @@ function openPaymentPanel() {
           </div>
         `).join('')}
       </div>
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
-        <button type="button" class="btn btn-ghost btn-sm" id="rposAddSplitBtn"><i class="fa-solid fa-plus"></i> Add Split</button>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; flex-wrap:wrap; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-ghost btn-sm" id="rposAddSplitBtn"><i class="fa-solid fa-plus"></i> Add Split</button>
+          <div style="display:flex; align-items:center; gap:4px;">
+            <input type="number" id="rposSplitGuestsInput" min="2" max="20" value="${guestCount >= 2 ? guestCount : 2}" class="form-input" style="width:52px; padding:6px 4px; text-align:center;" />
+            <button type="button" class="btn btn-ghost btn-sm" id="rposSplitEvenlyBtn"><i class="fa-solid fa-users"></i> Split Evenly</button>
+          </div>
+        </div>
         <div style="font-size:12px; font-weight:700; color:${Math.abs(balance) < 0.01 ? 'var(--success)' : 'var(--danger)'};">
           Balance: ${cur}${balance.toFixed(2)}
         </div>
@@ -2475,6 +2481,31 @@ function openPaymentPanel() {
       const usedMethods = rows.map(r => r.method);
       const nextMethod = methods.find(m => !usedMethods.includes(m)) || methods[0];
       rows.push({ method: nextMethod, amount: remaining });
+      rebind();
+    });
+    // "Split N Ways" — an equal-per-guest split. Deliberately built as a
+    // convenience layer over the SAME payment-rows mechanism "Add Split"
+    // already uses (N rows, all starting on the same default method, each
+    // still individually editable afterward — e.g. one guest paying by UPI
+    // while the rest pay Cash) rather than a parallel per-guest payment/order
+    // concept. This is a straight equal split of the box's total (post-tax,
+    // post-service-charge) — NOT itemized-per-guest (who ordered what); that
+    // would need per-item guest assignment, a materially bigger feature.
+    document.getElementById('rposSplitEvenlyBtn')?.addEventListener('click', () => {
+      const n = Math.max(2, Math.min(20, parseInt(document.getElementById('rposSplitGuestsInput')?.value, 10) || 2));
+      // Split in integer paisa, not floats — a plain total/n in rupees can
+      // leave the rows summing a paisa or two short/over of the real total
+      // (₹100.01 ÷ 3 = ₹33.336... each), which would then fail the
+      // Complete Bill button's own sum-must-match-total check. Distributing
+      // the leftover paisa across the first `remainder` rows keeps every
+      // row a clean 2-decimal rupee amount AND the total exact.
+      const totalCents = Math.round(totals.total * 100);
+      const baseCents = Math.floor(totalCents / n);
+      const remainderCents = totalCents - baseCents * n;
+      rows = Array.from({ length: n }, (_, i) => ({
+        method: methods[0],
+        amount: (baseCents + (i < remainderCents ? 1 : 0)) / 100,
+      }));
       rebind();
     });
   };
