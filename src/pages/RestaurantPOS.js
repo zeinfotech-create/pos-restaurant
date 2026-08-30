@@ -383,7 +383,12 @@ async function render(container) {
         ${isMobile
           ? `<div class="rpos-topbar-title"><i class="fa-solid fa-utensils"></i> Order</div>`
           : `<button class="rpos-topbar-title rpos-topbar-title-btn" id="rposTitleBtn" title="Back to Dashboard"><i class="fa-solid fa-utensils"></i> Restaurant POS</button>`}
-        ${!isMobile ? `<button class="btn btn-ghost btn-sm" id="rposKitchenBtn"><i class="fa-solid fa-kitchen-set"></i> Kitchen<span id="rposKotBadge"></span></button>` : `<span id="rposKotBadge" style="display:none;"></span>`}
+        ${!isMobile ? `
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-ghost btn-sm" id="rposDashboardBtn"><i class="fa-solid fa-gauge"></i> Dashboard</button>
+            <button class="btn btn-ghost btn-sm" id="rposKitchenBtn"><i class="fa-solid fa-kitchen-set"></i> Kitchen<span id="rposKotBadge"></span></button>
+          </div>
+        ` : `<span id="rposKotBadge" style="display:none;"></span>`}
       </div>
       <div id="rposContent"></div>
       ${isMobile ? `
@@ -616,6 +621,7 @@ async function render(container) {
 
   document.getElementById('rposBackBtn')?.addEventListener('click', handleBack);
   document.getElementById('rposTitleBtn')?.addEventListener('click', () => navigate('dashboard'));
+  document.getElementById('rposDashboardBtn')?.addEventListener('click', () => navigate('dashboard'));
   document.getElementById('rposKitchenBtn')?.addEventListener('click', () => navigate('kitchen'));
   // Mobile bottom tab bar — 'kd' (not 'kitchen') since this device is on
   // the LAN/phone lockdown; 'kitchen' isn't in that whitelist and would
