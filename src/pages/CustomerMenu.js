@@ -29,6 +29,26 @@ let localCart = []; // [{productId, name, price, qty}] — this page's OWN cart,
 let activeCategory = '';
 let viewMode = 'menu'; // 'menu' | 'cart' | 'submitted' — cart is a review step before Send Request actually fires
 
+// Shared +/- quantity stepper look — a filled pill with solid circular
+// buttons (the same visual language food-delivery apps use), replacing the
+// original plain bordered-square buttons. One shared block so the grid's
+// small in-card stepper and the cart-review screen's bigger one can't drift
+// apart. Appended once per screen that uses it (menu grid + cart review).
+const STEPPER_STYLES = `
+  <style>
+    .cm-stepper { display:inline-flex; align-items:center; justify-content:center; border-radius:999px; background:var(--bg-elevated); border:1.5px solid var(--primary); box-shadow:0 2px 6px rgba(0,0,0,.10); }
+    .cm-step-btn { display:flex; align-items:center; justify-content:center; border:none; border-radius:999px; cursor:pointer; flex-shrink:0; background:var(--primary); color:#fff; transition:transform .12s ease; }
+    .cm-step-btn:active { transform:scale(0.8); }
+    .cm-step-qty { text-align:center; font-weight:800; color:var(--primary); }
+    .cm-stepper-sm { padding:2px; gap:1px; }
+    .cm-stepper-sm .cm-step-btn { width:20px; height:20px; font-size:8.5px; }
+    .cm-stepper-sm .cm-step-qty { min-width:18px; font-size:11px; }
+    .cm-stepper-lg { padding:3px; gap:4px; }
+    .cm-stepper-lg .cm-step-btn { width:30px; height:30px; font-size:11px; }
+    .cm-stepper-lg .cm-step-qty { min-width:26px; font-size:14px; }
+  </style>
+`;
+
 export async function renderCustomerMenu(container, subPage) {
   const tableId = subPage || '';
   // Settings > KOT > "Self-Order QR Menu" — checked BEFORE anything else,
@@ -121,10 +141,10 @@ async function renderContent(container, tableId) {
               <div style="font-size:13.5px; font-weight:700; overflow-wrap:break-word;">${escapeHtml(i.name)}</div>
               <div style="font-size:12px; color:var(--primary); font-weight:800; margin-top:2px;">₹${(i.price * i.qty).toFixed(2)}</div>
             </div>
-            <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
-              <button class="btn-icon cm-qty-minus" data-id="${i.productId}" style="width:32px; height:32px; border:1px solid var(--border); border-radius:8px;"><i class="fa-solid fa-minus"></i></button>
-              <span style="font-size:14px; font-weight:800; min-width:18px; text-align:center;">${i.qty}</span>
-              <button class="btn-icon cm-qty-plus" data-id="${i.productId}" style="width:32px; height:32px; border:1px solid var(--border); border-radius:8px;"><i class="fa-solid fa-plus"></i></button>
+            <div class="cm-stepper cm-stepper-lg">
+              <button class="cm-step-btn cm-qty-minus" data-id="${i.productId}"><i class="fa-solid fa-minus"></i></button>
+              <span class="cm-step-qty">${i.qty}</span>
+              <button class="cm-step-btn cm-qty-plus" data-id="${i.productId}"><i class="fa-solid fa-plus"></i></button>
             </div>
           </div>
         `).join('')}
@@ -139,7 +159,7 @@ async function renderContent(container, tableId) {
           </button>
         </div>
       ` : ''}
-    `);
+    ` + STEPPER_STYLES);
 
     document.getElementById('cmBackToMenuBtn')?.addEventListener('click', () => {
       viewMode = 'menu';
@@ -200,10 +220,10 @@ async function renderContent(container, tableId) {
           return `
           <div class="card cm-product-card" data-id="${p.id}" style="padding:12px; text-align:center; cursor:pointer; position:relative;">
             ${inCart ? `
-              <div style="position:absolute; top:6px; left:6px; right:6px; display:flex; align-items:center; justify-content:space-between; background:var(--bg-elevated); border:1px solid var(--primary); border-radius:8px; padding:2px;">
-                <button class="btn-icon cm-grid-minus" data-id="${p.id}" style="width:22px; height:22px; font-size:10px;"><i class="fa-solid fa-minus"></i></button>
-                <span style="font-size:11px; font-weight:800; color:var(--primary);">${inCart.qty}</span>
-                <button class="btn-icon cm-grid-plus" data-id="${p.id}" style="width:22px; height:22px; font-size:10px;"><i class="fa-solid fa-plus"></i></button>
+              <div class="cm-stepper cm-stepper-sm" style="position:absolute; top:6px; left:6px; right:6px; justify-content:space-between;">
+                <button class="cm-step-btn cm-grid-minus" data-id="${p.id}"><i class="fa-solid fa-minus"></i></button>
+                <span class="cm-step-qty">${inCart.qty}</span>
+                <button class="cm-step-btn cm-grid-plus" data-id="${p.id}"><i class="fa-solid fa-plus"></i></button>
               </div>
             ` : ''}
             <div style="font-size:26px; margin-bottom:6px; margin-top:${inCart ? '22px' : '0'};">${p.emoji || '🍽️'}</div>
@@ -227,7 +247,7 @@ async function renderContent(container, tableId) {
       .cm-cat-tab.active { background:var(--primary); color:#fff; border-color:var(--primary); }
       .cm-product-card:active { transform:scale(0.97); }
     </style>
-  `;
+  ` + STEPPER_STYLES;
 
   const addOne = (productId) => {
     const product = products.find(p => String(p.id) === String(productId));
