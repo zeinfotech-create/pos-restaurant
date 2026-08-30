@@ -215,6 +215,19 @@ async function renderContent(container, tableId) {
     const reqTotal = (r) => (r.items || []).reduce((s, i) => s + i.price * i.qty, 0);
     const statusLabel = (s) => s === 'dismissed' ? 'Not Accepted' : (ORDER_STAGES.find(o => o.key === s)?.label || s);
     const statusColor = (s) => s === 'dismissed' ? 'var(--danger)' : (s === 'served' ? 'var(--success)' : 'var(--text-muted)');
+    // A compact horizontal version of the same 5-stage tracker shown big for
+    // the current order — a past order in History should still visibly show
+    // HOW FAR it got, not just a plain status word next to it.
+    const miniTrackHtml = (s) => {
+      if (s === 'dismissed') return `<div style="font-size:10.5px; color:var(--danger); margin-top:6px;"><i class="fa-solid fa-circle-xmark" style="margin-right:4px;"></i>Not accepted</div>`;
+      const idx = ORDER_STAGES.findIndex(o => o.key === s);
+      return `<div style="display:flex; align-items:center; margin-top:6px;">
+        ${ORDER_STAGES.map((_, i) => `
+          <span style="width:7px; height:7px; border-radius:50%; flex-shrink:0; background:${i <= idx ? 'var(--primary)' : 'var(--border)'};"></span>
+          ${i < ORDER_STAGES.length - 1 ? `<span style="width:12px; height:2px; flex-shrink:0; background:${i < idx ? 'var(--primary)' : 'var(--border)'};"></span>` : ''}
+        `).join('')}
+      </div>`;
+    };
 
     // Every OTHER order this device has sent for this table, newest first —
     // the current one is already shown in full above, so it's excluded here.
@@ -237,6 +250,7 @@ async function renderContent(container, tableId) {
             <div style="min-width:0;">
               <div style="font-size:11px; color:var(--text-muted);">${new Date(r.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
               <div style="font-size:12.5px; font-weight:700; overflow-wrap:break-word;">${(r.items || []).map(i => `${i.qty}x ${escapeHtml(i.name)}`).join(', ')}</div>
+              ${miniTrackHtml(s)}
             </div>
             <div style="text-align:right; flex-shrink:0; margin-left:10px;">
               <div style="font-size:14px; font-weight:800;">₹${reqTotal(r).toFixed(2)}</div>
