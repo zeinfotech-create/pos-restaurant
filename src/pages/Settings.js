@@ -1110,6 +1110,15 @@ export async function renderSettings(container) {
                 <label class="form-label" style="font-size:11px;">Wi-Fi Password</label>
                 <input class="form-input" id="sWifiPassword" value="${escapeHtml(s.wifiPassword)}" placeholder="e.g. 9876543" />
               </div>
+              <div>
+                <label class="form-label" style="font-size:11px;">Footer Color</label>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <input type="color" id="sWifiFooterColor" value="${escapeHtml(s.wifiFooterColor || '#0d5c4a')}" style="width:44px; height:38px; padding:2px; border:1px solid var(--border); border-radius:8px; cursor:pointer; background:none;" />
+                  <div style="display:flex; gap:4px;">
+                    ${['#0d5c4a', '#1d4ed8', '#b91c1c', '#7c2d92', '#111827', '#c2410c'].map(c => `<button type="button" class="wifi-color-swatch" data-color="${c}" title="${c}" style="width:18px; height:18px; border-radius:5px; border:1px solid rgba(0,0,0,.15); background:${c}; cursor:pointer; padding:0;"></button>`).join('')}
+                  </div>
+                </div>
+              </div>
             </div>
             <p class="form-help-text" style="margin:6px 0 0 28px;">Shown on the printable QR poster so customers can join Wi-Fi to load the menu. Leave blank to hide that section on the poster.</p>
           </div>
@@ -1667,6 +1676,15 @@ export async function renderSettings(container) {
     container.querySelector('#sStoreLogoFile').value = '';
   });
 
+  // QR poster Wi-Fi footer color swatches — just set the native color
+  // input's value, the actual save reads from that same input either way.
+  container.querySelectorAll('.wifi-color-swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = container.querySelector('#sWifiFooterColor');
+      if (input) input.value = btn.dataset.color;
+    });
+  });
+
   // Signature Image upload/remove — same pattern as Store Logo above
   container.querySelector('#sSignatureImageFile')?.addEventListener('change', async (e) => {
     try {
@@ -1970,6 +1988,7 @@ export async function renderSettings(container) {
       enableSelfOrderMenu: container.querySelector('#sEnableSelfOrderMenu')?.checked || false,
       wifiName: container.querySelector('#sWifiName')?.value.trim() || '',
       wifiPassword: container.querySelector('#sWifiPassword')?.value.trim() || '',
+      wifiFooterColor: container.querySelector('#sWifiFooterColor')?.value || '#0d5c4a',
     });
   });
 

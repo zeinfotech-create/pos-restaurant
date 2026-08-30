@@ -850,6 +850,7 @@ async function setupTablesListeners() {
       const storeLogo = settings.storeLogo || '';
       const wifiName = settings.wifiName || '';
       const wifiPassword = settings.wifiPassword || '';
+      const wifiFooterColor = settings.wifiFooterColor || '#0d5c4a';
 
       openModal({
         title: `<i class="fa-solid fa-qrcode mr-8"></i> QR Menu — ${escapeAttr(tableDisplayName(table))}`,
@@ -868,7 +869,7 @@ async function setupTablesListeners() {
                 <div style="font-size:11.5px; font-weight:700; color:#333; margin-top:10px;">👇 Scan me</div>
               </div>
               ${wifiName ? `
-              <div style="background:#0d5c4a; color:#fff; padding:12px 16px; text-align:center;">
+              <div style="background:${escapeAttr(wifiFooterColor)}; color:#fff; padding:12px 16px; text-align:center;">
                 <div style="font-size:10.5px; font-weight:800; letter-spacing:.6px;"><i class="fa-solid fa-wifi" style="margin-right:5px"></i>JOIN OUR FREE WI-FI</div>
                 <div style="font-size:12px; font-weight:700; margin-top:5px;">${escapeAttr(wifiName)}</div>
                 ${wifiPassword ? `<div style="font-size:11px; opacity:.9; margin-top:1px;">Password: ${escapeAttr(wifiPassword)}</div>` : ''}
@@ -917,7 +918,7 @@ async function setupTablesListeners() {
                 .scan-label { font-size:14px; font-weight:800; letter-spacing:.8px; color:#222; text-transform:uppercase; margin-bottom:16px; }
                 .qr-img { width:230px; height:230px; }
                 .scan-me { font-size:14px; font-weight:700; color:#333; margin-top:14px; }
-                .wifi { background:#0d5c4a; color:#fff; padding:16px 18px; text-align:center; }
+                .wifi { background:${wifiFooterColor}; color:#fff; padding:16px 18px; text-align:center; }
                 .wifi-title { font-size:12.5px; font-weight:800; letter-spacing:.8px; }
                 .wifi-name { font-size:15px; font-weight:700; margin-top:6px; }
                 .wifi-pass { font-size:13px; opacity:.9; margin-top:2px; }
