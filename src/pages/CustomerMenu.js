@@ -28,8 +28,28 @@ import { tableDisplayNameWithSection } from '../utils/tableDisplay.js';
 let localCart = []; // [{productId, name, price, qty}] — this page's OWN cart, never store.cart
 let activeCategory = '';
 let viewMode = 'menu'; // 'menu' | 'cart' | 'submitted' — cart is a review step before Send Request actually fires
-let trackedRequestId = null; // the MenuRequest id being shown on the 'submitted' tracking screen
+let trackedRequestId = null; // the MenuRequest id being shown as the CURRENT order on the 'submitted' tracking screen
+let sessionRequestIds = []; // every request id this device has sent for the current table — newest last
 let trackListenerRegistered = false; // registerTrackingLiveRefresh() guard — only ever attach the listeners once
+
+// This device's own order history for one table, persisted in localStorage
+// (scoped per-origin+device already — never visible to another customer's
+// phone or to staff) so it survives a page reload or the customer re-opening
+// the same QR link later in their visit, not just staying alive across
+// "Send Another Order" clicks within one tab session. Wrapped in try/catch —
+// a private-browsing tab or blocked site data must never break ordering
+// itself, just silently lose the "remembered on this device" convenience.
+function historyStorageKey(tableId) { return `cm_order_history_${tableId}`; }
+function loadSessionRequestIds(tableId) {
+  try {
+    const raw = localStorage.getItem(historyStorageKey(tableId));
+    const ids = raw ? JSON.parse(raw) : [];
+    return Array.isArray(ids) ? ids : [];
+  } catch { return []; }
+}
+function saveSessionRequestIds(tableId, ids) {
+  try { localStorage.setItem(historyStorageKey(tableId), JSON.stringify(ids)); } catch { /* ignore */ }
+}
 
 // Order-tracking stages shown on the 'submitted' screen once a request has
 // been sent — 'sent' is reached the instant Send fires; everything after it
@@ -129,9 +149,20 @@ export async function renderCustomerMenu(container, subPage) {
     `);
     return;
   }
-  viewMode = 'menu';
   localCart = [];
-  trackedRequestId = null;
+  // A returning visit (page reload, or the customer re-opening the same QR
+  // link later) should land straight on "where's my order" rather than
+  // making them re-find the menu — this device's own remembered history for
+  // THIS table (see loadSessionRequestIds()) decides that; a genuinely first
+  // visit (nothing remembered) still goes straight to the menu as before.
+  sessionRequestIds = loadSessionRequestIds(tableId);
+  if (sessionRequestIds.length > 0) {
+    trackedRequestId = sessionRequestIds[sessionRequestIds.length - 1];
+    viewMode = 'submitted';
+  } else {
+    trackedRequestId = null;
+    viewMode = 'menu';
+  }
   registerTrackingLiveRefresh(container, tableId);
   await renderContent(container, tableId);
 }
@@ -179,15 +210,59 @@ async function renderContent(container, tableId) {
     const kitchenItems = request ? await findKitchenItemsForRequest(request.id, tableId) : [];
     const stage = computeStage(request, kitchenItems);
 
+    // Per-request price total — shared by the big current-order summary and
+    // every row of the history list below it.
+    const reqTotal = (r) => (r.items || []).reduce((s, i) => s + i.price * i.qty, 0);
+    const statusLabel = (s) => s === 'dismissed' ? 'Not Accepted' : (ORDER_STAGES.find(o => o.key === s)?.label || s);
+    const statusColor = (s) => s === 'dismissed' ? 'var(--danger)' : (s === 'served' ? 'var(--success)' : 'var(--text-muted)');
+
+    // Every OTHER order this device has sent for this table, newest first —
+    // the current one is already shown in full above, so it's excluded here.
+    // Lets a customer glance back at everything ordered so far this visit,
+    // not just whatever's currently in flight — this device's own
+    // remembered history (loadSessionRequestIds()), never another
+    // customer's or staff's.
+    const historyIds = sessionRequestIds.filter(id => id !== trackedRequestId).slice().reverse();
+    const historyEntries = (await Promise.all(historyIds.map(async (id) => {
+      const r = allRequests.find(x => x.id === id);
+      if (!r) return null;
+      const kItems = await findKitchenItemsForRequest(id, tableId);
+      return { request: r, stage: computeStage(r, kItems) };
+    }))).filter(Boolean);
+    const historyHtml = historyEntries.length > 0 ? `
+      <div style="padding:4px 20px 20px;">
+        <div style="font-size:11.5px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px;">Your Order History</div>
+        ${historyEntries.map(({ request: r, stage: s }) => `
+          <div class="cm-history-row">
+            <div style="min-width:0;">
+              <div style="font-size:11px; color:var(--text-muted);">${new Date(r.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
+              <div style="font-size:12.5px; font-weight:700; overflow-wrap:break-word;">${(r.items || []).map(i => `${i.qty}x ${escapeHtml(i.name)}`).join(', ')}</div>
+            </div>
+            <div style="text-align:right; flex-shrink:0; margin-left:10px;">
+              <div style="font-size:14px; font-weight:800;">₹${reqTotal(r).toFixed(2)}</div>
+              <div style="font-size:10.5px; font-weight:700; color:${statusColor(s)};">${statusLabel(s)}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
+    const historyStyles = `
+      <style>
+        .cm-history-row { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }
+        .cm-history-row:last-child { border-bottom:none; }
+      </style>
+    `;
+
     if (stage === 'dismissed') {
       container.innerHTML = scrollShell(`
-        <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center;">
+        <div style="padding:24px 24px 0; text-align:center;">
           <div style="font-size:52px; margin-bottom:16px;">😕</div>
           <div style="font-size:19px; font-weight:800; margin-bottom:8px;">Your order couldn't be accepted</div>
-          <div style="font-size:13.5px; color:var(--text-muted); max-width:320px;">Please check with a staff member at the counter.</div>
+          <div style="font-size:13.5px; color:var(--text-muted); max-width:320px; margin:0 auto;">Please check with a staff member at the counter.</div>
           <button id="cmNewRequestBtn" class="btn btn-primary" style="margin-top:24px;">Send a New Order</button>
         </div>
-      `);
+        ${historyHtml}
+      ` + historyStyles);
       document.getElementById('cmNewRequestBtn')?.addEventListener('click', () => {
         viewMode = 'menu';
         trackedRequestId = null;
@@ -202,7 +277,17 @@ async function renderContent(container, tableId) {
         <div style="font-size:16px; font-weight:800;">📋 Your Order Status</div>
         <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">${escapeHtml(tableLabel)} — updates automatically</div>
       </div>
-      <div style="flex:1; padding:24px 20px;">
+      <div style="padding:20px 20px 0;">
+        <div class="card" style="padding:16px;">
+          <div style="font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:8px;">Current Order</div>
+          ${(request?.items || []).map(i => `<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0;"><span>${i.qty}x ${escapeHtml(i.name)}</span><span style="color:var(--text-muted);">₹${(i.price * i.qty).toFixed(2)}</span></div>`).join('')}
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding-top:10px; border-top:1px solid var(--border);">
+            <span style="font-size:13px; font-weight:700;">Total</span>
+            <span style="font-size:26px; font-weight:900; color:var(--primary);">₹${reqTotal(request || {}).toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+      <div style="padding:24px 20px 0;">
         <div class="cm-track">
           ${ORDER_STAGES.map((s, idx) => {
             const state = idx < currentIndex ? 'done' : idx === currentIndex ? 'active' : 'upcoming';
@@ -218,6 +303,7 @@ async function renderContent(container, tableId) {
           }).join('')}
         </div>
       </div>
+      ${historyHtml}
       <div style="padding:16px; flex-shrink:0;">
         <button id="cmNewRequestBtn" class="btn btn-ghost" style="width:100%;">Send Another Order</button>
       </div>
@@ -237,7 +323,7 @@ async function renderContent(container, tableId) {
         .cm-track-desc { font-size:11.5px; color:var(--text-muted); margin-top:2px; }
         @keyframes cmPulse { 0%,100% { transform:scale(1); opacity:1; } 50% { transform:scale(1.08); opacity:.85; } }
       </style>
-    `);
+    ` + historyStyles);
     document.getElementById('cmNewRequestBtn')?.addEventListener('click', () => {
       viewMode = 'menu';
       trackedRequestId = null;
@@ -305,6 +391,17 @@ async function renderContent(container, tableId) {
       try {
         const saved = await saveMenuRequest({ tableId, items: localCart.map(i => ({ ...i })) });
         trackedRequestId = saved.id;
+        sessionRequestIds = [...sessionRequestIds, saved.id];
+        saveSessionRequestIds(tableId, sessionRequestIds);
+        // A pre-existing bug this made newly visible: localCart was never
+        // cleared after a successful send, only on a fresh page load — so
+        // "Send Another Order" silently carried the just-sent items into
+        // the next request too (the menu grid still showed them as "in
+        // cart"), and a customer sending a 2nd order would end up
+        // re-sending the 1st order's items bundled in with it. Confirmed
+        // live: sending Rice, then Milk+Egg via "Send Another Order",
+        // produced a 2nd request containing all three.
+        localCart = [];
         viewMode = 'submitted';
         renderContent(container, tableId);
       } catch (err) {
