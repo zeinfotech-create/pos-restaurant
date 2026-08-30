@@ -839,19 +839,54 @@ async function setupTablesListeners() {
       if (!table) return;
       const host = syncEngine.lanIp || window.location.hostname || 'localhost';
       const url = `http://${host}:3030/#menu/${table.id}`;
+      // Branding/Wi-Fi for the printable poster — same Settings > General
+      // logo/store-name fields already used on receipts, plus the new
+      // Settings > KOT wifiName/wifiPassword fields added for this poster.
+      // White/dark-fixed colors below are deliberate (mimics an actual
+      // printed poster on white paper), not app-theme-driven.
+      const settings = await getSettings();
+      const storeName = settings.storeName || 'Restaurant';
+      const storeNameSubtitle = settings.storeNameSubtitle || '';
+      const storeLogo = settings.storeLogo || '';
+      const wifiName = settings.wifiName || '';
+      const wifiPassword = settings.wifiPassword || '';
+
       openModal({
         title: `<i class="fa-solid fa-qrcode mr-8"></i> QR Menu — ${escapeAttr(tableDisplayName(table))}`,
         body: `
-          <div style="text-align:center;">
-            <div id="tableQrLoading" style="padding:30px; color:var(--text-muted); font-size:12px;">Generating...</div>
-            <img id="tableQrImg" style="display:none; width:220px; height:220px;" alt="Table QR" />
-            <p style="font-size:11px; color:var(--text-muted); margin-top:12px; word-break:break-all;">${escapeAttr(url)}</p>
-            <p style="font-size:12px; color:var(--text-muted); margin-top:10px;">Print this and place it on the table — customers scan it (same Wi-Fi) to browse the menu and send an order request, no app or login needed.</p>
+          <div style="display:flex; justify-content:center;">
+            <div style="width:260px; border:2px solid var(--primary); border-radius:14px; overflow:hidden; background:#ffffff; box-shadow:0 4px 16px rgba(0,0,0,.12);">
+              <div style="padding:18px 16px 14px; text-align:center; border-bottom:1px solid #eee;">
+                ${storeLogo ? `<img src="${storeLogo}" style="width:52px; height:52px; object-fit:contain; border-radius:10px; margin-bottom:8px;" alt="Logo" />` : ''}
+                <div style="font-size:16px; font-weight:800; color:#151515; line-height:1.25;">${escapeAttr(storeName)}</div>
+                ${storeNameSubtitle ? `<div style="font-size:11px; color:#777; margin-top:2px;">${escapeAttr(storeNameSubtitle)}</div>` : ''}
+              </div>
+              <div style="padding:18px 16px; text-align:center;">
+                <div style="font-size:11.5px; font-weight:800; letter-spacing:.6px; color:var(--primary); text-transform:uppercase; margin-bottom:12px;"><i class="fa-solid fa-qrcode" style="margin-right:5px"></i>Scan for Menu</div>
+                <div id="tableQrLoading" style="padding:30px; color:#999; font-size:12px;">Generating...</div>
+                <img id="tableQrImg" style="display:none; width:180px; height:180px;" alt="Table QR" />
+                <div style="font-size:11.5px; font-weight:700; color:#333; margin-top:10px;">👇 Scan me</div>
+              </div>
+              ${wifiName ? `
+              <div style="background:#0d5c4a; color:#fff; padding:12px 16px; text-align:center;">
+                <div style="font-size:10.5px; font-weight:800; letter-spacing:.6px;"><i class="fa-solid fa-wifi" style="margin-right:5px"></i>JOIN OUR FREE WI-FI</div>
+                <div style="font-size:12px; font-weight:700; margin-top:5px;">${escapeAttr(wifiName)}</div>
+                ${wifiPassword ? `<div style="font-size:11px; opacity:.9; margin-top:1px;">Password: ${escapeAttr(wifiPassword)}</div>` : ''}
+              </div>` : ''}
+            </div>
           </div>
+          <p style="font-size:11px; color:var(--text-muted); text-align:center; margin-top:14px; word-break:break-all;">${escapeAttr(url)}</p>
+          <p style="font-size:12px; color:var(--text-muted); text-align:center; margin-top:6px;">Print this and place it on the table — customers scan it (same Wi-Fi) to browse the menu and send an order request, no app or login needed.</p>
         `,
-        footer: `<button class="btn btn-primary" onclick="closeModal()">Done</button>`
+        footer: `
+          <button class="btn btn-secondary" id="printQrPosterBtn"><i class="fa-solid fa-print mr-6"></i>Print Poster</button>
+          <button class="btn btn-primary" onclick="closeModal()">Done</button>
+        `
       });
+
+      let qrDataUrl = null;
       const dataUrl = await QRCode.toDataURL(url, { width: 220, margin: 1 }).catch(() => null);
+      qrDataUrl = dataUrl;
       const img = document.getElementById('tableQrImg');
       const loading = document.getElementById('tableQrLoading');
       if (dataUrl && img) {
@@ -861,6 +896,57 @@ async function setupTablesListeners() {
       } else if (loading) {
         loading.textContent = 'Could not generate QR code.';
       }
+
+      document.getElementById('printQrPosterBtn')?.addEventListener('click', () => {
+        if (!qrDataUrl) return showToast('QR code is still generating, try again in a second', 'error');
+        const printWin = window.open('', '_blank');
+        if (!printWin) return showToast('Could not open print window — check your popup blocker', 'error');
+        printWin.document.write(`
+          <html>
+            <head>
+              <title>QR Menu — ${escapeAttr(tableDisplayName(table))}</title>
+              <style>
+                @page { size: A5; margin: 12mm; }
+                body { margin:0; padding:0; background:#fff; font-family: Arial, Helvetica, sans-serif; display:flex; align-items:center; justify-content:center; min-height:100vh; }
+                .poster { width:320px; border:3px solid #222; border-radius:16px; overflow:hidden; }
+                .header { padding:22px 18px 16px; text-align:center; border-bottom:2px solid #eee; }
+                .logo { width:64px; height:64px; object-fit:contain; border-radius:12px; margin-bottom:10px; }
+                .store-name { font-size:21px; font-weight:800; color:#111; }
+                .store-sub { font-size:13px; color:#666; margin-top:3px; }
+                .body { padding:24px 18px; text-align:center; }
+                .scan-label { font-size:14px; font-weight:800; letter-spacing:.8px; color:#222; text-transform:uppercase; margin-bottom:16px; }
+                .qr-img { width:230px; height:230px; }
+                .scan-me { font-size:14px; font-weight:700; color:#333; margin-top:14px; }
+                .wifi { background:#0d5c4a; color:#fff; padding:16px 18px; text-align:center; }
+                .wifi-title { font-size:12.5px; font-weight:800; letter-spacing:.8px; }
+                .wifi-name { font-size:15px; font-weight:700; margin-top:6px; }
+                .wifi-pass { font-size:13px; opacity:.9; margin-top:2px; }
+              </style>
+            </head>
+            <body onload="setTimeout(() => { window.print(); window.close(); }, 400);">
+              <div class="poster">
+                <div class="header">
+                  ${storeLogo ? `<img class="logo" src="${storeLogo}" />` : ''}
+                  <div class="store-name">${escapeAttr(storeName)}</div>
+                  ${storeNameSubtitle ? `<div class="store-sub">${escapeAttr(storeNameSubtitle)}</div>` : ''}
+                </div>
+                <div class="body">
+                  <div class="scan-label">Scan for Menu</div>
+                  <img class="qr-img" src="${qrDataUrl}" />
+                  <div class="scan-me">👇 Scan me</div>
+                </div>
+                ${wifiName ? `
+                <div class="wifi">
+                  <div class="wifi-title">JOIN OUR FREE WI-FI</div>
+                  <div class="wifi-name">${escapeAttr(wifiName)}</div>
+                  ${wifiPassword ? `<div class="wifi-pass">Password: ${escapeAttr(wifiPassword)}</div>` : ''}
+                </div>` : ''}
+              </div>
+            </body>
+          </html>
+        `);
+        printWin.document.close();
+      });
     });
   });
 

@@ -1101,6 +1101,17 @@ export async function renderSettings(container) {
               <span style="font-weight:700; font-size:13px;"><i class="fa-solid fa-qrcode" style="color:var(--text-muted); margin-right:6px"></i>Self-Order QR Menu</span>
             </label>
             <p class="form-help-text" style="margin:8px 0 0 28px;">Lets a customer scan the QR code on their table (Tables page) to browse the menu and send an order request — no app or login needed. Turning this off immediately disables every table's QR link (a customer scanning it, even an old printed code, sees "not available" instead of the menu) and hides the QR button on Tables.</p>
+            <div style="margin:14px 0 0 28px; display:flex; gap:10px; flex-wrap:wrap;">
+              <div style="flex:1; min-width:160px;">
+                <label class="form-label" style="font-size:11px;">Wi-Fi Network Name (for the QR poster)</label>
+                <input class="form-input" id="sWifiName" value="${escapeHtml(s.wifiName)}" placeholder="e.g. Restaurant_Guest" />
+              </div>
+              <div style="flex:1; min-width:160px;">
+                <label class="form-label" style="font-size:11px;">Wi-Fi Password</label>
+                <input class="form-input" id="sWifiPassword" value="${escapeHtml(s.wifiPassword)}" placeholder="e.g. 9876543" />
+              </div>
+            </div>
+            <p class="form-help-text" style="margin:6px 0 0 28px;">Shown on the printable QR poster so customers can join Wi-Fi to load the menu. Leave blank to hide that section on the poster.</p>
           </div>
 
           <div class="card" style="padding:0; overflow:hidden; margin-top:16px;">
@@ -1957,6 +1968,8 @@ export async function renderSettings(container) {
       kotPrinterIp: container.querySelector('#sKotPrinterIp')?.value.trim() || '',
       kotPrinterPort: parseInt(container.querySelector('#sKotPrinterPort')?.value, 10) || 9100,
       enableSelfOrderMenu: container.querySelector('#sEnableSelfOrderMenu')?.checked || false,
+      wifiName: container.querySelector('#sWifiName')?.value.trim() || '',
+      wifiPassword: container.querySelector('#sWifiPassword')?.value.trim() || '',
     });
   });
 
