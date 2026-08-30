@@ -6,7 +6,8 @@ import './style.css';
 import './dashboard-animations.css';
 import './settings-redesign.css';
 import { navigate, initRouter, getCurrentPage } from './router.js';
-import { getSettings, updateSettings, getBranchRegisters, getSession, getSessionTheme, setSessionTheme, getSidebarCollapsed, setSidebarCollapsed, getBranches, getCurrentShift, closeRegister, openRegister, getCustomers, getBusinessFeatures, deleteData, updateData, saveSession, getDataById, getUsers, hasPermission, getLowStockProducts, getExpiringProducts, getMenuRequests, getCurrentBranch, getCurrentUser, getCurrentRegisterId, hashPassword, verifyPassword } from './db.js';
+import { getSettings, updateSettings, getBranchRegisters, getSession, getSessionTheme, setSessionTheme, getSidebarCollapsed, setSidebarCollapsed, getBranches, getCurrentShift, closeRegister, openRegister, getCustomers, getBusinessFeatures, deleteData, updateData, saveSession, getDataById, getUsers, hasPermission, getLowStockProducts, getExpiringProducts, getMenuRequests, getTables, getCurrentBranch, getCurrentUser, getCurrentRegisterId, hashPassword, verifyPassword } from './db.js';
+import { tableDisplayNameWithSection, formatElapsed } from './utils/tableDisplay.js';
 import { showToast } from './components/Toast.js';
 import { store, initStore, onCartUpdate, getCartTotals, updateQty, clearCart, setDiscount, removeFromCart, updateCartItem } from './store.js';
 import { openModal, closeModal, showConfirm, showAlert } from './components/Modal.js';
@@ -609,6 +610,10 @@ async function renderTopbar() {
     if (qaMenu && !qaMenu.contains(event.target) && !event.target.closest('#quickAddDropdown')) {
       qaMenu.classList.add('hidden');
     }
+    const mrDropdown = document.getElementById('menuRequestDropdown');
+    if (mrDropdown && !mrDropdown.contains(event.target) && !event.target.closest('#globalMenuRequestBtn')) {
+      mrDropdown.classList.add('hidden');
+    }
   });
 
   document.getElementById('quickAddDropdown')?.addEventListener('click', (e) => {
@@ -704,22 +709,85 @@ async function updateGlobalExpiryBadge() {
 // header + table-grid picker). A request sent while staff is somewhere else
 // entirely would otherwise go unnoticed until they happened to open
 // Restaurant POS on their own.
+//
+// Two things beyond a plain count badge, per user feedback: (1) clicking it
+// opens a dropdown listing WHICH table(s) have a request, each jumping
+// straight to that table's own order (navigate('restaurant-pos/<tableId>') —
+// the exact same direct-to-table hop Tables.js's own card click and a
+// Reservation's "Seat Now" already use) instead of dropping staff on the
+// generic order-type picker to go find it themselves; (2) a toast fires the
+// moment a genuinely NEW request arrives (not on every badge refresh), so
+// it's noticed even without glancing at the topbar.
+let knownMenuRequestIds = null; // null = "haven't checked yet" this session — never toast for requests that already existed before this device started watching
+
 async function updateGlobalMenuRequestBadge() {
   const container = document.getElementById('globalMenuRequestContainer');
   if (!container) return;
 
-  const pending = (await getMenuRequests(store.branch?.id)).filter(r => r.status === 'pending');
+  const [allRequests, allTables] = await Promise.all([
+    getMenuRequests(store.branch?.id),
+    getTables()
+  ]);
+  const pending = allRequests.filter(r => r.status === 'pending').sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+  const labelFor = (tableId) => {
+    const table = allTables.find(t => t.id === tableId);
+    return table ? tableDisplayNameWithSection(table, allTables) : 'a table';
+  };
+
+  // New-request toast — only for ids not already known from the LAST check,
+  // and only once this device has actually seen a first snapshot (otherwise
+  // every request already sitting there from before this page loaded would
+  // toast all at once on first render).
+  const currentIds = new Set(pending.map(r => r.id));
+  if (knownMenuRequestIds !== null) {
+    pending.forEach(r => {
+      if (!knownMenuRequestIds.has(r.id)) {
+        showToast(`🔔 New order request — ${labelFor(r.tableId)}`, 'info');
+      }
+    });
+  }
+  knownMenuRequestIds = currentIds;
 
   if (pending.length === 0) {
     container.innerHTML = '';
     return;
   }
 
-  // If button already exists, just update the count — avoids DOM flash/blink
+  const rowsHtml = pending.map(r => {
+    const itemCount = (r.items || []).reduce((s, i) => s + (i.qty || 0), 0);
+    const ago = formatElapsed(Date.now() - new Date(r.createdAt).getTime());
+    return `
+      <div class="global-menu-req-row" data-table-id="${r.tableId}" style="padding:9px 10px; border-radius:8px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <div style="min-width:0;">
+          <div style="font-size:12.5px; font-weight:700; overflow-wrap:break-word;">${escapeHtml(labelFor(r.tableId))}</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${itemCount} item${itemCount === 1 ? '' : 's'} · ${ago} ago</div>
+        </div>
+        <i class="fa-solid fa-chevron-right" style="font-size:10px; color:var(--text-muted); flex-shrink:0;"></i>
+      </div>
+    `;
+  }).join('');
+
+  const wireRows = () => {
+    document.querySelectorAll('.global-menu-req-row').forEach(el => {
+      el.onmouseenter = () => { el.style.background = 'var(--bg-app)'; };
+      el.onmouseleave = () => { el.style.background = ''; };
+      el.onclick = () => {
+        document.getElementById('menuRequestDropdown')?.classList.add('hidden');
+        window.navigate('restaurant-pos/' + el.dataset.tableId);
+      };
+    });
+  };
+
+  // If button already exists, just refresh the count + dropdown rows —
+  // avoids a DOM flash/blink on every periodic refresh, same reasoning as
+  // the low-stock/expiry badges above.
   const existingBtn = document.getElementById('globalMenuRequestBtn');
   if (existingBtn) {
     const badge = existingBtn.querySelector('.notif-badge');
     if (badge) badge.textContent = pending.length;
+    const list = document.querySelector('#menuRequestDropdown .menu-req-list');
+    if (list) list.innerHTML = rowsHtml;
+    wireRows();
     return;
   }
 
@@ -728,16 +796,17 @@ async function updateGlobalMenuRequestBadge() {
       <i class="fa-solid fa-bell"></i>
       <span class="notif-badge" style="position:absolute; top:-6px; right:-6px; font-size:10px; border-radius:10px; padding:2px 6px; background:var(--primary); color:#fff; border:1px solid var(--bg-surface)">${pending.length}</span>
     </button>
+    <div id="menuRequestDropdown" class="shortcut-dropdown hidden" style="width:280px; padding:10px;">
+      <div style="font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; padding:4px 8px 8px;">Customer Order Requests</div>
+      <div class="menu-req-list" style="display:flex; flex-direction:column; gap:2px; max-height:280px; overflow-y:auto;">${rowsHtml}</div>
+    </div>
   `;
 
   document.getElementById('globalMenuRequestBtn')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    // No single "all requests" page to land on — Restaurant POS's own table
-    // grid already shows a per-table badge (and the ordering view a full
-    // review-and-accept modal) for every pending request, so that's the
-    // most useful place to send staff to act on one.
-    window.navigate('restaurant-pos');
+    document.getElementById('menuRequestDropdown')?.classList.toggle('hidden');
   });
+  wireRows();
 }
 
 // Low Stock / Expiry / Menu Request Event Listeners
