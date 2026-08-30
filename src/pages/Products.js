@@ -729,6 +729,18 @@ async function openProductForm(product, container, cur) {
   const allProductsForRecipe = (await getProducts()).filter(p => p.id !== product?.id);
   let hasRecipe = !!(product?.recipe?.ingredients && product.recipe.ingredients.length > 0);
   let recipeIngredients = product?.recipe?.ingredients ? product.recipe.ingredients.map(i => ({ ...i })) : [];
+  // Same underlying shape (recipe.ingredients + cost math) covers two
+  // different real-world concepts a shop owner sees as unrelated: a dish
+  // COOKED from raw ingredients (Recipe/BOM — sells its OWN stock too,
+  // ingredients are consumed alongside it) vs a BUNDLE of already-sellable
+  // menu items sold together at one price (Combo/Set Menu — has no stock
+  // of its own; selling it only ever deducts each bundled item's stock).
+  // One boolean discriminator on the same `recipe` object, rather than a
+  // second parallel field/UI section, keeps computeRecipeCost()/
+  // isProductAvailable() (both already keyed off hasRecipe()) working for
+  // either with zero changes — only the stock-deduction behavior and the
+  // wording shown here actually differ.
+  let isCombo = !!product?.recipe?.isCombo;
 
   function renderVariantList() {
     const vList = document.getElementById('variantList');
@@ -796,6 +808,16 @@ async function openProductForm(product, container, cur) {
       return;
     }
     const estimatedCost = computeRecipeCost({ ingredients: recipeIngredients }, allProductsForRecipe);
+    // Combo-only: what the same items would cost the CUSTOMER bought
+    // separately at their own normal selling price (not cost price — this
+    // is about the deal the customer's getting, computeRecipeCost above is
+    // about what it costs THIS SHOP), so the owner can see at a glance
+    // whether their combo price is actually a real discount.
+    const separatePrice = recipeIngredients.reduce((sum, ing) => {
+      const p = allProductsForRecipe.find(x => x.id === ing.productId);
+      return sum + ((p?.price || 0) * (Number(ing.qty) || 0));
+    }, 0);
+    const comboOwnPrice = parseFloat(document.getElementById('pPrice')?.value) || 0;
     // Each ingredient is its OWN stacked card (dropdown on its own full-width
     // line, Qty on the line below) rather than one horizontal flex row with
     // the dropdown, qty box, and remove button all fighting for the same
@@ -820,19 +842,27 @@ async function openProductForm(product, container, cur) {
               <button class="btn btn-icon remove-recipe-ingredient-btn" data-idx="${i}" style="color:var(--danger); flex-shrink:0"><i class="fa-solid fa-minus"></i></button>
             </div>
             <div style="display:flex; align-items:center; gap:8px">
-              <label style="font-size:11.5px; font-weight:700; color:var(--text-muted); white-space:nowrap">Qty used</label>
+              <label style="font-size:11.5px; font-weight:700; color:var(--text-muted); white-space:nowrap">Qty ${isCombo ? 'included' : 'used'}</label>
               <input class="form-input recipe-qty-input" type="number" min="0" step="any" placeholder="0" value="${ing.qty ?? ''}" data-idx="${i}" style="max-width:130px" />
               <span style="font-size:12px; font-weight:600; color:var(--text-muted); white-space:nowrap">${escapeHtml(ingProduct?.unit || '')}</span>
             </div>
           </div>
         `;
         }).join('')}
-        <button class="btn btn-ghost btn-sm w-full" id="addRecipeIngredientBtn"><i class="fa-solid fa-plus"></i> Add Ingredient</button>
+        <button class="btn btn-ghost btn-sm w-full" id="addRecipeIngredientBtn"><i class="fa-solid fa-plus"></i> ${isCombo ? 'Add Item to Bundle' : 'Add Ingredient'}</button>
         <div style="padding:10px; background:var(--bg-app); border-radius:8px; border:1px dashed var(--border); font-size:12.5px; display:flex; justify-content:space-between; align-items:center">
-          <span style="font-weight:600">Estimated cost per unit (from current ingredient prices)</span>
+          <span style="font-weight:600">${isCombo ? "This shop's own cost (from current item prices)" : 'Estimated cost per unit (from current ingredient prices)'}</span>
           <span style="font-weight:800; color:var(--primary)">${cur}${estimatedCost.toFixed(2)}</span>
         </div>
-        <p class="form-help-text" style="margin:0">This overrides Cost Price above the moment this item actually sells — the recipe becomes the real source of truth for its cost, updating automatically as ingredient prices change. Selling this ALSO deducts its own Stock count (set below) same as any product, on top of deducting these ingredients — track both if this shop cooks in batches.</p>
+        ${isCombo && recipeIngredients.length > 0 ? `
+        <div id="comboSavingsRow" style="padding:10px; background:var(--bg-app); border-radius:8px; border:1px dashed var(--border); font-size:12.5px; display:flex; justify-content:space-between; align-items:center">
+          <span style="font-weight:600">Buying these separately costs <span style="font-weight:800">${cur}${separatePrice.toFixed(2)}</span></span>
+          <span style="font-weight:800; color:${comboOwnPrice > 0 && comboOwnPrice < separatePrice ? 'var(--success)' : 'var(--danger)'};">${comboOwnPrice > 0 ? (comboOwnPrice < separatePrice ? `Saves ${cur}${(separatePrice - comboOwnPrice).toFixed(2)}` : comboOwnPrice > separatePrice ? `₹${(comboOwnPrice - separatePrice).toFixed(2)} MORE than separate!` : 'No savings') : 'Set a Price above to compare'}</span>
+        </div>
+        ` : ''}
+        <p class="form-help-text" style="margin:0">${isCombo
+          ? 'This overrides Cost Price above the moment this item actually sells — computed from what these bundled items themselves cost this shop. Selling this deducts EACH bundled item\'s own stock — this combo itself has no separate stock of its own (leave Stock below blank/unused).'
+          : 'This overrides Cost Price above the moment this item actually sells — the recipe becomes the real source of truth for its cost, updating automatically as ingredient prices change. Selling this ALSO deducts its own Stock count (set below) same as any product, on top of deducting these ingredients — track both if this shop cooks in batches.'}</p>
       </div>
     `;
 
@@ -845,11 +875,24 @@ async function openProductForm(product, container, cur) {
     rList.querySelectorAll('.recipe-qty-input').forEach(input => {
       input.oninput = () => {
         recipeIngredients[input.dataset.idx].qty = parseFloat(input.value) || 0;
-        // Live-update just the cost readout without a full re-render —
-        // rebuilding the whole list on every keystroke would steal focus
-        // from the input the owner is actively typing into.
+        // Live-update just the cost (and, for a combo, the savings) readout
+        // without a full re-render — rebuilding the whole list on every
+        // keystroke would steal focus from the input the owner is actively
+        // typing into.
         const costEl = rList.querySelector('span[style*="color:var(--primary)"]');
         if (costEl) costEl.textContent = `${cur}${computeRecipeCost({ ingredients: recipeIngredients }, allProductsForRecipe).toFixed(2)}`;
+        const savingsRow = document.getElementById('comboSavingsRow');
+        if (savingsRow) {
+          const sep = recipeIngredients.reduce((sum, ing) => {
+            const p = allProductsForRecipe.find(x => x.id === ing.productId);
+            return sum + ((p?.price || 0) * (Number(ing.qty) || 0));
+          }, 0);
+          const ownPrice = parseFloat(document.getElementById('pPrice')?.value) || 0;
+          savingsRow.innerHTML = `
+            <span style="font-weight:600">Buying these separately costs <span style="font-weight:800">${cur}${sep.toFixed(2)}</span></span>
+            <span style="font-weight:800; color:${ownPrice > 0 && ownPrice < sep ? 'var(--success)' : 'var(--danger)'};">${ownPrice > 0 ? (ownPrice < sep ? `Saves ${cur}${(sep - ownPrice).toFixed(2)}` : ownPrice > sep ? `₹${(ownPrice - sep).toFixed(2)} MORE than separate!` : 'No savings') : 'Set a Price above to compare'}</span>
+          `;
+        }
       };
     });
     rList.querySelectorAll('.remove-recipe-ingredient-btn').forEach(btn => {
@@ -1107,6 +1150,12 @@ async function openProductForm(product, container, cur) {
               <span style="font-size:12px; font-weight:600"><i class="fa-solid fa-blender mr-4"></i> Made from a Recipe (BOM)</span>
            </label>
         </div>
+        <div id="comboToggleRow" style="${hasRecipe ? '' : 'display:none;'} margin-top:8px;">
+          <label style="display:flex; align-items:center; gap:8px; padding:10px; background:var(--bg-app); border-radius:8px; border:1px solid var(--border); cursor:pointer">
+            <input type="checkbox" id="isComboToggle" ${isCombo ? 'checked' : ''} style="width:18px;height:18px" />
+            <span style="font-size:12px; font-weight:600"><i class="fa-solid fa-boxes-stacked mr-4"></i> This is a Combo / Set Menu (a bundle of the items above sold as one — not a cooked dish, no separate stock of its own)</span>
+          </label>
+        </div>
         <div id="variantList"></div>
         <div id="recipeList"></div>
       `)}
@@ -1165,6 +1214,13 @@ async function openProductForm(product, container, cur) {
   document.getElementById('hasRecipeToggle').onchange = (e) => {
     hasRecipe = e.target.checked;
     if (hasRecipe && recipeIngredients.length === 0) recipeIngredients.push({ productId: '', qty: 0 });
+    if (!hasRecipe) isCombo = false; // turning Recipe off entirely also clears the Combo sub-choice — nothing to be a combo OF anymore
+    document.getElementById('comboToggleRow').style.display = hasRecipe ? '' : 'none';
+    document.getElementById('isComboToggle').checked = isCombo;
+    renderRecipeList();
+  };
+  document.getElementById('isComboToggle').onchange = (e) => {
+    isCombo = e.target.checked;
     renderRecipeList();
   };
 
@@ -1503,7 +1559,7 @@ async function openProductForm(product, container, cur) {
             saveBtn.innerHTML = `<i class="fa-solid fa-floppy-disk mr-8"></i> ${isEdit ? 'Update Product' : 'Create Product'}`;
             return;
           }
-          finalRecipe = { ingredients: recipeIngredients.map(ing => ({ productId: ing.productId, qty: parseFloat(ing.qty) || 0 })) };
+          finalRecipe = { ingredients: recipeIngredients.map(ing => ({ productId: ing.productId, qty: parseFloat(ing.qty) || 0 })), isCombo };
         }
 
         const payload = {

@@ -24,6 +24,18 @@ export function hasRecipe(product) {
   return !!(product?.recipe?.ingredients && product.recipe.ingredients.length > 0);
 }
 
+// Same `recipe.ingredients` shape covers two different real-world concepts:
+// a dish COOKED from raw ingredients (Recipe/BOM — sells its own stock too,
+// on top of consuming ingredients) vs a BUNDLE of already-sellable menu
+// items sold together at one price (Combo/Set Menu — has no stock of its
+// own; selling it only ever deducts each bundled item's stock). This one
+// boolean is the only thing that actually differs in behavior — cost math
+// (computeRecipeCost) and the SOLD-OUT/availability check are identical
+// either way, so both keep working unchanged for a combo too.
+export function isCombo(product) {
+  return !!product?.recipe?.isCombo;
+}
+
 // Sum of (ingredient unit cost × recipe qty) across every ingredient row.
 // `allProducts` is the full product list (same shape getProducts() / the
 // products array already threaded through saveOrder()'s stock loop returns)

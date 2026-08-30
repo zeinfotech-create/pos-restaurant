@@ -1194,7 +1194,7 @@ export async function saveOrder(order) {
     // second deduction correctly starts from the first's already-reduced
     // stock, not a stale re-fetched copy.
     products = products || await getProducts();
-    const { hasRecipe } = await import('./utils/recipeCost.js');
+    const { hasRecipe, isCombo } = await import('./utils/recipeCost.js');
     for (const item of order.items) {
       // Each item's stock write is independent — a transient failure on one
       // line must not abort the rest of the loop, and the order itself is
@@ -1203,28 +1203,36 @@ export async function saveOrder(order) {
       try {
         const p = products.find(x => x.id === item.id);
         if (p) {
-          let oldStock = 0;
-          if (item.variantName && p.variants) {
-            const v = p.variants.find(v => v.name === item.variantName);
-            if (v) {
-              oldStock = v.stock || 0;
-              v.stock = (v.stock || 0) - item.qty;
-              p.stock = p.variants.reduce((s, vr) => s + (vr.stock || 0), 0);
+          // A Combo/Set Menu has no stock of its own — it's a bundle of
+          // OTHER products' stock, deducted below, not a separately-stocked
+          // item — so skip this block entirely for one (a plain Recipe dish
+          // still deducts its own stock as always, on top of ingredients).
+          if (!isCombo(p)) {
+            let oldStock = 0;
+            if (item.variantName && p.variants) {
+              const v = p.variants.find(v => v.name === item.variantName);
+              if (v) {
+                oldStock = v.stock || 0;
+                v.stock = (v.stock || 0) - item.qty;
+                p.stock = p.variants.reduce((s, vr) => s + (vr.stock || 0), 0);
+              }
+            } else {
+              oldStock = p.stock || 0;
+              p.stock = (p.stock || 0) - item.qty;
             }
-          } else {
-            oldStock = p.stock || 0;
-            p.stock = (p.stock || 0) - item.qty;
+            await updateProduct(p);
+            await logInventoryChange(p.id, item.variantName || null, 'OUT', item.qty, 'Sale (POS)', order.branchId, order.id, oldStock, oldStock - item.qty);
           }
-          await updateProduct(p);
-          await logInventoryChange(p.id, item.variantName || null, 'OUT', item.qty, 'Sale (POS)', order.branchId, order.id, oldStock, oldStock - item.qty);
 
           // Recipe dish: on top of its OWN stock/count above (the "N plates
           // ready" batch number this shop tracks), also deduct the real raw
           // ingredients that plate was made from — the two are tracked
           // side by side, not one instead of the other (this shop cooks in
           // batches AND wants ingredient stock to stay accurate as each
-          // plate sells, not just at batch-cook time).
+          // plate sells, not just at batch-cook time). Combo: this IS the
+          // only stock deduction that happens for it (see the skip above).
           if (hasRecipe(p)) {
+            const combo = isCombo(p);
             for (const ing of p.recipe.ingredients) {
               try {
                 const ip = products.find(x => x.id === ing.productId);
@@ -1233,9 +1241,9 @@ export async function saveOrder(order) {
                 const ingOldStock = ip.stock || 0;
                 ip.stock = ingOldStock - consumed;
                 await updateProduct(ip);
-                await logInventoryChange(ip.id, null, 'OUT', consumed, `Recipe: ${item.qty}× ${item.name}`, order.branchId, order.id, ingOldStock, ip.stock);
+                await logInventoryChange(ip.id, null, 'OUT', consumed, `${combo ? 'Combo' : 'Recipe'}: ${item.qty}× ${item.name}`, order.branchId, order.id, ingOldStock, ip.stock);
               } catch (ingErr) {
-                console.error(`[saveOrder] Recipe ingredient deduction failed for order ${order.id}, dish ${item.id}, ingredient ${ing.productId}:`, ingErr);
+                console.error(`[saveOrder] Recipe/combo ingredient deduction failed for order ${order.id}, dish ${item.id}, ingredient ${ing.productId}:`, ingErr);
               }
             }
           }
