@@ -18,7 +18,7 @@
 // — same trust boundary as every other customer-facing input in this app.
 // ============================================================
 
-import { getProducts, getCategories, getTables, saveMenuRequest, getSettings } from '../db.js';
+import { getProducts, getCategories, getTables, saveMenuRequest, getSettings, getMenuRequests, getKots } from '../db.js';
 import { isProductAvailable } from './RestaurantPOS.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { foodTypeIconHtml } from '../utils/foodType.js';
@@ -28,6 +28,68 @@ import { tableDisplayNameWithSection } from '../utils/tableDisplay.js';
 let localCart = []; // [{productId, name, price, qty}] — this page's OWN cart, never store.cart
 let activeCategory = '';
 let viewMode = 'menu'; // 'menu' | 'cart' | 'submitted' — cart is a review step before Send Request actually fires
+let trackedRequestId = null; // the MenuRequest id being shown on the 'submitted' tracking screen
+let trackListenerRegistered = false; // registerTrackingLiveRefresh() guard — only ever attach the listeners once
+
+// Order-tracking stages shown on the 'submitted' screen once a request has
+// been sent — 'sent' is reached the instant Send fires; everything after it
+// depends on what staff actually do with the request (see computeStage()).
+const ORDER_STAGES = [
+  { key: 'sent', icon: '📨', label: 'Order Sent', desc: 'Your order reached the counter' },
+  { key: 'accepted', icon: '👍', label: 'Accepted', desc: 'Counter staff confirmed your order' },
+  { key: 'preparing', icon: '👨‍🍳', label: 'Preparing', desc: 'The kitchen is cooking your order' },
+  { key: 'ready', icon: '🍽️', label: 'Ready to Serve', desc: 'Your order is ready and on its way' },
+  { key: 'served', icon: '🎉', label: 'Served', desc: 'Enjoy your meal!' },
+];
+
+// Looks up every KOT item any of this table's tickets carries that was
+// tagged with `requestId` (RestaurantPOS.js stamps this on Accept, then
+// carries it forward onto the real kitchen ticket item in sendToKitchen())
+// — this is what lets a customer's own device see PAST "accepted" into the
+// real kitchen prep/ready/served lifecycle, not just the request's own
+// pending/accepted/dismissed status.
+async function findKitchenItemsForRequest(requestId, tableId) {
+  const kots = await getKots();
+  const matched = [];
+  kots.filter(k => k.tableId === tableId).forEach(k => {
+    (k.items || []).forEach(it => {
+      if ((it.sourceRequestIds || []).includes(requestId)) matched.push(it);
+    });
+  });
+  return matched;
+}
+
+// Single source of truth for "what stage is this request at right now" —
+// a request's own status (pending/accepted/dismissed) covers the first
+// step; once accepted, the matched kitchen ticket items' itemStatus
+// (pending/ready/served) carries the rest of the journey.
+function computeStage(request, kitchenItems) {
+  if (!request || request.status === 'pending') return 'sent';
+  if (request.status === 'dismissed') return 'dismissed';
+  if (kitchenItems.length === 0) return 'accepted'; // accepted, not yet fired to the kitchen
+  if (kitchenItems.every(it => it.itemStatus === 'served')) return 'served';
+  if (kitchenItems.every(it => it.itemStatus === 'ready' || it.itemStatus === 'served')) return 'ready';
+  return 'preparing';
+}
+
+// One listener pair for the whole page's lifetime — re-renders the tracking
+// screen live as staff accept/dismiss the request or the kitchen updates its
+// items, the same 'storage-change'/'data-synced' pairing every other
+// live-refresh spot in this codebase uses (a LOCAL write on this exact
+// device fires the former, an incoming LAN sync fires the latter — a
+// customer's phone only ever sees the latter, since it never writes
+// menu_requests/kots itself once past Send).
+function registerTrackingLiveRefresh(container, tableId) {
+  if (trackListenerRegistered) return;
+  const onChange = (e) => {
+    if (!['menu_requests', 'kots'].includes(e.detail?.store)) return;
+    if (viewMode !== 'submitted' || !trackedRequestId) return;
+    renderContent(container, tableId);
+  };
+  window.addEventListener('storage-change', onChange);
+  window.addEventListener('data-synced', onChange);
+  trackListenerRegistered = true;
+}
 
 // Shared +/- quantity stepper look — a filled pill with solid circular
 // buttons (the same visual language food-delivery apps use), replacing the
@@ -69,6 +131,8 @@ export async function renderCustomerMenu(container, subPage) {
   }
   viewMode = 'menu';
   localCart = [];
+  trackedRequestId = null;
+  registerTrackingLiveRefresh(container, tableId);
   await renderContent(container, tableId);
 }
 
@@ -110,16 +174,73 @@ async function renderContent(container, tableId) {
   const tableLabel = table ? tableDisplayNameWithSection(table, tables) : 'Menu';
 
   if (viewMode === 'submitted') {
+    const allRequests = await getMenuRequests();
+    const request = allRequests.find(r => r.id === trackedRequestId) || null;
+    const kitchenItems = request ? await findKitchenItemsForRequest(request.id, tableId) : [];
+    const stage = computeStage(request, kitchenItems);
+
+    if (stage === 'dismissed') {
+      container.innerHTML = scrollShell(`
+        <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center;">
+          <div style="font-size:52px; margin-bottom:16px;">😕</div>
+          <div style="font-size:19px; font-weight:800; margin-bottom:8px;">Your order couldn't be accepted</div>
+          <div style="font-size:13.5px; color:var(--text-muted); max-width:320px;">Please check with a staff member at the counter.</div>
+          <button id="cmNewRequestBtn" class="btn btn-primary" style="margin-top:24px;">Send a New Order</button>
+        </div>
+      `);
+      document.getElementById('cmNewRequestBtn')?.addEventListener('click', () => {
+        viewMode = 'menu';
+        trackedRequestId = null;
+        renderContent(container, tableId);
+      });
+      return;
+    }
+
+    const currentIndex = ORDER_STAGES.findIndex(s => s.key === stage);
     container.innerHTML = scrollShell(`
-      <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center;">
-        <div style="font-size:56px; margin-bottom:16px;">✅</div>
-        <div style="font-size:20px; font-weight:800; margin-bottom:8px;">Sent to the counter!</div>
-        <div style="font-size:14px; color:var(--text-muted); max-width:320px;">Your order request has been sent — a staff member will confirm it shortly. No need to do anything else.</div>
-        <button id="cmNewRequestBtn" class="btn btn-primary" style="margin-top:24px;">Send another request</button>
+      <div style="padding:16px; background:var(--bg-elevated); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; flex-shrink:0; text-align:center;">
+        <div style="font-size:16px; font-weight:800;">📋 Your Order Status</div>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">${escapeHtml(tableLabel)} — updates automatically</div>
       </div>
+      <div style="flex:1; padding:24px 20px;">
+        <div class="cm-track">
+          ${ORDER_STAGES.map((s, idx) => {
+            const state = idx < currentIndex ? 'done' : idx === currentIndex ? 'active' : 'upcoming';
+            return `
+            <div class="cm-track-row cm-track-${state}">
+              <div class="cm-track-dot">${state === 'done' ? '<i class="fa-solid fa-check"></i>' : s.icon}</div>
+              <div class="cm-track-line"></div>
+              <div class="cm-track-text">
+                <div class="cm-track-label">${s.label}</div>
+                ${state !== 'upcoming' ? `<div class="cm-track-desc">${s.desc}</div>` : ''}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+      <div style="padding:16px; flex-shrink:0;">
+        <button id="cmNewRequestBtn" class="btn btn-ghost" style="width:100%;">Send Another Order</button>
+      </div>
+    ` + `
+      <style>
+        .cm-track-row { display:flex; gap:14px; position:relative; padding-bottom:28px; }
+        .cm-track-row:last-child { padding-bottom:0; }
+        .cm-track-dot { width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; background:var(--bg-app); border:2px solid var(--border); color:var(--text-muted); z-index:1; }
+        .cm-track-done .cm-track-dot, .cm-track-active .cm-track-dot { background:var(--primary); border-color:var(--primary); color:#fff; }
+        .cm-track-active .cm-track-dot { animation: cmPulse 1.4s ease-in-out infinite; }
+        .cm-track-line { position:absolute; left:17px; top:36px; bottom:-28px; width:2px; background:var(--border); }
+        .cm-track-done .cm-track-line { background:var(--primary); }
+        .cm-track-row:last-child .cm-track-line { display:none; }
+        .cm-track-text { padding-top:6px; }
+        .cm-track-label { font-size:13.5px; font-weight:800; color:var(--text-muted); }
+        .cm-track-done .cm-track-label, .cm-track-active .cm-track-label { color:var(--text-main); }
+        .cm-track-desc { font-size:11.5px; color:var(--text-muted); margin-top:2px; }
+        @keyframes cmPulse { 0%,100% { transform:scale(1); opacity:1; } 50% { transform:scale(1.08); opacity:.85; } }
+      </style>
     `);
     document.getElementById('cmNewRequestBtn')?.addEventListener('click', () => {
       viewMode = 'menu';
+      trackedRequestId = null;
       renderContent(container, tableId);
     });
     return;
@@ -155,7 +276,7 @@ async function renderContent(container, tableId) {
             <span>Total</span><span>₹${cartTotal.toFixed(2)}</span>
           </div>
           <button id="cmSendRequestBtn" class="btn btn-primary" style="width:100%; padding:14px; font-size:15px; font-weight:800;">
-            <i class="fa-solid fa-paper-plane mr-8"></i> Send Request to Counter
+            <i class="fa-solid fa-bag-shopping mr-8"></i> Place My Order
           </button>
         </div>
       ` : ''}
@@ -182,7 +303,8 @@ async function renderContent(container, tableId) {
       const btn = document.getElementById('cmSendRequestBtn');
       btn.disabled = true;
       try {
-        await saveMenuRequest({ tableId, items: localCart.map(i => ({ ...i })) });
+        const saved = await saveMenuRequest({ tableId, items: localCart.map(i => ({ ...i })) });
+        trackedRequestId = saved.id;
         viewMode = 'submitted';
         renderContent(container, tableId);
       } catch (err) {

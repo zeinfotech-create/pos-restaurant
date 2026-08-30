@@ -493,9 +493,34 @@ function getPageTitle(page) {
   return titles[mainPage] || mainPage;
 }
 
+// The customer-facing QR menu (#menu/#customer-menu) never shows the
+// topbar (CSS-hidden as a standalone page), but #topbar itself is a static
+// element always present in index.html, and this device's OWN local writes
+// (e.g. saveMenuRequest() when it sends its own order) fire the very same
+// 'storage-change' event every staff device's topbar listens for — so
+// without this guard, a customer's phone silently ran the full staff-facing
+// low-stock/expiry/menu-request badge logic in the background: rebuilding
+// every 10s indefinitely, AND updateGlobalMenuRequestBadge()'s "🔔 New
+// order request — <table>" toast firing on top of the customer's OWN
+// tracking screen for literally any table's new pending request, not just
+// theirs — caught live while testing the order-tracking feature
+// (CustomerMenu.js). In a multi-branch install it's worse than just noisy:
+// getMenuRequests(store.branch?.id) with no branch context (true for every
+// anonymous customer device) skips its own branchId filter and returns
+// requests across ALL branches. Checked inside each badge function itself,
+// not only renderTopbar() — renderTopbar()'s own very first boot-time call
+// happens BEFORE initRouter() has processed the initial hash (main.js's own
+// boot order), so getCurrentPage() there hasn't settled to 'menu/...' yet;
+// the direct 'storage-change'/'data-synced' listeners lower in this file
+// also call these functions straight, bypassing renderTopbar() entirely.
+function isCustomerFacingPage() {
+  return ['customer-menu', 'menu'].includes(getCurrentPage().split('/')[0]);
+}
+
 async function renderTopbar() {
   const topbar = document.getElementById('topbar');
   if (!topbar) return;
+  if (isCustomerFacingPage()) return;
   const settings = store.settings || await getSettings();
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
@@ -627,6 +652,7 @@ async function renderTopbar() {
 }
 
 async function updateGlobalLowStockBadge() {
+  if (isCustomerFacingPage()) return;
   const container = document.getElementById('globalLowStockContainer');
   if (!container) return;
 
@@ -669,6 +695,7 @@ async function updateGlobalLowStockBadge() {
 }
 
 async function updateGlobalExpiryBadge() {
+  if (isCustomerFacingPage()) return;
   const container = document.getElementById('globalExpiryContainer');
   if (!container) return;
 
@@ -721,6 +748,7 @@ async function updateGlobalExpiryBadge() {
 let knownMenuRequestIds = null; // null = "haven't checked yet" this session — never toast for requests that already existed before this device started watching
 
 async function updateGlobalMenuRequestBadge() {
+  if (isCustomerFacingPage()) return;
   const container = document.getElementById('globalMenuRequestContainer');
   if (!container) return;
 

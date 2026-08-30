@@ -2335,7 +2335,12 @@ async function sendToKitchen(courseFilter = null) {
       course: courseFilter || null,
       contactName: takeawayContact.name || '',
       waiterName: store.selectedStaff?.name || null,
-      items: pending.map(({ item, sendQty }) => ({ name: item.name, qty: sendQty, modifiers: item.modifiers || [], notes: item.notes || '', course: item.course || null, cartId: item.cartId, itemStatus: 'pending' })),
+      // sourceRequestIds carries forward from the cart line (stamped in
+      // openMenuRequestsModal()'s Accept handler) so a customer's own
+      // CustomerMenu.js device can look up this exact ticket item's
+      // itemStatus later and show a real preparing/ready/served tracker,
+      // not just "accepted and then nothing".
+      items: pending.map(({ item, sendQty }) => ({ name: item.name, qty: sendQty, modifiers: item.modifiers || [], notes: item.notes || '', course: item.course || null, cartId: item.cartId, itemStatus: 'pending', sourceRequestIds: item.sourceRequestIds || [] })),
       branchId,
     });
   } catch (err) {
@@ -3016,7 +3021,16 @@ async function openMenuRequestsModal() {
           btn.disabled = true;
           for (const item of (req.items || [])) {
             const product = allProducts.find(p => String(p.id) === String(item.productId));
-            if (product) addToCart(product, null, item.qty);
+            if (!product) continue;
+            const cartId = addToCart(product, null, item.qty);
+            // Tag the cart line with this request's id so the customer's own
+            // device can later track it through to a real kitchen ticket
+            // (sendToKitchen() copies this onto the KOT item) — a customer
+            // never sees "accepted" as the final word, they can watch it
+            // through preparing/ready/served too. A line that already had a
+            // different request's items merged in just collects both ids.
+            const cartItem = cartId && store.cart.find(i => i.cartId === cartId);
+            if (cartItem) cartItem.sourceRequestIds = [...new Set([...(cartItem.sourceRequestIds || []), req.id])];
           }
           await updateMenuRequestStatus(req.id, 'accepted');
           await persistOrderState();
