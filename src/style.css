@@ -2526,7 +2526,13 @@ table {
   border-bottom: none;
 }
 
-@media (max-width: 768px) {
+/* 768px only caught real phones — a wide table like Orders' (11 columns,
+   generous 18-20px cell padding) genuinely doesn't fit on the tablet/small-
+   laptop range a lot of POS terminals actually run at (1024-1280px), so it
+   fell back to .table-wrap's overflow-x:auto horizontal scroll instead of
+   this card-stack view below. Raised so that common POS-terminal range gets
+   the polished stacked-card layout too, not just phones. */
+@media (max-width: 1200px) {
   .responsive-table thead {
     display: none;
   }
