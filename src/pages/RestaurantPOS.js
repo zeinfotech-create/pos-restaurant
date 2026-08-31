@@ -570,6 +570,21 @@ async function render(container) {
       .rpos-add-party-card { cursor:pointer; transition:all .15s; }
       .rpos-add-party-card:hover { border-color:var(--primary); transform:translateY(-2px); }
       .rpos-layout { display:grid; grid-template-columns: 1fr 380px; gap:20px; height:100%; align-items:start; }
+      /* The left column only, stretched to the row's full height (align-self
+         overrides the container's align-items:start above just for this one
+         item — the cart panel on the right keeps its own natural content
+         height instead of stretching into dead empty space when the cart is
+         short). Search bar + category chips stay put; only
+         #rposProductGrid (flex:1 below) scrolls in the space left over.
+         min-height:0 is the vertical twin of the min-width:0 fix just below
+         — a flex child's default min-height is also 'auto' (its content's
+         full height), which would otherwise force this column tall enough
+         to fit the WHOLE product list and defeat the inner scroll entirely.
+         Previously this whole column (search bar, category chips, product
+         grid) just sat at its own natural height too, so once the product
+         list ran long, the WHOLE #rposContent scrolled as one block instead
+         of only the product list itself. */
+      .rpos-ordering-left { display:flex; flex-direction:column; align-self:stretch; height:100%; min-height:0; }
       /* A grid item's default min-width is auto (its content's own natural
          size), not 0 — so .rpos-cat-bar's nowrap category chips (needed for
          ITS OWN overflow-x:auto below to work) were forcing their full
@@ -1566,8 +1581,8 @@ async function renderOrderingView() {
 
   area.innerHTML = `
     <div class="rpos-layout">
-      <div>
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:10px;">
+      <div class="rpos-ordering-left">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:10px; flex-shrink:0;">
           <div style="font-size:14px; font-weight:800; display:flex; align-items:center; gap:8px;">
             ${orderType === 'dine-in'
               ? `<i class="fa-solid fa-chair"></i> ${escapeHtml(orderLabel || 'Table')}`
@@ -1594,7 +1609,7 @@ async function renderOrderingView() {
             ` : ''}
           </div>
         </div>
-        <div style="margin-bottom:16px; display:flex; gap:8px; align-items:center;">
+        <div style="margin-bottom:16px; display:flex; gap:8px; align-items:center; flex-shrink:0;">
           <input class="form-input" id="rposMenuSearch" placeholder="🔍 Search menu, SKU, barcode…" value="${escapeHtml(menuSearch)}" style="flex:1; min-width:0; font-size:13px; ${isMobile ? 'height:44px; font-size:14px;' : ''}" />
           <select class="form-input" id="rposSortSelect" title="Sort menu" style="width:auto; flex-shrink:0; font-size:12px; ${isMobile ? 'height:44px;' : ''}">
             <option value="name-asc" ${currentSort === 'name-asc' ? 'selected' : ''}>A to Z</option>
@@ -1605,18 +1620,18 @@ async function renderOrderingView() {
             <option value="custom" ${currentSort === 'custom' ? 'selected' : ''}>Custom Order</option>
           </select>
         </div>
-        <div class="rpos-cat-bar" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:12px; margin-bottom:18px;">
+        <div class="rpos-cat-bar" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:12px; margin-bottom:18px; flex-shrink:0;">
           <div class="rpos-cat-tab ${!activeCategory ? 'active' : ''}" data-cat="">All</div>
           ${categories.map(c => `<div class="rpos-cat-tab ${activeCategory === c.name ? 'active' : ''}" data-cat="${escapeHtml(c.name)}">${escapeHtml(c.name)}</div>`).join('')}
         </div>
         ${currentSort === 'custom' ? `
-          <div style="display:flex; align-items:center; gap:10px; background:rgba(99,102,241,0.08); border:1px dashed var(--primary); border-radius:8px; padding:8px 14px; margin-bottom:14px; font-size:12px; color:var(--text-primary);">
+          <div style="display:flex; align-items:center; gap:10px; background:rgba(99,102,241,0.08); border:1px dashed var(--primary); border-radius:8px; padding:8px 14px; margin-bottom:14px; font-size:12px; color:var(--text-primary); flex-shrink:0;">
             <i class="fa-solid fa-hand-pointer" style="color:var(--primary);"></i>
             <span style="flex:1;"><b>Drag &amp; drop</b> any item to arrange your own menu order. Saved automatically.</span>
             <button id="rposResetCustomOrderBtn" class="btn btn-ghost btn-sm" style="font-size:11px; padding:4px 10px;"><i class="fa-solid fa-rotate-left"></i> Reset</button>
           </div>
         ` : ''}
-        <div id="rposProductGrid" style="${isMobile ? 'display:flex; flex-direction:column; gap:10px;' : 'display:grid; grid-template-columns:repeat(auto-fill, minmax(170px,1fr)); gap:14px;'}">
+        <div id="rposProductGrid" style="${isMobile ? 'display:flex; flex-direction:column; gap:10px;' : 'display:grid; grid-template-columns:repeat(auto-fill, minmax(170px,1fr)); gap:14px; align-content:start; flex:1; min-height:0; overflow-y:auto; padding-bottom:4px;'}">
           ${products.length === 0 ? `<div style="${isMobile ? '' : 'grid-column:1/-1;'} text-align:center; padding:30px; color:var(--text-muted);">No items match</div>` : products.map(p => {
             const available = isProductAvailable(p, allProductsForStock);
             const soldOutStyle = available ? '' : 'opacity:.45; pointer-events:none; filter:grayscale(.6);';
