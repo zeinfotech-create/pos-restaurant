@@ -440,7 +440,7 @@ async function render(container) {
          click-the-logo-to-go-home affordance, not a new concept. */
       .rpos-topbar-title-btn { background:none; border:none; cursor:pointer; padding:6px 10px; margin:-6px -10px; border-radius:8px; color:var(--text-primary); transition:background .15s; }
       .rpos-topbar-title-btn:hover { background:var(--bg-app); }
-      #rposContent { flex:1; overflow:auto; padding:20px; }
+      #rposContent { flex:1; overflow:auto; padding:24px; }
       /* Mobile (#mo/#mobile-order) only, below — the desktop/tablet 'restaurant-pos'
          tab is completely unaffected since none of these selectors match
          without .rpos-mobile on .rpos-shell. */
@@ -569,12 +569,12 @@ async function render(container) {
       .rpos-table-card:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,.1); }
       .rpos-add-party-card { cursor:pointer; transition:all .15s; }
       .rpos-add-party-card:hover { border-color:var(--primary); transform:translateY(-2px); }
-      .rpos-layout { display:grid; grid-template-columns: 1fr 380px; gap:16px; height:100%; align-items:start; }
+      .rpos-layout { display:grid; grid-template-columns: 1fr 380px; gap:20px; height:100%; align-items:start; }
       @media (max-width: 900px) { .rpos-layout { grid-template-columns: 1fr; } }
-      .rpos-cat-tab { padding:8px 16px; border-radius:999px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; font-size:12px; font-weight:700; white-space:nowrap; transition:all .15s; }
+      .rpos-cat-tab { padding:9px 18px; border-radius:999px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; font-size:12.5px; font-weight:700; white-space:nowrap; transition:all .15s; }
       .rpos-cat-tab:hover:not(.active) { border-color:var(--primary); color:var(--primary); }
       .rpos-cat-tab.active { background:var(--primary); color:white; border-color:var(--primary); box-shadow:0 2px 8px rgba(0,0,0,.18); }
-      .rpos-product-card { padding:14px; border-radius:12px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; transition:transform .2s cubic-bezier(.4,0,.2,1), box-shadow .2s cubic-bezier(.4,0,.2,1), border-color .2s; box-shadow:0 2px 6px rgba(0,0,0,.04); }
+      .rpos-product-card { padding:16px; border-radius:12px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; transition:transform .2s cubic-bezier(.4,0,.2,1), box-shadow .2s cubic-bezier(.4,0,.2,1), border-color .2s; box-shadow:0 2px 6px rgba(0,0,0,.04); }
       .rpos-product-card:hover { border-color:var(--primary); transform:translateY(-3px); box-shadow:0 8px 20px rgba(0,0,0,.1); }
       .rpos-product-card:active { transform:translateY(-1px) scale(.98); }
       /* Custom Order drag-and-drop — Pointer Events based (not native HTML5
@@ -595,7 +595,7 @@ async function render(container) {
          proper qty stepper (was three separate boxy buttons) against the
          price. One shared design for both — the .rpos-mobile overrides
          further down only bump sizing for touch, the shape is identical. */
-      .rpos-cart-item { padding:12px 0; border-bottom:1px solid var(--border); }
+      .rpos-cart-item { padding:14px 0; border-bottom:1px solid var(--border); }
       .rpos-cart-item-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
       .rpos-cart-item-name { font-size:13px; font-weight:700; flex:1; }
       .rpos-cart-item-remove { width:26px; height:26px; flex-shrink:0; border:none; background:none; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:12px; cursor:pointer; transition:background-color .15s, color .15s; }
@@ -1557,7 +1557,7 @@ async function renderOrderingView() {
   area.innerHTML = `
     <div class="rpos-layout">
       <div>
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:10px;">
           <div style="font-size:14px; font-weight:800; display:flex; align-items:center; gap:8px;">
             ${orderType === 'dine-in'
               ? `<i class="fa-solid fa-chair"></i> ${escapeHtml(orderLabel || 'Table')}`
@@ -1584,7 +1584,7 @@ async function renderOrderingView() {
             ` : ''}
           </div>
         </div>
-        <div style="margin-bottom:12px; display:flex; gap:8px; align-items:center;">
+        <div style="margin-bottom:16px; display:flex; gap:8px; align-items:center;">
           <input class="form-input" id="rposMenuSearch" placeholder="🔍 Search menu, SKU, barcode…" value="${escapeHtml(menuSearch)}" style="flex:1; min-width:0; font-size:13px; ${isMobile ? 'height:44px; font-size:14px;' : ''}" />
           <select class="form-input" id="rposSortSelect" title="Sort menu" style="width:auto; flex-shrink:0; font-size:12px; ${isMobile ? 'height:44px;' : ''}">
             <option value="name-asc" ${currentSort === 'name-asc' ? 'selected' : ''}>A to Z</option>
@@ -1595,7 +1595,7 @@ async function renderOrderingView() {
             <option value="custom" ${currentSort === 'custom' ? 'selected' : ''}>Custom Order</option>
           </select>
         </div>
-        <div class="rpos-cat-bar" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:10px; margin-bottom:14px;">
+        <div class="rpos-cat-bar" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:12px; margin-bottom:18px;">
           <div class="rpos-cat-tab ${!activeCategory ? 'active' : ''}" data-cat="">All</div>
           ${categories.map(c => `<div class="rpos-cat-tab ${activeCategory === c.name ? 'active' : ''}" data-cat="${escapeHtml(c.name)}">${escapeHtml(c.name)}</div>`).join('')}
         </div>
@@ -1606,7 +1606,7 @@ async function renderOrderingView() {
             <button id="rposResetCustomOrderBtn" class="btn btn-ghost btn-sm" style="font-size:11px; padding:4px 10px;"><i class="fa-solid fa-rotate-left"></i> Reset</button>
           </div>
         ` : ''}
-        <div id="rposProductGrid" style="${isMobile ? 'display:flex; flex-direction:column; gap:10px;' : 'display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:12px;'}">
+        <div id="rposProductGrid" style="${isMobile ? 'display:flex; flex-direction:column; gap:10px;' : 'display:grid; grid-template-columns:repeat(auto-fill, minmax(170px,1fr)); gap:14px;'}">
           ${products.length === 0 ? `<div style="${isMobile ? '' : 'grid-column:1/-1;'} text-align:center; padding:30px; color:var(--text-muted);">No items match</div>` : products.map(p => {
             const available = isProductAvailable(p, allProductsForStock);
             const soldOutStyle = available ? '' : 'opacity:.45; pointer-events:none; filter:grayscale(.6);';
@@ -1633,16 +1633,16 @@ async function renderOrderingView() {
               ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder" style="position:absolute; top:2px; right:2px;"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
               ${!available ? `<div style="position:absolute; top:6px; right:6px; background:var(--danger); color:#fff; font-size:9px; font-weight:800; letter-spacing:.3px; padding:2px 6px; border-radius:4px;">SOLD OUT</div>` : ''}
               ${available && hhPct > 0 ? `<div style="position:absolute; top:6px; left:6px; background:var(--warning); color:#fff; font-size:9px; font-weight:800; letter-spacing:.3px; padding:2px 6px; border-radius:4px;"><i class="fa-solid fa-clock"></i> -${hhPct}%</div>` : ''}
-              <div style="width:44px; height:44px; margin:0 auto; border-radius:12px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:22px;">${p.emoji || '🍽️'}</div>
-              <div style="font-size:12px; font-weight:700; margin-top:8px; text-align:center; line-height:1.3;">${foodTypeIconHtml(p.foodType, 10)}${escapeHtml(p.name)}</div>
-              <div style="font-size:12px; color:var(--primary); font-weight:800; text-align:center; margin-top:3px;">${hhPriceHtml}</div>
+              <div style="width:48px; height:48px; margin:0 auto; border-radius:12px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:24px;">${p.emoji || '🍽️'}</div>
+              <div style="font-size:12.5px; font-weight:700; margin-top:10px; text-align:center; line-height:1.35;">${foodTypeIconHtml(p.foodType, 10)}${escapeHtml(p.name)}</div>
+              <div style="font-size:12.5px; color:var(--primary); font-weight:800; text-align:center; margin-top:4px;">${hhPriceHtml}</div>
             </div>
           `; }).join('')}
         </div>
       </div>
 
-      <div class="card rpos-cart-panel${isMobile && mobileCartOpen ? ' rpos-cart-open' : ''}" id="rposCartPanel" style="padding:16px; position:sticky; top:0;">
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;" id="rposCartPeekHeader">
+      <div class="card rpos-cart-panel${isMobile && mobileCartOpen ? ' rpos-cart-open' : ''}" id="rposCartPanel" style="padding:20px; position:sticky; top:0;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;" id="rposCartPeekHeader">
           <div style="width:28px; height:28px; border-radius:8px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:13px;">🛒</div>
           <div style="font-size:13px; font-weight:800; flex:1;">Order <span style="color:var(--text-muted); font-weight:600;">(${store.cart.length} item${store.cart.length === 1 ? '' : 's'})</span></div>
           ${isMobile ? `
@@ -1701,22 +1701,22 @@ async function renderOrderingView() {
           `;
           }).join('')}
         </div>
-        <div style="border-top:1px solid var(--border); margin-top:12px; padding-top:10px; display:flex; flex-direction:column; gap:4px; font-size:12px;">
+        <div style="border-top:1px solid var(--border); margin-top:14px; padding-top:12px; display:flex; flex-direction:column; gap:6px; font-size:12.5px;">
           <div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>Subtotal</span><span>${cur}${totals.subtotal.toFixed(2)}</span></div>
           ${totals.discount > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--success);"><span>Discount</span><span>-${cur}${totals.discount.toFixed(2)}</span></div>` : ''}
           <div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>Tax</span><span>${cur}${(totals.itemTax + totals.orderTax).toFixed(2)}</span></div>
           ${totals.serviceCharge > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>Service Charge (${totals.serviceChargePercent}%)</span><span>${cur}${totals.serviceCharge.toFixed(2)}</span></div>` : ''}
           ${totals.roundOff ? `<div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>Round Off</span><span>${totals.roundOff > 0 ? '+' : ''}${cur}${totals.roundOff.toFixed(2)}</span></div>` : ''}
-          <div style="display:flex; justify-content:space-between; font-size:15px; font-weight:800; margin-top:4px; padding-top:6px; border-top:1px solid var(--border);"><span>Total</span><span>${cur}${totals.total.toFixed(2)}</span></div>
+          <div style="display:flex; justify-content:space-between; font-size:16px; font-weight:800; margin-top:6px; padding-top:8px; border-top:1px solid var(--border);"><span>Total</span><span>${cur}${totals.total.toFixed(2)}</span></div>
         </div>
-        <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
+        <div style="display:flex; flex-direction:column; gap:10px; margin-top:18px;">
           ${renderSendControls(pendingItems, coursesPresent)}
           ${!isMobile ? `
             <button class="btn btn-ghost" id="rposPreviewBillBtn" ${store.cart.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-print"></i> Preview Bill</button>
             <button class="btn btn-primary" id="rposBillBtn" ${store.cart.length === 0 || !serveStatus.fullyServed ? 'disabled' : ''}><i class="fa-solid fa-receipt"></i> Bill Now — ${cur}${totals.total.toFixed(2)}</button>
             ${store.cart.length > 0 && !serveStatus.fullyServed ? `<div style="font-size:11px; color:var(--warning); text-align:center; display:flex; align-items:center; justify-content:center; gap:6px;"><i class="fa-solid fa-hourglass-half"></i> ${serveStatus.outstanding} dish${serveStatus.outstanding === 1 ? '' : 'es'} still not served — check Kitchen</div>` : ''}
           ` : ''}
-          ${store.cart.length > 0 ? `<button class="btn btn-ghost btn-sm" id="rposCancelOrderBtn" ${cancelLocked ? 'disabled' : ''} title="${cancelLocked ? 'Kitchen has already started preparing this order — cancellation is locked (Settings > KOT).' : ''}" style="color:var(--danger); border:1px solid rgba(239,68,68,0.25); margin-top:2px; ${cancelLocked ? 'opacity:.45; cursor:not-allowed;' : ''}"><i class="fa-solid ${cancelLocked ? 'fa-lock' : 'fa-ban'}"></i> Cancel Order</button>` : ''}
+          ${store.cart.length > 0 ? `<button class="btn btn-ghost btn-sm" id="rposCancelOrderBtn" ${cancelLocked ? 'disabled' : ''} title="${cancelLocked ? 'Kitchen has already started preparing this order — cancellation is locked (Settings > KOT).' : ''}" style="color:var(--danger); border:1px solid rgba(239,68,68,0.25); margin-top:8px; ${cancelLocked ? 'opacity:.45; cursor:not-allowed;' : ''}"><i class="fa-solid ${cancelLocked ? 'fa-lock' : 'fa-ban'}"></i> Cancel Order</button>` : ''}
         </div>
       </div>
     </div>
