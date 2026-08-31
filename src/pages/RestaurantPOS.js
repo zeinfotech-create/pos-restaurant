@@ -1735,10 +1735,17 @@ async function renderOrderingView() {
           <div style="display:flex; justify-content:space-between; font-size:16px; font-weight:800; margin-top:6px; padding-top:8px; border-top:1px solid var(--border);"><span>Total</span><span>${cur}${totals.total.toFixed(2)}</span></div>
         </div>
         <div style="display:flex; flex-direction:column; gap:10px; margin-top:18px;">
-          ${renderSendControls(pendingItems, coursesPresent)}
+          <!-- Send to Kitchen + Preview Bill: both secondary/supporting actions,
+               so both icon-only with a hover tooltip for the label — same size,
+               side by side in one row, so Bill Now below reads as the clearly
+               bigger, primary action rather than a third button the same weight
+               as these two. -->
+          <div style="display:flex; gap:8px;">
+            ${renderSendControls(pendingItems, coursesPresent)}
+            ${!isMobile ? `<button class="btn btn-icon btn-ghost" id="rposPreviewBillBtn" title="Preview Bill" ${store.cart.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-print"></i></button>` : ''}
+          </div>
           ${!isMobile ? `
-            <button class="btn btn-ghost" id="rposPreviewBillBtn" ${store.cart.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-print"></i> Preview Bill</button>
-            <button class="btn btn-primary" id="rposBillBtn" ${store.cart.length === 0 || !serveStatus.fullyServed ? 'disabled' : ''}><i class="fa-solid fa-receipt"></i> Bill Now — ${cur}${totals.total.toFixed(2)}</button>
+            <button class="btn btn-primary btn-lg" id="rposBillBtn" ${store.cart.length === 0 || !serveStatus.fullyServed ? 'disabled' : ''}><i class="fa-solid fa-receipt"></i> Bill Now — ${cur}${totals.total.toFixed(2)}</button>
             ${store.cart.length > 0 && !serveStatus.fullyServed ? `<div style="font-size:11px; color:var(--warning); text-align:center; display:flex; align-items:center; justify-content:center; gap:6px;"><i class="fa-solid fa-hourglass-half"></i> ${serveStatus.outstanding} dish${serveStatus.outstanding === 1 ? '' : 'es'} still not served — check Kitchen</div>` : ''}
           ` : ''}
           ${store.cart.length > 0 ? `<button class="btn btn-ghost btn-sm" id="rposCancelOrderBtn" ${cancelLocked ? 'disabled' : ''} title="${cancelLocked ? 'Kitchen has already started preparing this order — cancellation is locked (Settings > KOT).' : ''}" style="color:var(--danger); border:1px solid rgba(239,68,68,0.25); margin-top:8px; ${cancelLocked ? 'opacity:.45; cursor:not-allowed;' : ''}"><i class="fa-solid ${cancelLocked ? 'fa-lock' : 'fa-ban'}"></i> Cancel Order</button>` : ''}
@@ -1995,12 +2002,21 @@ async function persistCustomOrder(draggedId, targetId) {
 // them (per-item Course pickers) — until then this stays the plain single
 // "Send to Kitchen" button so a shop that doesn't care about courses sees no
 // extra complexity.
+// Icon-only, same size/shape as the Preview Bill button next to it (both
+// sit together in one row — see the caller) — a small numeric badge (same
+// corner-badge idea as the Kitchen nav button's own pending-count, just
+// scoped to this one button) keeps the pending count visible without text.
 function renderSendControls(pendingItems, coursesPresent) {
   if (pendingItems.length === 0) {
-    return store.cart.length === 0 ? '' : `<button class="btn btn-secondary" disabled><i class="fa-solid fa-check"></i> All Sent to Kitchen</button>`;
+    return store.cart.length === 0 ? '' : `<button class="btn btn-icon btn-secondary" disabled title="All Sent to Kitchen"><i class="fa-solid fa-check"></i></button>`;
   }
   if (coursesPresent.length === 0) {
-    return `<button class="btn btn-secondary rpos-send-course" data-course=""><i class="fa-solid fa-kitchen-set"></i> Send to Kitchen (${pendingItems.length})</button>`;
+    return `
+      <button class="btn btn-icon btn-secondary rpos-send-course" data-course="" title="Send to Kitchen (${pendingItems.length})" style="position:relative;">
+        <i class="fa-solid fa-kitchen-set"></i>
+        <span style="position:absolute; top:-6px; right:-6px; min-width:16px; height:16px; padding:0 3px; border-radius:999px; background:var(--danger); color:#fff; font-size:9.5px; font-weight:800; display:flex; align-items:center; justify-content:center; line-height:1;">${pendingItems.length}</span>
+      </button>
+    `;
   }
   return `
     <div style="display:flex; gap:6px; flex-wrap:wrap;">
