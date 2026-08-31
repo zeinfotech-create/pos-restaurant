@@ -570,6 +570,16 @@ async function render(container) {
       .rpos-add-party-card { cursor:pointer; transition:all .15s; }
       .rpos-add-party-card:hover { border-color:var(--primary); transform:translateY(-2px); }
       .rpos-layout { display:grid; grid-template-columns: 1fr 380px; gap:20px; height:100%; align-items:start; }
+      /* A grid item's default min-width is auto (its content's own natural
+         size), not 0 — so .rpos-cat-bar's nowrap category chips (needed for
+         ITS OWN overflow-x:auto below to work) were forcing their full
+         unwrapped width up through this column, inflating the 1fr track
+         wider than the viewport and pushing the WHOLE page into a
+         horizontal scroll (cart panel included) instead of just the
+         category row scrolling in place. Same root cause and fix already
+         applied for .rpos-mobile below — this is that same fix for the
+         default/desktop view, which never had it. */
+      .rpos-layout > div:first-child { min-width: 0; }
       @media (max-width: 900px) { .rpos-layout { grid-template-columns: 1fr; } }
       .rpos-cat-tab { padding:9px 18px; border-radius:999px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer; font-size:12.5px; font-weight:700; white-space:nowrap; transition:all .15s; }
       .rpos-cat-tab:hover:not(.active) { border-color:var(--primary); color:var(--primary); }
