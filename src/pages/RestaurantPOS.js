@@ -570,12 +570,18 @@ async function render(container) {
       .rpos-add-party-card { cursor:pointer; transition:all .15s; }
       .rpos-add-party-card:hover { border-color:var(--primary); transform:translateY(-2px); }
       .rpos-layout { display:grid; grid-template-columns: 1fr 380px; gap:20px; height:100%; align-items:start; }
-      /* The left column only, stretched to the row's full height (align-self
-         overrides the container's align-items:start above just for this one
-         item — the cart panel on the right keeps its own natural content
-         height instead of stretching into dead empty space when the cart is
-         short). Search bar + category chips stay put; only
-         #rposProductGrid (flex:1 below) scrolls in the space left over.
+      /* The left column only, stretched to the row's full height via its own
+         explicit height:100% below (align-self:stretch alone wouldn't need
+         this, but height:100% is what actually resolves against the grid's
+         real available height here) — giving the cart-panel column on the
+         right a genuinely tall row to sit in as a side effect, so it now
+         needs its OWN explicit align-self:start (see rposCartPanel's inline
+         style) to keep its natural content height instead of stretching
+         into dead empty space when the cart is short; align-items:start on
+         .rpos-layout above turned out not to be enough by itself once this
+         column carried an explicit height. Search bar + category chips stay
+         put; only #rposProductGrid (flex:1 below) scrolls in the space left
+         over.
          min-height:0 is the vertical twin of the min-width:0 fix just below
          — a flex child's default min-height is also 'auto' (its content's
          full height), which would otherwise force this column tall enough
@@ -1666,7 +1672,7 @@ async function renderOrderingView() {
         </div>
       </div>
 
-      <div class="card rpos-cart-panel${isMobile && mobileCartOpen ? ' rpos-cart-open' : ''}" id="rposCartPanel" style="padding:20px; position:sticky; top:0;">
+      <div class="card rpos-cart-panel${isMobile && mobileCartOpen ? ' rpos-cart-open' : ''}" id="rposCartPanel" style="padding:20px; position:sticky; top:0; align-self:start;">
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;" id="rposCartPeekHeader">
           <div style="width:28px; height:28px; border-radius:8px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:13px;">🛒</div>
           <div style="font-size:13px; font-weight:800; flex:1;">Order <span style="color:var(--text-muted); font-weight:600;">(${store.cart.length} item${store.cart.length === 1 ? '' : 's'})</span></div>
