@@ -383,7 +383,7 @@ function ticketHeader(k) {
     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
       <div style="font-weight:800; font-size:13px; display:flex; align-items:center; gap:6px;">
         ${k.isRush ? rushBadge() : ''}
-        ${k.tableName ? escapeHtml(kitchenFacingOrderLabel(k.tableName)) : (k.orderType || '').toUpperCase()}${k.course ? ` · ${escapeHtml(k.course)}` : ''}
+        ${k.tableName ? escapeHtml(kitchenFacingOrderLabel(k.tableName)) : (k.orderType || '').toUpperCase()}
         ${isAddOn ? `<span style="font-size:9.5px; font-weight:800; color:var(--warning); white-space:nowrap;"><i class="fa-solid fa-circle-plus" style="margin-right:3px;"></i>ADD-ON #${k.waveNumber}</span>` : ''}
       </div>
       <div class="rpos-kot-timer" data-created-at="${k.createdAt}" style="font-size:11px; font-weight:800; color:${tier.color}; white-space:nowrap;">${formatElapsed(elapsed)}${tier.overdue ? ' ⚠' : ''}</div>

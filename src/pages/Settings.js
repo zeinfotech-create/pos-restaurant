@@ -2239,7 +2239,6 @@ export async function renderSettings(container) {
     const sampleKot = {
       id: 'SAMPLE-KOT-001',
       createdAt: new Date().toISOString(),
-      course: '',
       waveNumber: 2,
       orderType: 'dine-in',
       tableName: 'TABLE-1',
