@@ -4378,7 +4378,31 @@ export async function getCategories() {
 }
 
 export async function saveCategory(cat) {
-  if (!cat.id) cat.id = 'cat-' + Date.now();
+  // Reuse an existing category with the same name (case-insensitive) instead
+  // of creating a fresh duplicate — this is the actual root cause of a real
+  // duplicate-category bug (one device ended up with a single category
+  // repeated dozens of times: "Beverages" x29, "Desserts" x46). Traced to
+  // migrateCategories()'s own guard (`if (existing.length > 0) return`)
+  // reading the LOCAL cache at call time — right after an app restart,
+  // before sync has pulled down categories that already exist elsewhere,
+  // that cache can read empty even though real records exist, so the
+  // migration re-seeds ['Beverages','Food','Desserts'] fresh. Across many
+  // restarts that's exactly how dozens of duplicates piled up. Only checked
+  // when `cat.id` doesn't correspond to an ALREADY-SAVED record — an
+  // explicit edit of a known category (id already exists) still just
+  // updates it directly, even if renamed to clash with another name; this
+  // only redirects genuine "new category" calls, including ones (like
+  // migrateCategories()'s own loop, or the bulk sample-data importer) that
+  // pre-generate an id before ever checking whether the name already exists.
+  const existingById = cat.id ? (await getCategories()).find(c => c.id === cat.id) : null;
+  if (!existingById) {
+    const existingByName = (await getCategories()).find(c => (c.name || '').trim().toLowerCase() === (cat.name || '').trim().toLowerCase());
+    if (existingByName) {
+      cat = { ...existingByName, ...cat, id: existingByName.id };
+    } else if (!cat.id) {
+      cat.id = 'cat-' + Date.now();
+    }
+  }
   await updateData('categories', cat);
   return cat;
 }
@@ -4399,7 +4423,18 @@ export async function getSubCategories(categoryId = null) {
 }
 
 export async function saveSubCategory(sub) {
-  if (!sub.id) sub.id = 'subcat-' + Date.now();
+  // Same guard as saveCategory() just above, same reasoning — scoped to
+  // (categoryId, name) since a sub-category name only needs to be unique
+  // within its own parent category, not globally.
+  const existingById = sub.id ? (await getSubCategories()).find(s => s.id === sub.id) : null;
+  if (!existingById) {
+    const existingByName = (await getSubCategories()).find(s => s.categoryId === sub.categoryId && (s.name || '').trim().toLowerCase() === (sub.name || '').trim().toLowerCase());
+    if (existingByName) {
+      sub = { ...existingByName, ...sub, id: existingByName.id };
+    } else if (!sub.id) {
+      sub.id = 'subcat-' + Date.now();
+    }
+  }
   await updateData('sub_categories', sub);
   return sub;
 }
