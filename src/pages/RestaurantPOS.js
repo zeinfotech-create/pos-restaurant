@@ -1604,7 +1604,17 @@ async function renderOrderingView() {
               : `<i class="fa-solid ${ORDER_TYPE_META[orderType].icon}" style="${AGGREGATOR_TYPES.includes(orderType) ? `color:${ORDER_TYPE_META[orderType].accent};` : ''}"></i> ${escapeHtml(orderLabel || ORDER_TYPE_META[orderType].label)}`}
             ${orderType === 'dine-in' ? `<button class="btn-icon" id="rposEditGuestsBtn" style="font-size:11px; font-weight:600; color:var(--text-muted);" title="Edit party size"><i class="fa-solid fa-users" style="margin-right:4px;"></i>${guestCount || '—'}<i class="fa-solid fa-pen" style="font-size:9px; margin-left:4px; opacity:.5;"></i></button>` : ''}
           </div>
-          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <!-- flex-wrap:nowrap — this small group (Rush/Waiter/Customer, ~300px of
+               content) was itself flex-wrap:wrap, and a flex item that's ALSO a
+               multi-line flex container gets an ambiguous "max-content" contribution
+               from the browser — measured here landing at ~300px even with 900px+
+               genuinely free in the outer row, wrapping the Customer button onto its
+               own second line for no real space reason. This group doesn't need
+               per-button wrapping; nowrap sizes it correctly to its real content
+               width. The outer row above still has its own flex-wrap:wrap, so on a
+               genuinely narrow window this whole group just drops to its own line
+               as one block instead — the responsive fallback that actually matters. -->
+          <div style="display:flex; gap:8px; flex-wrap:nowrap; align-items:center;">
             ${pendingMenuRequests.length > 0 ? `<button class="btn btn-sm" id="rposMenuRequestsBtn" style="background:var(--warning); color:#fff; border-color:var(--warning); font-size:12px; font-weight:700;"><i class="fa-solid fa-bell"></i> ${pendingMenuRequests.length} customer request${pendingMenuRequests.length === 1 ? '' : 's'}</button>` : ''}
             <button class="btn btn-sm" id="rposRushToggleBtn" title="${isRush ? 'Remove rush priority' : 'Mark this order as rush/priority for the kitchen'}"
               style="${isRush ? 'background:var(--danger); color:#fff; border-color:var(--danger);' : 'background:transparent; color:var(--text-muted); border:1px solid var(--border);'} font-size:12px; font-weight:700;">
@@ -1619,10 +1629,15 @@ async function renderOrderingView() {
                  and Pay Later/On Account is mandatory-customer by definition (see
                  openPaymentPanel() below). Neither enabled means picking a customer here
                  would do nothing, so the whole control disappears rather than sitting
-                 there as a no-op. -->
+                 there as a no-op.
+                 Icon-only + tooltip while unselected (its usual state) — spelling out
+                 "Customer (optional)" every time was the one control wide enough to push
+                 this whole row past the available width and wrap onto its own second
+                 line. Once a customer IS picked it's worth the room to actually show who,
+                 so only that state keeps the wider name pill. -->
             ${(settings.enableLoyalty !== false || settings.enableCredit !== false) ? `
-              <button class="btn btn-sm" id="rposCustomerBtn" style="font-size:12px; font-weight:700; display:flex; align-items:center; gap:6px; max-width:170px; ${store.selectedCustomer ? 'background:var(--primary); color:#fff; border-color:var(--primary);' : 'background:transparent; color:var(--text-muted); border:1px solid var(--border);'}">
-                <i class="fa-solid fa-user"></i> <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${store.selectedCustomer ? escapeHtml(store.selectedCustomer.name) : 'Customer (optional)'}</span>
+              <button class="btn ${store.selectedCustomer ? 'btn-sm' : 'btn-icon'}" id="rposCustomerBtn" title="${store.selectedCustomer ? '' : 'Add Customer'}" style="font-size:12px; font-weight:700; display:flex; align-items:center; gap:6px; ${store.selectedCustomer ? 'max-width:170px;' : ''} ${store.selectedCustomer ? 'background:var(--primary); color:#fff; border-color:var(--primary);' : 'background:transparent; color:var(--text-muted); border:1px solid var(--border);'}">
+                <i class="fa-solid fa-user"></i>${store.selectedCustomer ? ` <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(store.selectedCustomer.name)}</span>` : ''}
               </button>
               ${store.selectedCustomer ? `<button class="btn-icon" id="rposClearCustomerBtn" title="Remove customer" style="width:30px; height:30px;"><i class="fa-solid fa-xmark" style="font-size:11px;"></i></button>` : ''}
             ` : ''}
