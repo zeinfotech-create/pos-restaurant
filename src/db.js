@@ -455,7 +455,13 @@ const DEFAULT_SETTINGS = {
   // connected Weight Scale in POS. The rest are just labels — add/remove
   // freely to match how this store actually talks about stock.
   unitsOfMeasure: ['pcs', 'kg', 'g', 'ltr', 'dz', 'box'],
-  paymentMethods: [],
+  // Same add/remove pill UI as Units/Expense Categories above — was left
+  // empty here (unlike those two, which both ship with sensible presets),
+  // so a shop that never visited Settings > General only ever saw "Cash"
+  // as a payment option anywhere a method dropdown appears (RestaurantPOS's
+  // own Bill Now split panel included) with no way to split across Cash/
+  // Card/UPI without configuring this list manually first.
+  paymentMethods: ['Cash', 'Card', 'UPI'],
   // Settings > General > "Expense Categories" — same add/remove pill UI as
   // Payment Methods/Units. Free-text categories a shop actually pays out for
   // (rent, salaries, utilities, ...) that never touch inventory, so they'd

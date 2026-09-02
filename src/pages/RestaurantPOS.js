@@ -1683,8 +1683,12 @@ async function renderOrderingView() {
             const sentQty = i.sentQty || 0;
             const pendingQty = Math.max(0, parseFloat((i.qty - sentQty).toFixed(3)));
             let sentBadge = '';
+            // null (not just 'not_found') for a never-sent line — summarizeCartIdStatus()
+            // returns 'not_found' for "should have a KOT but doesn't", which isn't true
+            // yet here; only compute it once there's actually something to look up.
+            let kStatus = null;
             if (sentQty > 0) {
-              const kStatus = summarizeCartIdStatus(serveStatus.kitchenStatusMap.get(i.cartId));
+              kStatus = summarizeCartIdStatus(serveStatus.kitchenStatusMap.get(i.cartId));
               if (kStatus === 'not_found') console.error(`[RestaurantPOS] "${i.name}" is marked sent but has no matching KOT entry (orderSessionId=${orderSessionId}) — offering Resend.`);
               const meta = KITCHEN_ITEM_META[kStatus] || KITCHEN_ITEM_META.pending;
               sentBadge = `
@@ -1710,7 +1714,9 @@ async function renderOrderingView() {
                   <span>${i.qty}</span>
                   <button class="rpos-qty-plus" data-cart-id="${i.cartId}"><i class="fa-solid fa-plus"></i></button>
                 </div>
-                ${orderType === 'dine-in' && guestCount >= 2 ? `
+                <!-- Hidden once fully served — the dish is already out, there's no
+                     reason left to change who it's billed to at that point. -->
+                ${orderType === 'dine-in' && guestCount >= 2 && kStatus !== 'served' ? `
                   <select class="form-input rpos-split-guest-select" data-cart-id="${i.cartId}" title="Who ordered this? (for item-level bill split)" style="font-size:10px; padding:2px 4px; max-width:80px; height:auto;">
                     <option value="">Shared</option>
                     ${Array.from({ length: guestCount }, (_, g) => g + 1).map(g => `<option value="${g}" ${i.splitGuest === g ? 'selected' : ''}>Guest ${g}</option>`).join('')}
