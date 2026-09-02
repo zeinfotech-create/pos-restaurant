@@ -24,10 +24,11 @@
 // unaffected by anything here.
 // ============================================================
 
-import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, updateSettings, getCurrentBranch, getStaff, getCounterOrders, saveCounterOrder, deleteCounterOrder, getOrders, getReservations, saveFeedback, getMenuRequests, updateMenuRequestStatus } from '../db.js';
+import { getTables, getCategories, getProducts, saveKot, getKots, getSettings, updateSettings, getCurrentBranch, getStaff, getCustomers, getCounterOrders, saveCounterOrder, deleteCounterOrder, getOrders, getReservations, saveFeedback, getMenuRequests, updateMenuRequestStatus } from '../db.js';
 import { store, addToCart, removeFromCart, updateQty, updateCartItem, getCartTotals, onCartUpdate, loadTableOrderIntoCart, setStaff, clearCart } from '../store.js';
 import { confirmOrder, printReceiptHtml, renderReceiptBody, generateUpiQrDataUrl } from '../services/CheckoutService.js';
 import { openModal, closeModal, showConfirm } from '../components/Modal.js';
+import { openCustomerForm } from '../components/CustomerForm.js';
 import { showToast } from '../components/Toast.js';
 import { escapeHtml } from '../utils/escapeHtml.js';
 import { navigate } from '../router.js';
@@ -311,6 +312,17 @@ async function enterCounterOrder(order, table = null) {
     setStaff(waiter || null);
   } else {
     setStaff(null);
+  }
+  // Same pattern as waiterId just above — loadTableOrderIntoCart() reset
+  // this to null too, so restore it from whatever was persisted for this
+  // box. Looked up fresh (not a snapshot saved onto the order) so loyalty
+  // points/credit balance shown are always current, not stale from
+  // whenever the customer was first picked.
+  if (order.customerId) {
+    const customer = (await getCustomers()).find(c => c.id === order.customerId);
+    store.selectedCustomer = customer || null;
+  } else {
+    store.selectedCustomer = null;
   }
   view = 'ordering';
 }
@@ -1602,6 +1614,18 @@ async function renderOrderingView() {
               <option value="">Waiter (optional)</option>
               ${staffList.map(s => `<option value="${s.id}" ${store.selectedStaff?.id === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
             </select>
+            <!-- Only worth surfacing when something actually needs a linked customer —
+                 loyalty points only ever accrue via order.customer.id (see saveOrder()),
+                 and Pay Later/On Account is mandatory-customer by definition (see
+                 openPaymentPanel() below). Neither enabled means picking a customer here
+                 would do nothing, so the whole control disappears rather than sitting
+                 there as a no-op. -->
+            ${(settings.enableLoyalty !== false || settings.enableCredit !== false) ? `
+              <button class="btn btn-sm" id="rposCustomerBtn" style="font-size:12px; font-weight:700; display:flex; align-items:center; gap:6px; max-width:170px; ${store.selectedCustomer ? 'background:var(--primary); color:#fff; border-color:var(--primary);' : 'background:transparent; color:var(--text-muted); border:1px solid var(--border);'}">
+                <i class="fa-solid fa-user"></i> <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${store.selectedCustomer ? escapeHtml(store.selectedCustomer.name) : 'Customer (optional)'}</span>
+              </button>
+              ${store.selectedCustomer ? `<button class="btn-icon" id="rposClearCustomerBtn" title="Remove customer" style="width:30px; height:30px;"><i class="fa-solid fa-xmark" style="font-size:11px;"></i></button>` : ''}
+            ` : ''}
             ${orderType !== 'dine-in' ? `
               <input class="form-input" id="rposContactName" placeholder="Customer name" value="${escapeHtml(takeawayContact.name)}" style="max-width:140px; font-size:12px;" />
               ${AGGREGATOR_TYPES.includes(orderType)
@@ -1813,9 +1837,22 @@ async function renderOrderingView() {
     const el = document.getElementById('rposMenuSearch');
     if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
   });
-  document.getElementById('rposWaiterSelect')?.addEventListener('change', e => {
+  document.getElementById('rposWaiterSelect')?.addEventListener('change', async e => {
     const staff = staffList.find(s => s.id === e.target.value);
     setStaff(staff || null);
+    // Same gap the Customer picker right below this had — setStaff() only
+    // ever set the in-memory value; nothing here actually saved waiterId
+    // onto the box, so it silently reverted to whatever was last persisted
+    // (or nothing) the next time this box was re-entered via
+    // enterCounterOrder(). persistOrderState() already writes waiterId —
+    // it just was never called from here.
+    await persistOrderState();
+  });
+  document.getElementById('rposCustomerBtn')?.addEventListener('click', () => openCustomerPickerModal());
+  document.getElementById('rposClearCustomerBtn')?.addEventListener('click', async () => {
+    store.selectedCustomer = null;
+    await persistOrderState();
+    await renderOrderingView();
   });
   document.getElementById('rposRushToggleBtn')?.addEventListener('click', async () => {
     isRush = !isRush;
@@ -2318,6 +2355,7 @@ async function persistOrderState() {
     changeLog,
     waiterId: store.selectedStaff?.id || null,
     waiterName: store.selectedStaff?.name || null,
+    customerId: store.selectedCustomer?.id || null,
   });
 }
 
@@ -2536,11 +2574,43 @@ function openPaymentPanel() {
   const cur = settings.currency || '₹';
   const methods = (settings.paymentMethods?.length ? settings.paymentMethods : ['Cash']);
   let rows = [{ method: methods[0], amount: totals.total }];
+  // Pay Later / On Account — bills to a linked customer's credit balance
+  // instead of collecting payment now, same concept QuickPOS's own Unpaid
+  // mode already offers. Mandatory-customer by definition (there's no such
+  // thing as an anonymous tab), so the toggle itself only shows once
+  // Settings > enableCredit allows it, and picking it forces the cashier to
+  // have a customer selected (the top meta row's Customer button) first.
+  const creditAllowed = settings.enableCredit !== false;
+  let isCreditMode = false;
+  let creditNote = '';
 
   const renderRows = () => {
     const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
     const balance = Math.round((totals.total - sum) * 100) / 100;
+    const creditToggleHtml = creditAllowed ? `
+      <div style="display:flex; gap:8px; margin-bottom:14px;">
+        <button type="button" id="rposPayNowTab" class="btn btn-sm ${!isCreditMode ? 'btn-primary' : 'btn-ghost'}" style="flex:1;"><i class="fa-solid fa-money-bill-wave"></i> Pay Now</button>
+        <button type="button" id="rposPayLaterTab" class="btn btn-sm ${isCreditMode ? 'btn-primary' : 'btn-ghost'}" style="flex:1;"><i class="fa-solid fa-clock"></i> Pay Later</button>
+      </div>
+    ` : '';
+    if (isCreditMode) {
+      return `
+        ${creditToggleHtml}
+        ${!store.selectedCustomer ? `
+          <div style="display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:8px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); color:var(--danger); font-size:12px; margin-bottom:12px;">
+            <i class="fa-solid fa-triangle-exclamation"></i> Select a customer (top of the order screen) before billing to their account.
+          </div>
+        ` : `
+          <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Billing <b style="color:var(--text-primary);">${escapeHtml(store.selectedCustomer.name)}</b>'s account for <b>${cur}${totals.total.toFixed(2)}</b> — no payment collected now.</div>
+        `}
+        <div class="form-group">
+          <label class="form-label required">Credit Note</label>
+          <textarea class="form-input" id="rposCreditNote" rows="2" placeholder="e.g. Regular guest, pays monthly">${escapeHtml(creditNote)}</textarea>
+        </div>
+      `;
+    }
     return `
+      ${creditToggleHtml}
       <div id="rposPayRows" style="display:flex; flex-direction:column; gap:8px;">
         ${rows.map((r, i) => `
           <div>
@@ -2662,6 +2732,12 @@ function openPaymentPanel() {
   const rebind = () => {
     const bodyEl = document.getElementById('rposPayBody');
     if (bodyEl) bodyEl.innerHTML = renderRows();
+    document.getElementById('rposPayNowTab')?.addEventListener('click', () => { isCreditMode = false; rebind(); });
+    document.getElementById('rposPayLaterTab')?.addEventListener('click', () => { isCreditMode = true; rebind(); });
+    // Plain variable update, no rebind — same reasoning as the amount input's
+    // own updateBalanceOnly() above, just simpler here since nothing else on
+    // screen needs to reflect this textarea's value while typing.
+    document.getElementById('rposCreditNote')?.addEventListener('input', e => { creditNote = e.target.value; });
     document.querySelectorAll('.rpos-pay-method').forEach(el => el.addEventListener('change', e => { rows[+el.dataset.idx].method = e.target.value; }));
     document.querySelectorAll('.rpos-pay-amount').forEach(el => el.addEventListener('input', e => { rows[+el.dataset.idx].amount = Number(e.target.value) || 0; updateBalanceOnly(); }));
     document.querySelectorAll('.rpos-pay-remove').forEach(el => el.addEventListener('click', () => { rows.splice(+el.dataset.idx, 1); rebind(); }));
@@ -2760,12 +2836,22 @@ function openPaymentPanel() {
   setTimeout(rebind, 50);
 
   document.getElementById('rposConfirmBillBtn')?.addEventListener('click', async () => {
+    const tipAmount = Math.max(0, parseFloat(document.getElementById('rposTipInput')?.value) || 0);
+    if (isCreditMode) {
+      if (!store.selectedCustomer) return showToast('Select a customer before billing to their account.', 'error');
+      if (!creditNote.trim()) {
+        showToast('A credit note is required for Pay Later.', 'error');
+        return document.getElementById('rposCreditNote')?.focus();
+      }
+      closeModal();
+      await completeBill([], tipAmount, { isCredit: true, creditInfo: creditNote.trim() });
+      return;
+    }
     const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
     if (Math.abs(sum - totals.total) > 0.01) {
       return showToast('Payment amount must match the total.', 'error');
     }
     const payments = rows.filter(r => r.amount > 0).map(r => ({ method: r.method, amount: Number(r.amount) }));
-    const tipAmount = Math.max(0, parseFloat(document.getElementById('rposTipInput')?.value) || 0);
     closeModal();
     await completeBill(payments, tipAmount);
   });
@@ -2934,7 +3020,7 @@ async function cancelWholeOrder(reason) {
   }
 }
 
-async function completeBill(payments, tipAmount = 0) {
+async function completeBill(payments, tipAmount = 0, creditOptions = { isCredit: false, creditInfo: '' }) {
   const settings = store.settings || await getSettings();
   const cur = settings.currency || '₹';
   const allTables = orderType === 'dine-in' ? await getTables() : [];
@@ -2959,7 +3045,7 @@ async function completeBill(payments, tipAmount = 0) {
   // was moved here).
   const preBillTotal = getCartTotals().total;
 
-  const succeeded = await confirmOrder(payments, getCartTotals(), settings, cur, { isCredit: false, creditInfo: '' }, restaurantMeta);
+  const succeeded = await confirmOrder(payments, getCartTotals(), settings, cur, creditOptions, restaurantMeta);
   if (!succeeded) return; // confirmOrder() already showed its own error toast
 
   // Snapshot what the feedback prompt needs BEFORE module state resets below
@@ -3021,6 +3107,55 @@ async function completeBill(payments, tipAmount = 0) {
   // bill-completion flow above. Off by default (settings.enableFeedbackPrompt)
   // so a shop that doesn't want this extra step at the counter sees nothing.
   if (settings.enableFeedbackPrompt) promptFeedback(feedbackContext);
+}
+
+// ── Link a customer to this order — store.selectedCustomer is the SAME
+// global field POS.js/QuickPOS.js already use, so nothing further is needed
+// to wire up loyalty: confirmOrder() (CheckoutService.js) reads it directly
+// and saveOrder() (db.js) awards points off order.customer.id automatically.
+// This picker only exists to SET that field from Restaurant POS, which
+// never had any way to before. ────────────────────────────────────────────
+async function openCustomerPickerModal() {
+  const allCustomers = await getCustomers();
+  openModal({
+    title: `<i class="fa-solid fa-user mr-8"></i> Select Customer`,
+    body: `
+      <input class="form-input" id="rposCustSearchInput" placeholder="🔍 Search by name or phone…" autofocus style="margin-bottom:10px;" />
+      <div id="rposCustResults" style="max-height:300px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;"></div>
+    `,
+    footer: `
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="rposNewCustomerBtn"><i class="fa-solid fa-plus mr-4"></i> New Customer</button>
+    `
+  });
+  setTimeout(() => {
+    const input = document.getElementById('rposCustSearchInput');
+    const results = document.getElementById('rposCustResults');
+    const pick = async (customer) => {
+      store.selectedCustomer = customer;
+      await persistOrderState();
+      closeModal();
+      renderOrderingView();
+    };
+    const renderResults = (query) => {
+      const q = query.trim().toLowerCase();
+      const matches = (q ? allCustomers.filter(c => c.name?.toLowerCase().includes(q) || c.phone?.includes(q)) : allCustomers).slice(0, 25);
+      results.innerHTML = matches.length ? matches.map(c => `
+        <button type="button" class="rpos-cust-result" data-id="${escapeHtml(c.id)}" style="text-align:left; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-elevated); cursor:pointer;">
+          <div style="font-weight:700; font-size:13px;">${escapeHtml(c.name)}</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${escapeHtml(c.phone || 'No phone')}${c.loyaltyPoints ? ` · ${c.loyaltyPoints} pts` : ''}${(c.creditBalance || 0) < 0 ? ` · owes ${Math.abs(c.creditBalance).toFixed(2)}` : ''}</div>
+        </button>
+      `).join('') : `<div style="text-align:center; padding:24px; color:var(--text-muted); font-size:12px;">No matches — try a different search, or add a new customer below.</div>`;
+      results.querySelectorAll('.rpos-cust-result').forEach(btn => {
+        btn.addEventListener('click', () => pick(allCustomers.find(c => c.id === btn.dataset.id) || null));
+      });
+    };
+    renderResults('');
+    input?.addEventListener('input', () => renderResults(input.value));
+    document.getElementById('rposNewCustomerBtn')?.addEventListener('click', () => {
+      openCustomerForm(null, (newCust) => pick(newCust));
+    });
+  }, 50);
 }
 
 // ── Self-order QR menu requests — a customer's own submission never writes
