@@ -1602,7 +1602,12 @@ async function renderOrderingView() {
             ${orderType === 'dine-in'
               ? `<i class="fa-solid fa-chair"></i> ${escapeHtml(orderLabel || 'Table')}`
               : `<i class="fa-solid ${ORDER_TYPE_META[orderType].icon}" style="${AGGREGATOR_TYPES.includes(orderType) ? `color:${ORDER_TYPE_META[orderType].accent};` : ''}"></i> ${escapeHtml(orderLabel || ORDER_TYPE_META[orderType].label)}`}
-            ${orderType === 'dine-in' ? `<button class="btn-icon" id="rposEditGuestsBtn" style="font-size:11px; font-weight:600; color:var(--text-muted);" title="Edit party size"><i class="fa-solid fa-users" style="margin-right:4px;"></i>${guestCount || '—'}<i class="fa-solid fa-pen" style="font-size:9px; margin-left:4px; opacity:.5;"></i></button>` : ''}
+            <!-- .btn-icon is a fixed 36x36 square, sized for a single icon — this
+                 button's content is 3 inline pieces (users icon, guest count, a
+                 small pen), which never fit in that square width and forced them
+                 to stack/overflow instead of sitting in one clean row. A plain
+                 auto-width pill fits all three comfortably. -->
+            ${orderType === 'dine-in' ? `<button id="rposEditGuestsBtn" style="display:inline-flex; align-items:center; gap:5px; padding:6px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-app); font-size:12px; font-weight:700; color:var(--text-muted); cursor:pointer; white-space:nowrap;" title="Edit party size"><i class="fa-solid fa-users"></i>${guestCount || '—'}<i class="fa-solid fa-pen" style="font-size:9px; opacity:.5;"></i></button>` : ''}
           </div>
           <!-- flex-wrap:nowrap — this small group (Rush/Waiter/Customer, ~300px of
                content) was itself flex-wrap:wrap, and a flex item that's ALSO a
