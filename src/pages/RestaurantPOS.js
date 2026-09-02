@@ -2564,11 +2564,28 @@ function openPaymentPanel() {
             ${orderType === 'dine-in' && guestCount >= 2 ? `<button type="button" class="btn btn-ghost btn-sm" id="rposSplitByItemBtn" title="Uses each item's assigned Guest, set on the cart items above"><i class="fa-solid fa-receipt"></i> Split by Item</button>` : ''}
           </div>
         </div>
-        <div style="font-size:12px; font-weight:700; color:${Math.abs(balance) < 0.01 ? 'var(--success)' : 'var(--danger)'};">
+        <div id="rposPayBalance" style="font-size:12px; font-weight:700; color:${Math.abs(balance) < 0.01 ? 'var(--success)' : 'var(--danger)'};">
           Balance: ${cur}${balance.toFixed(2)}
         </div>
       </div>
     `;
+  };
+
+  // Just the Balance line, in place — used while typing an amount so the
+  // input the cashier is actively in never gets torn down mid-keystroke.
+  // rebind() (full row re-render via innerHTML) was firing on every single
+  // 'input' event, destroying and recreating that same <input> each time —
+  // the browser can't keep focus on an element that no longer exists, so
+  // typing "290" landed one digit at a time with a re-click needed between
+  // each one.
+  const updateBalanceOnly = () => {
+    const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const balance = Math.round((totals.total - sum) * 100) / 100;
+    const el = document.getElementById('rposPayBalance');
+    if (el) {
+      el.textContent = `Balance: ${cur}${balance.toFixed(2)}`;
+      el.style.color = Math.abs(balance) < 0.01 ? 'var(--success)' : 'var(--danger)';
+    }
   };
 
   // Tip is deliberately kept OUT of the payment rows/balance math above —
@@ -2646,7 +2663,7 @@ function openPaymentPanel() {
     const bodyEl = document.getElementById('rposPayBody');
     if (bodyEl) bodyEl.innerHTML = renderRows();
     document.querySelectorAll('.rpos-pay-method').forEach(el => el.addEventListener('change', e => { rows[+el.dataset.idx].method = e.target.value; }));
-    document.querySelectorAll('.rpos-pay-amount').forEach(el => el.addEventListener('input', e => { rows[+el.dataset.idx].amount = Number(e.target.value) || 0; rebind(); }));
+    document.querySelectorAll('.rpos-pay-amount').forEach(el => el.addEventListener('input', e => { rows[+el.dataset.idx].amount = Number(e.target.value) || 0; updateBalanceOnly(); }));
     document.querySelectorAll('.rpos-pay-remove').forEach(el => el.addEventListener('click', () => { rows.splice(+el.dataset.idx, 1); rebind(); }));
     document.getElementById('rposAddSplitBtn')?.addEventListener('click', () => {
       const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
