@@ -98,7 +98,19 @@ function renderHappyHourRulesHtml(rules) {
 
 async function openHappyHourRuleForm(rule) {
   const isEdit = !!rule;
-  const categories = await getCategories();
+  // De-duped by name — same real bug + fix as RestaurantPOS.js's own category
+  // chips (see its comment for the full story: a device that spent any time
+  // on the placeholder 'LOCAL_EXE' tenant before identifying with its real
+  // licenseKey can end up with genuinely duplicated category records, one
+  // real device had a single category repeated 19-25 times). Display-only,
+  // doesn't touch the underlying records.
+  const seenCategoryNames = new Set();
+  const categories = (await getCategories()).filter(c => {
+    const key = (c.name || '').trim().toLowerCase();
+    if (!key || seenCategoryNames.has(key)) return false;
+    seenCategoryNames.add(key);
+    return true;
+  });
   const selectedDays = rule?.daysOfWeek?.length ? rule.daysOfWeek : [0, 1, 2, 3, 4, 5, 6];
   openModal({
     title: `<i class="fa-solid fa-clock mr-8"></i> ${isEdit ? 'Edit' : 'Add'} Happy Hour Deal`,
