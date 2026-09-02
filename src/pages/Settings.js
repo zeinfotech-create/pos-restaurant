@@ -36,6 +36,12 @@ function renderAggregatorPlatformBlock(platform, s) {
   const { key, label, color } = platform;
   const enabled = !!s[`${key}Enabled`];
   const mode = s[`${key}Mode`] === 'live' ? 'live' : 'demo';
+  // Was conditionally rendered only when enabled — checking/unchecking Swiggy's
+  // own box then visibly shifted Zomato's whole block (and its checkbox) up or
+  // down right as the cashier was about to click it. Always rendered now, at a
+  // constant height regardless of state, and just dimmed + made non-interactive
+  // when the platform itself is off — same "disabled but still in place, not
+  // torn out of the layout" idea as a disabled form field, not a hide/show one.
   return `
     <div>
       <div style="display:flex; align-items:center; justify-content:space-between;">
@@ -48,7 +54,7 @@ function renderAggregatorPlatformBlock(platform, s) {
           Enabled
         </label>
       </div>
-      ${enabled ? `
+      <div style="${enabled ? '' : 'opacity:.4; pointer-events:none;'}">
         <div style="display:flex; gap:16px; margin:10px 0;">
           <label style="display:flex; align-items:center; gap:5px; cursor:pointer; font-size:12px; color:var(--text-main);">
             <input type="radio" name="${key}Mode" class="agg-mode-radio" data-platform="${key}" value="demo" ${mode === 'demo' ? 'checked' : ''} /> Demo Mode
@@ -57,16 +63,13 @@ function renderAggregatorPlatformBlock(platform, s) {
             <input type="radio" name="${key}Mode" class="agg-mode-radio" data-platform="${key}" value="live" ${mode === 'live' ? 'checked' : ''} /> Live API
           </label>
         </div>
-        ${mode === 'live' ? `
-          <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
-            <input class="form-input agg-api-key" data-platform="${key}" placeholder="${label} API Key" value="${escapeHtml(s[`${key}ApiKey`] || '')}" style="flex:1; min-width:140px; font-size:12px; margin:0;" type="password" />
-            <input class="form-input agg-store-id" data-platform="${key}" placeholder="${label} Store/Outlet ID" value="${escapeHtml(s[`${key}StoreId`] || '')}" style="flex:1; min-width:140px; font-size:12px; margin:0;" />
-          </div>
-          <p style="font-size:10.5px; color:var(--text-muted); margin:0;"><i class="fa-solid fa-circle-info" style="margin-right:4px; opacity:.6;"></i>Saved for when live sync is available — real-time order sync needs ${label}'s official Partner API access, only granted through a business partnership with them.</p>
-        ` : `
-          <p style="font-size:10.5px; color:var(--text-muted); margin:0;"><i class="fa-solid fa-flask" style="margin-right:4px; opacity:.6;"></i>"Simulate Order" appears on the ${label} Orders screen (Restaurant POS) to try the full flow with a fake order.</p>
-        `}
-      ` : ''}
+        <div style="display:${mode === 'live' ? 'flex' : 'none'}; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+          <input class="form-input agg-api-key" data-platform="${key}" placeholder="${label} API Key" value="${escapeHtml(s[`${key}ApiKey`] || '')}" style="flex:1; min-width:140px; font-size:12px; margin:0;" type="password" />
+          <input class="form-input agg-store-id" data-platform="${key}" placeholder="${label} Store/Outlet ID" value="${escapeHtml(s[`${key}StoreId`] || '')}" style="flex:1; min-width:140px; font-size:12px; margin:0;" />
+        </div>
+        <p style="font-size:10.5px; color:var(--text-muted); margin:0; display:${mode === 'live' ? 'block' : 'none'};"><i class="fa-solid fa-circle-info" style="margin-right:4px; opacity:.6;"></i>Saved for when live sync is available — real-time order sync needs ${label}'s official Partner API access, only granted through a business partnership with them.</p>
+        <p style="font-size:10.5px; color:var(--text-muted); margin:0; display:${mode === 'live' ? 'none' : 'block'};"><i class="fa-solid fa-flask" style="margin-right:4px; opacity:.6;"></i>"Simulate Order" appears on the ${label} Orders screen (Restaurant POS) to try the full flow with a fake order.</p>
+      </div>
     </div>
   `;
 }
