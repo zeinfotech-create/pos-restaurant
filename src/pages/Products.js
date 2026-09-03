@@ -375,6 +375,16 @@ async function renderTable(container, cur) {
     const sid = String(p.id);
     const isSelected = selectedIds.has(sid);
     const hasVariants = p.variants && p.variants.length > 0;
+    // Everything this row's barcode button could possibly print — the
+    // product's own barcode (if set) plus every variant that has its own.
+    // Almost always exactly one of these two in practice (a product either
+    // has a plain barcode, or has variants with their own), but nothing
+    // stops both existing at once, so this stays a list rather than an
+    // either/or.
+    const barcodeTargets = [
+      ...(p.barcode ? [{ label: p.name, sub: p.barcode, variant: null }] : []),
+      ...(p.variants || []).filter(v => v.barcode).map(v => ({ label: v.name, sub: v.barcode, variant: v })),
+    ];
 
     // Calculate stock/price display for variants
     let stockDisplay = parseFloat(Number(p.stock || 0).toFixed(3));
@@ -438,7 +448,10 @@ async function renderTable(container, cur) {
               <div class="flex gap-8">
                 <button class="btn btn-ghost btn-sm history-btn" data-id="${p.id}" title="Stock History"><i class="fa-solid fa-clock-rotate-left"></i></button>
                 ${canAdjustStock ? `<button class="btn btn-ghost btn-sm adjust-stock-btn" data-id="${p.id}" title="Adjust Stock"><i class="fa-solid fa-scale-balanced"></i></button>` : ''}
-                <button class="btn btn-ghost btn-sm print-barcode-btn" data-id="${p.id}" title="Print Barcode" ${!p.barcode ? 'disabled style="opacity:0.4"' : ''}><i class="fa-solid fa-barcode"></i></button>
+                <button class="btn btn-ghost btn-sm print-barcode-btn" data-id="${p.id}" title="${barcodeTargets.length > 1 ? 'Print Barcode (choose which)' : 'Print Barcode'}" style="position:relative; ${barcodeTargets.length === 0 ? 'opacity:0.4' : ''}" ${barcodeTargets.length === 0 ? 'disabled' : ''}>
+                  <i class="fa-solid fa-barcode"></i>
+                  ${barcodeTargets.length > 1 ? `<span style="position:absolute; top:-2px; right:-2px; background:var(--primary); color:#fff; font-size:9px; font-weight:800; line-height:1; border-radius:999px; min-width:14px; height:14px; display:flex; align-items:center; justify-content:center; padding:0 2px;">${barcodeTargets.length}</span>` : ''}
+                </button>
                 ${canEditProduct ? `<button class="btn btn-ghost btn-sm edit-btn" data-id="${p.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>` : ''}
                 ${canDeleteProduct ? `<button class="btn btn-sm delete-btn" style="background:rgba(239,68,68,0.1);color:var(--danger)" data-id="${p.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>` : ''}
               </div>
@@ -525,7 +538,19 @@ async function renderTable(container, cur) {
     btn.onclick = async () => {
       const allP = await getProducts(store.branch?.id);
       const p = allP.find(item => item.id == btn.dataset.id);
-      await openLabelModal(p, 'barcode');
+      const targets = [
+        ...(p.barcode ? [{ label: p.name, sub: p.barcode, variant: null }] : []),
+        ...(p.variants || []).filter(v => v.barcode).map(v => ({ label: v.name, sub: v.barcode, variant: v })),
+      ];
+      if (targets.length === 0) return; // shouldn't happen — button is disabled in this case
+      if (targets.length === 1) {
+        // Only one thing this button could possibly mean — skip the picker
+        // and go straight to the label, same as before this row had to
+        // account for variants at all.
+        await openLabelModal(p, 'barcode', targets[0].variant);
+        return;
+      }
+      openBarcodePickerMenu(btn, p, targets);
     };
   });
 
@@ -1666,6 +1691,63 @@ async function confirmDelete(id, container, cur) {
     await renderTable(container, cur);
   });
   window.closeModal = closeModal;
+}
+
+// Small anchored popover for the product list's row-level barcode button,
+// used only when a row has MORE than one thing it could print (its own
+// barcode, several variant barcodes, or a mix) — the button skips this
+// entirely and opens the label straight away when there's just one target
+// (see the .print-barcode-btn click handler above). Plain DOM, no modal
+// backdrop — closes on an outside click, Escape, or scroll so it behaves
+// like a normal dropdown rather than blocking the page.
+function openBarcodePickerMenu(anchorBtn, product, targets) {
+  document.querySelector('.barcode-picker-menu')?.remove(); // only one open at a time
+
+  const rect = anchorBtn.getBoundingClientRect();
+  const menu = document.createElement('div');
+  menu.className = 'barcode-picker-menu';
+  menu.style.cssText = `
+    position:fixed; top:${rect.bottom + 6}px; left:${Math.min(rect.left, window.innerWidth - 240)}px;
+    min-width:200px; max-width:280px; max-height:280px; overflow-y:auto;
+    background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm);
+    box-shadow:var(--shadow); z-index:1000; padding:6px;
+  `;
+  menu.innerHTML = `
+    <div style="font-size:10px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; padding:4px 8px;">Print barcode for</div>
+    ${targets.map((t, i) => `
+      <button class="barcode-picker-item" data-idx="${i}" style="display:flex; flex-direction:column; align-items:flex-start; width:100%; text-align:left; padding:6px 8px; border-radius:6px; border:none; background:transparent; cursor:pointer; color:var(--text-primary);">
+        <span style="font-weight:600; font-size:13px;">${escapeHtml(t.label)}</span>
+        <span style="font-size:11px; color:var(--text-secondary);">${escapeHtml(t.sub)}</span>
+      </button>
+    `).join('')}
+  `;
+  document.body.appendChild(menu);
+
+  menu.querySelectorAll('.barcode-picker-item').forEach(item => {
+    item.onmouseenter = () => { item.style.background = 'var(--bg-elevated)'; };
+    item.onmouseleave = () => { item.style.background = 'transparent'; };
+    item.onclick = async () => {
+      const target = targets[item.dataset.idx];
+      menu.remove();
+      await openLabelModal(product, 'barcode', target.variant);
+    };
+  });
+
+  // Deferred so the click that opened this menu doesn't immediately close it.
+  setTimeout(() => {
+    const close = (e) => {
+      if (menu.contains(e.target)) return;
+      menu.remove();
+      document.removeEventListener('click', close);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') close(e); };
+    const onScroll = () => close({ target: null });
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onScroll, true);
+  }, 0);
 }
 
 async function openLabelModal(product, type, variant = null) {
