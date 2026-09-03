@@ -626,7 +626,7 @@ function convertToCSV(data) {
   if (data.length === 0) return "";
   
   // Columns matched to ImportWizard's expected fields for a seamless export -> re-import cycle
-  const headers = ['Name', 'Variant Name', 'SKU', 'Barcode', 'Category', 'SubCategory', 'Price', 'Cost Price', 'MRP', 'Stock', 'Min Stock', 'Unit', 'HSN Code', 'Tax Rate (%)', 'Emoji', 'Expiry Date', 'Manufacturing Date'];
+  const headers = ['Name', 'Variant Name', 'SKU', 'Barcode', 'Variant Barcode', 'Category', 'SubCategory', 'Price', 'Cost Price', 'MRP', 'Stock', 'Min Stock', 'Unit', 'HSN Code', 'Tax Rate (%)', 'Emoji', 'Expiry Date', 'Manufacturing Date'];
 
   const rows = [];
   data.forEach(p => {
@@ -651,8 +651,9 @@ function convertToCSV(data) {
         const vCost = v.costPrice !== undefined && v.costPrice !== null ? v.costPrice : '';
         const vStock = v.stock || 0;
         const vMin = v.minStock !== undefined && v.minStock !== null ? v.minStock : '';
+        const vBarcode = `"${(v.barcode || '').replace(/"/g, '""')}"`;
 
-        rows.push([name, vName, sku, barcode, category, subCat, vPrice, vCost, mrp, vStock, vMin, unit, hsn, tax, emoji, exp, mfg].join(','));
+        rows.push([name, vName, sku, barcode, vBarcode, category, subCat, vPrice, vCost, mrp, vStock, vMin, unit, hsn, tax, emoji, exp, mfg].join(','));
       });
     } else {
       // Standalone product
@@ -661,8 +662,9 @@ function convertToCSV(data) {
       const vCost = p.costPrice !== undefined && p.costPrice !== null ? p.costPrice : '';
       const vStock = p.stock || 0;
       const vMin = p.minStock !== undefined && p.minStock !== null ? p.minStock : '';
+      const vBarcode = '""';
 
-      rows.push([name, vName, sku, barcode, category, subCat, vPrice, vCost, mrp, vStock, vMin, unit, hsn, tax, emoji, exp, mfg].join(','));
+      rows.push([name, vName, sku, barcode, vBarcode, category, subCat, vPrice, vCost, mrp, vStock, vMin, unit, hsn, tax, emoji, exp, mfg].join(','));
     }
   });
 
@@ -757,6 +759,7 @@ async function openProductForm(product, container, cur) {
           <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Price</span>
           <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Stock</span>
           <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Min</span>
+          <span style="flex:1.4; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Barcode</span>
           <span style="width:36px"></span>
         </div>
         ${variants.map((v, i) => `
@@ -766,6 +769,8 @@ async function openProductForm(product, container, cur) {
             <input class="form-input" style="flex:1" type="number" placeholder="Price" value="${v.price ?? ''}" data-idx="${i}" data-key="price" title="Selling Price" />
             <input class="form-input" style="flex:1" type="number" placeholder="Stock" value="${v.stock ?? ''}" data-idx="${i}" data-key="stock" title="Stock" />
             <input class="form-input" style="flex:1" type="number" placeholder="Min" value="${v.minStock ?? ''}" data-idx="${i}" data-key="minStock" title="Min Stock Level" />
+            <input class="form-input" style="flex:1.4" placeholder="Scanning allowed" value="${escapeHtml(v.barcode || '')}" data-idx="${i}" data-key="barcode" title="This variant's own barcode — separate from the product's" />
+            ${v.barcode ? `<button class="btn btn-icon print-variant-barcode-btn" data-idx="${i}" title="Print this variant's barcode label"><i class="fa-solid fa-print"></i></button>` : ''}
             <button class="btn btn-icon remove-variant-btn" data-idx="${i}" style="color:var(--danger)"><i class="fa-solid fa-minus"></i></button>
           </div>
         `).join('')}
@@ -773,11 +778,12 @@ async function openProductForm(product, container, cur) {
       </div>
     `;
 
+    const TEXT_KEYS = ['name', 'barcode'];
     vList.querySelectorAll('input').forEach(input => {
       input.oninput = () => {
         const idx = input.dataset.idx;
         const key = input.dataset.key;
-        variants[idx][key] = key === 'name' ? input.value : parseFloat(input.value);
+        variants[idx][key] = TEXT_KEYS.includes(key) ? input.value : parseFloat(input.value);
       };
     });
 
@@ -788,8 +794,19 @@ async function openProductForm(product, container, cur) {
       };
     });
 
+    vList.querySelectorAll('.print-variant-barcode-btn').forEach(btn => {
+      btn.onclick = () => {
+        const v = variants[btn.dataset.idx];
+        // A brand-new, not-yet-saved product has no real `product` object with
+        // a real price yet — fall back to a safe zero-filled stand-in so the
+        // label form's default price field doesn't compute NaN.
+        const fallbackProduct = product || { name: document.getElementById('pName')?.value || '', price: 0, mrp: 0, taxRate: 0, taxType: 'exclusive' };
+        openLabelModal(fallbackProduct, 'barcode', v);
+      };
+    });
+
     document.getElementById('addVariantBtn').onclick = () => {
-      variants.push({ name: '', price: 0, stock: 0, itemDiscount: 0 });
+      variants.push({ name: '', price: 0, stock: 0, itemDiscount: 0, barcode: '' });
       renderVariantList();
     };
   }
@@ -1220,7 +1237,7 @@ async function openProductForm(product, container, cur) {
   document.getElementById('hasVariantsToggle').onchange = (e) => {
     hasVariants = e.target.checked;
     document.getElementById('singleProductPriceArea').style.display = hasVariants ? 'none' : 'block';
-    if (hasVariants && variants.length === 0) variants.push({ name: '', price: 0, stock: 0, itemDiscount: 0 });
+    if (hasVariants && variants.length === 0) variants.push({ name: '', price: 0, stock: 0, itemDiscount: 0, barcode: '' });
     renderVariantList();
   };
 
@@ -1511,7 +1528,8 @@ async function openProductForm(product, container, cur) {
             price: parseFloat(v.price) || 0,
             costPrice: parseFloat(v.costPrice) || 0,
             stock: parseFloat(v.stock) || 0,
-            minStock: parseFloat(v.minStock) || 0
+            minStock: parseFloat(v.minStock) || 0,
+            barcode: (v.barcode || '').trim()
           }));
           finalPrice = finalVariants[0].price;
           finalCost = finalVariants[0].costPrice;
@@ -1650,9 +1668,9 @@ async function confirmDelete(id, container, cur) {
   window.closeModal = closeModal;
 }
 
-async function openLabelModal(product, type) {
+async function openLabelModal(product, type, variant = null) {
   const isBarcode = type === 'barcode';
-  const labelValue = product.barcode || product.sku || product.name || 'N/A';
+  const labelValue = (variant && variant.barcode) || product.barcode || product.sku || product.name || 'N/A';
   
   const settings = await getSettings();
   const cur = settings.currency || '\u20B9';
@@ -1835,7 +1853,7 @@ async function openLabelModal(product, type) {
   };
 
   openModal({
-    title: `<i class="fa-solid fa-${isBarcode ? 'barcode' : 'qrcode'}"></i> Generate Label: ${escapeHtml(product.name)}`,
+    title: `<i class="fa-solid fa-${isBarcode ? 'barcode' : 'qrcode'}"></i> Generate Label: ${escapeHtml(product.name)}${variant ? ` (${escapeHtml(variant.name)})` : ''}`,
     body: `
       <div style="display:flex; flex-direction:column; gap:20px; padding:10px;">
         <!-- Preview Area -->

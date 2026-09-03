@@ -280,7 +280,27 @@ export async function renderPOS(container) {
             (p.barcode && p.barcode.toLowerCase() === searchQuery) ||
             (p.sku && p.sku.toLowerCase() === searchQuery)
           );
-          if (exactMatch) await selectProduct(exactMatch);
+          if (exactMatch) {
+            await selectProduct(exactMatch);
+          } else {
+            // A product-level match above already covers a scan of the product's
+            // own barcode — this only runs when nothing matched there, i.e. the
+            // scanned code belongs to one specific VARIANT's own barcode. Add
+            // that exact variant straight to the cart instead of falling through
+            // to selectProduct()'s variant picker, which would show every option
+            // again even though the scan already said which one.
+            for (const p of products) {
+              const matchedVariant = (p.variants || []).find(v => v.barcode && v.barcode.toLowerCase() === searchQuery);
+              if (matchedVariant) {
+                handleProductAddition(p, matchedVariant);
+                const searchInput = document.getElementById('productSearch');
+                if (searchInput) searchInput.value = '';
+                searchQuery = '';
+                renderSearchSuggestions([]);
+                break;
+              }
+            }
+          }
         }
       } finally {
         isProcessingEnterAdd = false;

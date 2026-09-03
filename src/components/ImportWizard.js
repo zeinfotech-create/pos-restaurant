@@ -29,6 +29,10 @@ const TARGET_FIELDS = [
   { key: 'variantName', label: 'Variant Name (optional)' },
   { key: 'sku', label: 'SKU' },
   { key: 'barcode', label: 'Barcode' },
+  // This variant's own barcode — separate from the product-level Barcode
+  // above, only meaningful on a row that also has a Variant Name. See
+  // buildPreview()'s grouping pass for how it lands on the right variant.
+  { key: 'variantBarcode', label: 'Variant Barcode (optional)' },
   { key: 'category', label: 'Category' },
   { key: 'subCategory', label: 'Sub-Category' },
   { key: 'price', label: 'Selling Price', required: true, type: 'number' },
@@ -64,6 +68,7 @@ const FIELD_SYNONYMS = {
   variantName: ['variant', 'variant name', 'option', 'option name', 'variation'],
   sku: ['sku', 'item code', 'product code', 'code'],
   barcode: ['barcode', 'ean', 'upc', 'bar code'],
+  variantBarcode: ['variant barcode', 'variant ean', 'variant upc', 'option barcode'],
   category: ['category', 'cat'],
   subCategory: ['subcategory', 'sub category', 'subcat'],
   price: ['price', 'selling price', 'sale price', 'rate'],
@@ -790,6 +795,7 @@ async function buildPreview() {
       groups.get(key).rows.push({ rowIndex, data });
     } else {
       delete data.variantName; // grouping hint only — not a real product field
+      delete data.variantBarcode;
       standalone.push({ rowIndex, data });
     }
   });
@@ -834,6 +840,7 @@ async function buildPreview() {
         costPrice: data.costPrice || 0,
         stock: data.stock,
         minStock: data.minStock || 0,
+        barcode: (data.variantBarcode || '').trim(),
       });
     });
 
@@ -850,6 +857,7 @@ async function buildPreview() {
       minStock: validVariants.reduce((s, v) => s + (Number(v.minStock) || 0), 0),
     };
     delete combined.variantName; // was only a grouping hint, not a real product field
+    delete combined.variantBarcode;
 
     if (badVariantRows.length > 0 && groupErrors.length === 0) {
       // Group still imports on its valid variants — this is a soft warning,

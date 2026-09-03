@@ -1283,21 +1283,33 @@ export async function renderQuickPOS(container) {
     const scored = [];
     for (const p of products) {
         const name = p.name.toLowerCase();
-        const isExactCode = (p.sku && p.sku.toLowerCase() === query) || (p.barcode && p.barcode.toLowerCase() === query);
+        // A variant's own barcode matching exactly ranks this product at the
+        // top too, same as the product's own SKU/barcode — without this, a
+        // product whose only barcode match is on one specific variant (not
+        // the product itself) never surfaced at all.
+        const matchedVariant = (p.variants || []).find(v => v.barcode && v.barcode.toLowerCase() === query);
+        const isExactCode = (p.sku && p.sku.toLowerCase() === query) || (p.barcode && p.barcode.toLowerCase() === query) || !!matchedVariant;
         let score;
         if (isExactCode || name.startsWith(query)) score = 0;
         else if (wordBoundary.test(name)) score = 1;
         else if (name.includes(query)) score = 2;
         else continue;
-        scored.push({ product: p, score, matchIndex: name.indexOf(query) });
+        scored.push({ product: p, score, matchIndex: name.indexOf(query), matchedVariant });
     }
     scored.sort((a, b) => a.score - b.score || a.matchIndex - b.matchIndex);
-    const rawMatches = scored.map(s => s.product);
 
-    for (const p of rawMatches) {
+    // Tracks which flattened row (if any) is the one whose OWN barcode was
+    // the exact match, so Enter on a scan adds exactly that variant instead
+    // of whichever one happened to be listed first for its product.
+    let exactVariantMatchIdx = -1;
+    for (const s of scored) {
+        const p = s.product;
         if (p.variants && p.variants.length > 0) {
             for (const v of p.variants) {
                 flattenedMatches.push({ product: p, variant: v });
+                if (s.matchedVariant && v === s.matchedVariant && exactVariantMatchIdx === -1) {
+                    exactVariantMatchIdx = flattenedMatches.length - 1;
+                }
             }
         } else {
             flattenedMatches.push({ product: p, variant: null });
@@ -1305,6 +1317,7 @@ export async function renderQuickPOS(container) {
         if (flattenedMatches.length >= 20) break; // Allow a bit more for variants
     }
     flattenedMatches = flattenedMatches.slice(0, 10);
+    const activeIdx = (exactVariantMatchIdx !== -1 && exactVariantMatchIdx < flattenedMatches.length) ? exactVariantMatchIdx : 0;
 
     if (flattenedMatches.length > 0) {
       suggestionsEl.classList.remove('hidden');
@@ -1315,7 +1328,7 @@ export async function renderQuickPOS(container) {
         const displayPrice = v ? v.price : p.price;
         const vNameAttr = v ? `data-vname="${escapeHtml(v.name)}"` : '';
         return `
-        <div class="ep-suggestion-item ${idx === 0 ? 'active' : ''}" data-id="${p.id}" ${vNameAttr}>
+        <div class="ep-suggestion-item ${idx === activeIdx ? 'active' : ''}" data-id="${p.id}" ${vNameAttr}>
           <div style="font-weight:700">${displayName}</div>
           <div style="font-weight:900; color:var(--danger)">${cur}${displayPrice}</div>
         </div>
