@@ -778,25 +778,29 @@ async function openProductForm(product, container, cur) {
     }
     vList.innerHTML = `
       <div class="variant-list">
-        <div class="variant-row">
+        <div class="variant-row" style="padding:0 4px">
           <span style="flex:2; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Variant Name</span>
           <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Cost</span>
           <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Price</span>
           <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Stock</span>
           <span style="flex:1; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Min</span>
-          <span style="flex:1.4; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Barcode</span>
           <span style="width:36px"></span>
         </div>
         ${variants.map((v, i) => `
-          <div class="variant-row">
-            <input class="form-input" style="flex:2" placeholder="Variant Name" value="${escapeHtml(v.name || '')}" data-idx="${i}" data-key="name" />
-            <input class="form-input" style="flex:1" type="number" placeholder="Cost" value="${v.costPrice ?? ''}" data-idx="${i}" data-key="costPrice" title="Cost Price" />
-            <input class="form-input" style="flex:1" type="number" placeholder="Price" value="${v.price ?? ''}" data-idx="${i}" data-key="price" title="Selling Price" />
-            <input class="form-input" style="flex:1" type="number" placeholder="Stock" value="${v.stock ?? ''}" data-idx="${i}" data-key="stock" title="Stock" />
-            <input class="form-input" style="flex:1" type="number" placeholder="Min" value="${v.minStock ?? ''}" data-idx="${i}" data-key="minStock" title="Min Stock Level" />
-            <input class="form-input" style="flex:1.4" placeholder="Scanning allowed" value="${escapeHtml(v.barcode || '')}" data-idx="${i}" data-key="barcode" title="This variant's own barcode — separate from the product's" />
-            ${v.barcode ? `<button class="btn btn-icon print-variant-barcode-btn" data-idx="${i}" title="Print this variant's barcode label"><i class="fa-solid fa-print"></i></button>` : ''}
-            <button class="btn btn-icon remove-variant-btn" data-idx="${i}" style="color:var(--danger)"><i class="fa-solid fa-minus"></i></button>
+          <div class="variant-card">
+            <div class="variant-row">
+              <input class="form-input" style="flex:2" placeholder="Variant Name" value="${escapeHtml(v.name || '')}" data-idx="${i}" data-key="name" />
+              <input class="form-input" style="flex:1" type="number" placeholder="Cost" value="${v.costPrice ?? ''}" data-idx="${i}" data-key="costPrice" title="Cost Price" />
+              <input class="form-input" style="flex:1" type="number" placeholder="Price" value="${v.price ?? ''}" data-idx="${i}" data-key="price" title="Selling Price" />
+              <input class="form-input" style="flex:1" type="number" placeholder="Stock" value="${v.stock ?? ''}" data-idx="${i}" data-key="stock" title="Stock" />
+              <input class="form-input" style="flex:1" type="number" placeholder="Min" value="${v.minStock ?? ''}" data-idx="${i}" data-key="minStock" title="Min Stock Level" />
+              <button class="btn btn-icon remove-variant-btn" data-idx="${i}" style="color:var(--danger)" title="Remove this variant"><i class="fa-solid fa-minus"></i></button>
+            </div>
+            <div class="variant-row" style="margin-bottom:0">
+              <span style="flex-shrink:0; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Barcode</span>
+              <input class="form-input" style="flex:1" placeholder="Scanning allowed" value="${escapeHtml(v.barcode || '')}" data-idx="${i}" data-key="barcode" title="This variant's own barcode — separate from the product's" />
+              ${v.barcode ? `<button class="btn btn-icon print-variant-barcode-btn" data-idx="${i}" title="Print this variant's barcode label"><i class="fa-solid fa-print"></i></button>` : ''}
+            </div>
           </div>
         `).join('')}
         <button class="btn btn-ghost btn-sm w-full mt-8" id="addVariantBtn"><i class="fa-solid fa-plus"></i> Add Variant Option</button>

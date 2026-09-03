@@ -6792,6 +6792,21 @@ input:checked + .toggle-slider:before {
 }
 
 /* ============================================ VARIANT FORM STYLES */
+/* One card per variant — name/cost/price/stock/min on top, the variant's
+   own barcode on its own full-width line underneath (it used to squeeze
+   into a 6th column alongside 5 others, truncating anything longer than a
+   few digits). The border gives each variant a clear boundary now that
+   it's two lines tall instead of one. */
+.variant-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  margin-bottom: 8px;
+  background: var(--bg-card);
+}
+.variant-card .variant-row {
+  margin-bottom: 8px;
+}
 .variant-row {
   display: flex;
   gap: 8px;
