@@ -1192,10 +1192,28 @@ async function openProductForm(product, container, cur) {
 
       ${section('fa-sliders', 'Options', `
         <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:12px">
+           ${hasVariants ? `
+           <!-- Only shown for a product that ALREADY has variants (so existing
+                data stays manageable / can still be turned off) — hidden for
+                every other product so new ones can't be given variants at all.
+                RestaurantPOS.js (the actual ordering screen this app is built
+                around) has no variant picker: it reads product.price directly
+                with no way to choose which variant, so a variant product
+                tapped there silently rings up whichever variant happened to
+                save first, with zero indication anything's wrong. Until that's
+                built, offering "Variants" as a normal option here would just
+                be a trap for anyone using Restaurant POS. -->
            <label style="display:flex; align-items:center; gap:8px; padding:10px; background:var(--bg-app); border-radius:8px; border:1px solid var(--border); cursor:pointer">
-              <input type="checkbox" id="hasVariantsToggle" ${hasVariants ? 'checked' : ''} style="width:18px;height:18px" />
+              <input type="checkbox" id="hasVariantsToggle" checked style="width:18px;height:18px" />
               <span style="font-size:12px; font-weight:600"><i class="fa-solid fa-tags mr-4"></i> Variants</span>
            </label>
+           ` : `
+           <div style="display:flex; align-items:center; gap:8px; padding:10px; background:var(--bg-app); border-radius:8px; border:1px dashed var(--border); opacity:0.7">
+              <i class="fa-solid fa-tags" style="font-size:12px"></i>
+              <span style="font-size:11px; line-height:1.4">Variants aren't offered here yet — Restaurant POS can't pick between them at order time.</span>
+              <input type="checkbox" id="hasVariantsToggle" style="display:none" />
+           </div>
+           `}
            <label style="display:flex; align-items:center; gap:8px; padding:10px; background:var(--bg-app); border-radius:8px; border:1px solid var(--border); cursor:pointer">
               <input type="checkbox" id="isReturnableToggle" ${product?.isReturnable !== false ? 'checked' : ''} style="width:18px;height:18px" />
               <span style="font-size:12px; font-weight:600"><i class="fa-solid fa-rotate-left mr-4"></i> Returnable</span>
