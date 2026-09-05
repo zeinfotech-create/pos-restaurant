@@ -576,6 +576,24 @@ async function render(container) {
          language rather than each card type looking subtly different. */
       .rpos-order-type-btn { padding:28px; border-radius:16px; border:2px solid var(--border); background:var(--bg-elevated); cursor:pointer; text-align:center; transition:transform .2s cubic-bezier(.4,0,.2,1), box-shadow .2s cubic-bezier(.4,0,.2,1), border-color .2s; box-shadow:0 4px 12px rgba(0,0,0,.05); }
       .rpos-order-type-btn:hover { border-color:var(--primary); transform:translateY(-3px); box-shadow:0 8px 24px rgba(0,0,0,.1); }
+      /* Same 28px padding as desktop made these 3 cards (Dine-in/Takeaway/
+         Delivery) needlessly tall on a phone screen — most of that height
+         was just empty space above/below the icon, pushing every card
+         below the fold on a real phone. Tighter on #mo specifically. */
+      .rpos-mobile .rpos-order-type-btn { padding:18px; }
+      /* This toolbar (Rush/Waiter/Customer/Contact-name/Phone/Pickup-time)
+         is flex-wrap:nowrap on desktop (see the comment at its call site)
+         so it drops to its own full-width line as ONE block on a narrow
+         desktop window — its call site switches it to flex-wrap:wrap on
+         mobile instead (that whole block is still wider than a phone
+         screen even on its own line), wrapping its OWN children onto as
+         many rows as needed. flex-shrink:0 on each child is what makes
+         that wrap actually happen where it's needed, rather than the
+         browser "solving" the width mismatch by silently crushing every
+         input down to a sliver a few px wide first (a Phone field showing
+         one stray character) before ever wrapping anything. */
+      .rpos-mobile .rpos-order-toolbar { row-gap: 8px; }
+      .rpos-mobile .rpos-order-toolbar > * { flex-shrink: 0; }
       .rpos-table-card { padding:16px; border-radius:12px; cursor:pointer; transition:transform .2s cubic-bezier(.4,0,.2,1), box-shadow .2s cubic-bezier(.4,0,.2,1); box-shadow:0 4px 12px rgba(0,0,0,.05); }
       .rpos-table-card:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,.1); }
       .rpos-add-party-card { cursor:pointer; transition:all .15s; }
@@ -1619,7 +1637,7 @@ async function renderOrderingView() {
                width. The outer row above still has its own flex-wrap:wrap, so on a
                genuinely narrow window this whole group just drops to its own line
                as one block instead — the responsive fallback that actually matters. -->
-          <div style="display:flex; gap:8px; flex-wrap:nowrap; align-items:center;">
+          <div class="rpos-order-toolbar" style="display:flex; gap:8px; flex-wrap:${isMobile ? 'wrap' : 'nowrap'}; align-items:center;">
             ${pendingMenuRequests.length > 0 ? `<button class="btn btn-sm" id="rposMenuRequestsBtn" style="background:var(--warning); color:#fff; border-color:var(--warning); font-size:12px; font-weight:700;"><i class="fa-solid fa-bell"></i> ${pendingMenuRequests.length} customer request${pendingMenuRequests.length === 1 ? '' : 's'}</button>` : ''}
             <button class="btn btn-sm" id="rposRushToggleBtn" title="${isRush ? 'Remove rush priority' : 'Mark this order as rush/priority for the kitchen'}"
               style="${isRush ? 'background:var(--danger); color:#fff; border-color:var(--danger);' : 'background:transparent; color:var(--text-muted); border:1px solid var(--border);'} font-size:12px; font-weight:700;">
