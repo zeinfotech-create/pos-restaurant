@@ -467,7 +467,13 @@ export async function renderSettings(container) {
           <span class="settings-nav-icon" style="background:rgba(249,115,22,0.12);color:#f97316"><i class="fa-solid fa-kitchen-set"></i></span>
           <span>KOT</span>
         </button>
-        ${s.enableUnitOfMeasure !== false ? `
+        <!-- Weight Scale tab removed — a connected scale is for weighing loose items
+             (vegetables, grains) sold by kg at checkout; a restaurant sells prepared
+             dishes by plate/serving, and POS.js's own WeightScaleService is never
+             referenced anywhere in RestaurantPOS.js. tab-weightscale's content below is
+             left in place (harmless if unreachable) rather than deleted, in case a
+             future non-restaurant fork of this app wants it back. -->
+        ${false ? `
         <button class="settings-nav-item ${activeSettingsTab === 'weightscale' ? 'active' : ''}" data-tab="weightscale">
           <span class="settings-nav-icon" style="background:rgba(16,185,129,0.12);color:#10b981"><i class="fa-solid fa-weight-scale"></i></span>
           <span>Weight Scale</span>

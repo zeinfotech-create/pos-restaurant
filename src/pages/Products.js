@@ -448,10 +448,10 @@ async function renderTable(container, cur) {
               <div class="flex gap-8">
                 <button class="btn btn-ghost btn-sm history-btn" data-id="${p.id}" title="Stock History"><i class="fa-solid fa-clock-rotate-left"></i></button>
                 ${canAdjustStock ? `<button class="btn btn-ghost btn-sm adjust-stock-btn" data-id="${p.id}" title="Adjust Stock"><i class="fa-solid fa-scale-balanced"></i></button>` : ''}
-                <button class="btn btn-ghost btn-sm print-barcode-btn" data-id="${p.id}" title="${barcodeTargets.length > 1 ? 'Print Barcode (choose which)' : 'Print Barcode'}" style="position:relative; ${barcodeTargets.length === 0 ? 'opacity:0.4' : ''}" ${barcodeTargets.length === 0 ? 'disabled' : ''}>
-                  <i class="fa-solid fa-barcode"></i>
-                  ${barcodeTargets.length > 1 ? `<span style="position:absolute; top:-2px; right:-2px; background:var(--primary); color:#fff; font-size:9px; font-weight:800; line-height:1; border-radius:999px; min-width:14px; height:14px; display:flex; align-items:center; justify-content:center; padding:0 2px;">${barcodeTargets.length}</span>` : ''}
-                </button>
+                <!-- Barcode label print button removed — this restaurant doesn't print
+                     barcode labels for menu items. barcodeTargets is still computed
+                     above (openLabelModal/openBarcodePickerMenu stay intact, just
+                     unreachable via the UI) so this is a one-line revert if needed. -->
                 ${canEditProduct ? `<button class="btn btn-ghost btn-sm edit-btn" data-id="${p.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>` : ''}
                 ${canDeleteProduct ? `<button class="btn btn-sm delete-btn" style="background:rgba(239,68,68,0.1);color:var(--danger)" data-id="${p.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>` : ''}
               </div>
@@ -799,7 +799,7 @@ async function openProductForm(product, container, cur) {
             <div class="variant-row" style="margin-bottom:0">
               <span style="flex-shrink:0; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Barcode</span>
               <input class="form-input" style="flex:1" placeholder="Scanning allowed" value="${escapeHtml(v.barcode || '')}" data-idx="${i}" data-key="barcode" title="This variant's own barcode — separate from the product's" />
-              ${v.barcode ? `<button class="btn btn-icon print-variant-barcode-btn" data-idx="${i}" title="Print this variant's barcode label"><i class="fa-solid fa-print"></i></button>` : ''}
+              <!-- Print-label button removed — no barcode label printing for this restaurant. -->
             </div>
           </div>
         `).join('')}
@@ -1097,32 +1097,14 @@ async function openProductForm(product, container, cur) {
         `)}
       </div>
 
-      ${section('fa-calendar-days', 'Tracking Info (optional)', `
-        <div class="form-grid">
-          <div class="form-group mb-0">
-            <label class="form-label">MRP</label>
-            <div class="search-input-wrap">
-              <i class="fa-solid fa-tag"></i>
-              <input class="form-input" id="pMRP" type="number" placeholder="0.00" value="${product?.mrp || ''}" min="0" style="padding-left:36px" />
-            </div>
-            <p class="form-help-text">Printed on the label alongside the selling price, if set.</p>
-          </div>
-          <div class="form-group mb-0">
-            <label class="form-label">Manufacturing Date</label>
-            <div class="search-input-wrap">
-              <i class="fa-solid fa-calendar-check"></i>
-              <input class="form-input" id="pManufacturingDate" type="date" value="${product?.manufacturingDate || ''}" style="padding-left:36px" />
-            </div>
-          </div>
-          <div class="form-group mb-0">
-            <label class="form-label">Expiry Date</label>
-            <div class="search-input-wrap">
-              <i class="fa-solid fa-calendar-xmark"></i>
-              <input class="form-input" id="pExpiryDate" type="date" value="${product?.expiryDate || ''}" style="padding-left:36px" />
-            </div>
-          </div>
-        </div>
-      `)}
+      <!-- "Tracking Info" (MRP + Manufacturing/Expiry Date) removed from this form —
+           all three are packaged-retail-goods concepts (MRP is the regulatory printed
+           price for pre-packaged products, manufacturing/expiry dates are shelf-life
+           tracking for stocked goods) that don't apply to a restaurant's own
+           daily-cooked dishes, and RestaurantPOS.js never reads any of the three. The
+           save handler below still reads these fields via safe optional-chaining, so
+           existing products that already have mrp/expiryDate/manufacturingDate saved
+           keep that data untouched — only the form inputs for setting them are gone. -->
 
       ${section('fa-receipt', 'Tax & Compliance', `
         <div class="form-grid">
