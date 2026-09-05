@@ -515,17 +515,21 @@ async function render(container) {
          additionally stack with this padding. */
       .rpos-mobile .rpos-cat-bar { position:sticky; top:0; z-index:20; background:var(--bg-app); touch-action:pan-x; margin-bottom:0 !important; padding-bottom:24px !important; }
       .rpos-mobile .rpos-cat-tab { padding:11px 20px; font-size:13.5px; min-height:40px; display:flex; align-items:center; }
-      /* Product "choose" — small square tiles read fine on a tablet but are
-         fiddly to scan/tap with a thumb on a phone; mobile switches to a
-         single-column list of full-width rows instead (same
-         .rpos-product-card class + click handler as desktop, only the
-         inner layout differs — see renderOrderingView()'s isMobile branch). */
-      .rpos-mobile .rpos-product-card.rpos-product-row { display:flex; align-items:center; gap:12px; padding:12px 14px; }
-      .rpos-mobile .rpos-product-emoji { width:46px; height:46px; border-radius:12px; background:var(--bg-app); display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
-      .rpos-mobile .rpos-product-info { flex:1; min-width:0; }
-      .rpos-mobile .rpos-product-name { font-size:13.5px; font-weight:700; }
-      .rpos-mobile .rpos-product-price { font-size:12.5px; color:var(--primary); font-weight:800; margin-top:2px; }
-      .rpos-mobile .rpos-product-add-btn { width:34px; height:34px; border-radius:50%; background:var(--primary); color:#fff; font-size:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+      /* Product "choose" on mobile now matches the customer-facing QR menu's
+         own card style (CustomerMenu.js's .cm-product-card) — same compact
+         grid tile (icon top, name, price, a full-width Add button below)
+         instead of a full-width list row, so staff and customers see one
+         consistent look across both mobile ordering surfaces. UI only —
+         same .rpos-product-card class + click handler as desktop, same
+         data-id, same drag-handle for custom sort; only the inner layout
+         and the grid container differ (see renderOrderingView()'s isMobile
+         branch below). */
+      .rpos-mobile #rposProductGrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:12px; }
+      .rpos-mobile .rpos-product-card.rpos-product-tile { padding:12px; text-align:center; }
+      .rpos-mobile .rpos-product-emoji { font-size:26px; margin-bottom:6px; }
+      .rpos-mobile .rpos-product-name { font-size:12.5px; font-weight:700; line-height:1.3; }
+      .rpos-mobile .rpos-product-price { font-size:12px; color:var(--primary); font-weight:800; margin-top:2px; }
+      .rpos-mobile .rpos-product-add-btn { width:100%; margin-top:8px; padding:6px; border-radius:8px; border:1px solid var(--border); background:var(--bg-app); color:var(--text-muted); font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:4px; }
       /* The order cart, sticky-positioned on desktop, becomes a proper
          bottom SHEET on mobile — collapsed to just its "🛒 Order (N items)"
          header (peeking above the bottom nav) until tapped, then slides up
@@ -1696,7 +1700,7 @@ async function renderOrderingView() {
             <button id="rposResetCustomOrderBtn" class="btn btn-ghost btn-sm" style="font-size:11px; padding:4px 10px;"><i class="fa-solid fa-rotate-left"></i> Reset</button>
           </div>
         ` : ''}
-        <div id="rposProductGrid" style="${isMobile ? 'display:flex; flex-direction:column; gap:10px;' : 'display:grid; grid-template-columns:repeat(auto-fill, minmax(170px,1fr)); gap:14px; align-content:start; flex:1; min-height:0; overflow-y:auto; padding-bottom:4px;'}">
+        <div id="rposProductGrid" style="${isMobile ? '' : 'display:grid; grid-template-columns:repeat(auto-fill, minmax(170px,1fr)); gap:14px; align-content:start; flex:1; min-height:0; overflow-y:auto; padding-bottom:4px;'}">
           ${products.length === 0 ? `<div style="${isMobile ? '' : 'grid-column:1/-1;'} text-align:center; padding:30px; color:var(--text-muted);">No items match</div>` : products.map(p => {
             const available = isProductAvailable(p, allProductsForStock);
             const soldOutStyle = available ? '' : 'opacity:.45; pointer-events:none; filter:grayscale(.6);';
@@ -1709,14 +1713,12 @@ async function renderOrderingView() {
               ? `<span style="text-decoration:line-through; opacity:.5; margin-right:4px;">${cur}${Number(p.price || 0).toFixed(2)}</span>${cur}${(Number(p.price || 0) * (1 - hhPct / 100)).toFixed(2)}`
               : `${cur}${Number(p.price || 0).toFixed(2)}`;
             return isMobile ? `
-            <div class="rpos-product-card rpos-product-row" data-id="${p.id}" style="position:relative; ${soldOutStyle}">
-              ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
+            <div class="rpos-product-card rpos-product-tile" data-id="${p.id}" style="position:relative; ${soldOutStyle}">
+              ${currentSort === 'custom' ? `<div class="rpos-drag-handle" title="Drag to reorder" style="position:absolute; top:2px; right:2px;"><i class="fa-solid fa-grip-vertical"></i></div>` : ''}
               <div class="rpos-product-emoji">${p.emoji || '🍽️'}</div>
-              <div class="rpos-product-info">
-                <div class="rpos-product-name">${foodTypeIconHtml(p.foodType, 11)}${escapeHtml(p.name)}${hhPct > 0 ? ` <span style="font-size:9.5px; font-weight:800; color:var(--warning);"><i class="fa-solid fa-clock"></i> -${hhPct}%</span>` : ''}</div>
-                <div class="rpos-product-price">${hhPriceHtml}</div>
-              </div>
-              ${available ? `<div class="rpos-product-add-btn"><i class="fa-solid fa-plus"></i></div>` : `<div style="font-size:10px; font-weight:800; color:var(--danger); letter-spacing:.5px; white-space:nowrap;">SOLD OUT</div>`}
+              <div class="rpos-product-name">${foodTypeIconHtml(p.foodType, 10)}${escapeHtml(p.name)}${hhPct > 0 ? ` <span style="font-size:9px; font-weight:800; color:var(--warning);"><i class="fa-solid fa-clock"></i> -${hhPct}%</span>` : ''}</div>
+              <div class="rpos-product-price">${hhPriceHtml}</div>
+              ${available ? `<div class="rpos-product-add-btn"><i class="fa-solid fa-plus"></i> Add</div>` : `<div style="font-size:10px; font-weight:800; color:var(--danger); letter-spacing:.5px; margin-top:8px;">SOLD OUT</div>`}
             </div>
           ` : `
             <div class="rpos-product-card" data-id="${p.id}" style="position:relative; ${soldOutStyle}">
